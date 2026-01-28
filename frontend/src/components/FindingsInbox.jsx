@@ -372,6 +372,44 @@ export default function FindingsInbox({ isOpen, onClose }) {
                   </div>
                 )}
 
+                {/* Web Solutions - AI-Searched Resources */}
+                {selectedFinding.metadata?.web_solutions && selectedFinding.metadata.web_solutions.length > 0 && (
+                  <div className="bg-gradient-to-r from-indigo-900/30 to-violet-900/30 border border-indigo-700/50 rounded-lg p-4">
+                    <div className="text-base font-semibold text-indigo-300 mb-3">🌐 Soluções da Internet (Pesquisa Automática):</div>
+                    <div className="space-y-3">
+                      {selectedFinding.metadata.web_solutions.map((solution, idx) => (
+                        <div key={idx} className="bg-slate-800/50 rounded-lg p-3 hover:bg-slate-700/50 transition-colors">
+                          <a
+                            href={solution.url}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="block"
+                          >
+                            <div className="text-indigo-300 font-medium hover:text-indigo-200 transition-colors flex items-center gap-2">
+                              <span>🔗</span>
+                              <span className="truncate">{solution.title}</span>
+                              <span className="text-xs text-slate-500">↗</span>
+                            </div>
+                            {solution.snippet && (
+                              <p className="text-sm text-slate-400 mt-1 line-clamp-2">
+                                {solution.snippet}
+                              </p>
+                            )}
+                          </a>
+                        </div>
+                      ))}
+                    </div>
+                    {selectedFinding.metadata?.diagnostic_info?.web_search_query && (
+                      <div className="mt-3 text-xs text-slate-500 flex items-center gap-1">
+                        <span>🔍 Pesquisa:</span>
+                        <code className="bg-slate-700/50 px-2 py-0.5 rounded">
+                          {selectedFinding.metadata.diagnostic_info.web_search_query}
+                        </code>
+                      </div>
+                    )}
+                  </div>
+                )}
+
                 {/* Related Files */}
                 {selectedFinding.related_files && selectedFinding.related_files.length > 0 && (
                   <div className="bg-slate-800 rounded-lg p-4">

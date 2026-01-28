@@ -161,6 +161,17 @@ class ProactiveEngine:
             cooldown_minutes=180  # Every 3 hours
         ))
 
+        # NEW: Dynamic learning from the web
+        self.register_action(ProactiveAction(
+            id="learn_from_web",
+            name="Research & Learn from Web",
+            description="Actively search the web for new knowledge, tools, and techniques",
+            category=ActionCategory.LEARNING,
+            priority=ActionPriority.MEDIUM,
+            trigger_condition="Periodically to expand knowledge",
+            cooldown_minutes=120  # Every 2 hours
+        ))
+
     def register_action(self, action: ProactiveAction):
         """Register a new proactive action."""
         self.actions[action.id] = action
@@ -368,6 +379,9 @@ class ProactiveEngine:
         elif action.id == "self_reflect":
             return await self._action_self_reflect(context)
 
+        elif action.id == "learn_from_web":
+            return await self._action_learn_from_web(context)
+
         return {"executed": True, "action": action.id}
 
     async def _action_explore_local_projects(self, context: Dict[str, Any]) -> Dict[str, Any]:
@@ -446,7 +460,7 @@ class ProactiveEngine:
         health = analyzer.analyze_system_status(status)
         anomalies = analyzer.detect_anomalies(status)
 
-        # Create findings for anomalies with resolution steps
+        # Create findings for anomalies with auto-diagnosis
         findings_created = 0
         for anomaly in anomalies:
             priority = FindingPriority.HIGH if anomaly.severity == "critical" else FindingPriority.MEDIUM
@@ -455,48 +469,211 @@ class ProactiveEngine:
             resolution_steps = []
             recommended_actions = []
             impact = ""
+            diagnostic_info = {}
+            top_offenders = []
+            related_files = []
+
+            # Run diagnostic commands to identify the actual culprits
+            from tools.safe_command_executor import get_safe_executor
+            executor = get_safe_executor()
 
             if anomaly.type == "cpu":
                 impact = "High CPU usage can slow down all processes and make the system unresponsive."
+
+                # Auto-diagnose: Find top CPU consumers
+                try:
+                    result = await executor.execute("ps aux --sort=-%cpu", timeout=10)
+                    if result.success and result.stdout:
+                        lines = result.stdout.strip().split('\n')
+                        if len(lines) > 1:
+                            # Parse top 5 CPU-consuming processes
+                            for line in lines[1:6]:
+                                parts = line.split()
+                                if len(parts) >= 11:
+                                    top_offenders.append({
+                                        "user": parts[0],
+                                        "pid": parts[1],
+                                        "cpu": parts[2],
+                                        "mem": parts[3],
+                                        "command": ' '.join(parts[10:])[:50]
+                                    })
+                            diagnostic_info["top_cpu_processes"] = top_offenders
+                except Exception as e:
+                    logger.debug(f"Could not run CPU diagnostic: {e}")
+
                 resolution_steps = [
-                    "Run 'top' or 'htop' to identify processes using high CPU",
-                    "Check for runaway processes or infinite loops",
-                    "Consider killing non-essential high-CPU processes",
-                    "Review recent changes that might have caused CPU spike"
+                    "Review the top CPU consumers listed above",
+                    "Check if any process is unexpectedly high",
+                    "Consider killing non-essential high-CPU processes with 'kill <PID>'",
+                    "If a service is the culprit, consider restarting it"
                 ]
                 recommended_actions = [
-                    "Monitor CPU usage over time",
-                    "Identify and optimize CPU-intensive processes"
+                    f"Investigate process '{top_offenders[0]['command']}' (PID {top_offenders[0]['pid']}) using {top_offenders[0]['cpu']}% CPU" if top_offenders else "Run 'top' to identify CPU hogs",
+                    "Check for infinite loops or runaway processes",
+                    "Review recent code changes or deployments"
                 ]
+
             elif anomaly.type == "memory":
                 impact = "High memory usage can cause swapping, degrading performance significantly."
-                resolution_steps = [
-                    "Run 'free -h' to check memory distribution",
-                    "Use 'ps aux --sort=-%mem | head' to find memory-hungry processes",
-                    "Clear caches if safe: 'sync && echo 3 > /proc/sys/vm/drop_caches'",
-                    "Consider restarting memory-leaking applications"
-                ]
-                recommended_actions = [
-                    "Identify applications with memory leaks",
-                    "Consider increasing swap space if frequently low on memory"
-                ]
+
+                # Auto-diagnose: Find top memory consumers
+                try:
+                    result = await executor.execute("ps aux --sort=-%mem", timeout=10)
+                    if result.success and result.stdout:
+                        lines = result.stdout.strip().split('\n')
+                        if len(lines) > 1:
+                            for line in lines[1:6]:
+                                parts = line.split()
+                                if len(parts) >= 11:
+                                    top_offenders.append({
+                                        "user": parts[0],
+                                        "pid": parts[1],
+                                        "cpu": parts[2],
+                                        "mem": parts[3],
+                                        "rss_kb": parts[5],
+                                        "command": ' '.join(parts[10:])[:50]
+                                    })
+                            diagnostic_info["top_memory_processes"] = top_offenders
+                except Exception as e:
+                    logger.debug(f"Could not run memory diagnostic: {e}")
+
+                # Get memory breakdown
+                try:
+                    result = await executor.execute("free -h", timeout=5)
+                    if result.success and result.stdout:
+                        diagnostic_info["memory_breakdown"] = result.stdout.strip()
+                except Exception as e:
+                    logger.debug(f"Could not get memory breakdown: {e}")
+
+                # Build specific recommendations based on what we found
+                if top_offenders:
+                    top_proc = top_offenders[0]
+                    resolution_steps = [
+                        f"Top memory consumer: {top_proc['command']} (PID {top_proc['pid']}) using {top_proc['mem']}% memory",
+                        f"To check this process: ps -p {top_proc['pid']} -o pid,ppid,cmd,%mem,%cpu",
+                        f"To restart if safe: systemctl restart <service> OR kill {top_proc['pid']}",
+                        "Monitor memory after action: watch -n 1 free -h"
+                    ]
+                    recommended_actions = [
+                        f"Investigate '{top_proc['command']}' - using {top_proc['mem']}% of memory",
+                        "Check if this process has a known memory leak",
+                        "Consider setting memory limits (cgroups/ulimit)"
+                    ]
+                else:
+                    resolution_steps = [
+                        "Run 'free -h' to check memory distribution",
+                        "Use 'ps aux --sort=-%mem | head' to find memory-hungry processes",
+                        "Clear caches if safe: 'sync && echo 3 > /proc/sys/vm/drop_caches'",
+                        "Consider restarting memory-leaking applications"
+                    ]
+                    recommended_actions = [
+                        "Identify applications with memory leaks",
+                        "Consider increasing swap space if frequently low on memory"
+                    ]
+
+                related_files = ["/proc/meminfo", "/proc/swaps"]
+
             elif anomaly.type == "disk":
                 impact = "Low disk space can prevent applications from writing data and cause system instability."
+
+                # Auto-diagnose: Check disk usage by directory
+                try:
+                    result = await executor.execute("df -h", timeout=10)
+                    if result.success and result.stdout:
+                        diagnostic_info["disk_usage"] = result.stdout.strip()
+                        # Find the problematic partition
+                        for line in result.stdout.strip().split('\n')[1:]:
+                            parts = line.split()
+                            if len(parts) >= 5:
+                                use_percent = parts[4].replace('%', '')
+                                if use_percent.isdigit() and int(use_percent) > 80:
+                                    related_files.append(parts[5])  # Mount point
+                except Exception as e:
+                    logger.debug(f"Could not get disk usage: {e}")
+
+                # Find large files
+                try:
+                    result = await executor.execute("du -sh /var/log /tmp /var/cache 2>/dev/null", timeout=15)
+                    if result.success and result.stdout:
+                        diagnostic_info["large_directories"] = result.stdout.strip()
+                except Exception as e:
+                    logger.debug(f"Could not check large directories: {e}")
+
                 resolution_steps = [
-                    "Run 'df -h' to see disk usage by partition",
-                    "Find large files: 'find / -size +100M -type f 2>/dev/null'",
-                    "Clean package caches: 'apt clean' or 'yum clean all'",
-                    "Remove old logs: 'journalctl --vacuum-time=7d'"
+                    "Review disk usage breakdown above",
+                    "Clean package caches: apt clean OR yum clean all",
+                    "Remove old logs: journalctl --vacuum-time=7d",
+                    "Find large files: find /var -size +100M -type f 2>/dev/null"
                 ]
                 recommended_actions = [
-                    "Set up disk space monitoring alerts",
-                    "Configure log rotation to prevent log bloat"
+                    f"Check directories: {', '.join(related_files)}" if related_files else "Check /var/log and /tmp for bloat",
+                    "Set up log rotation if not configured",
+                    "Consider expanding disk or adding storage"
                 ]
+
+            # Build enhanced description with diagnostic info
+            description = anomaly.description
+            if top_offenders:
+                description += f"\n\n🔍 Top offenders identified:\n"
+                for i, proc in enumerate(top_offenders[:3], 1):
+                    if anomaly.type == "memory":
+                        description += f"  {i}. {proc['command']} (PID {proc['pid']}) - {proc['mem']}% memory\n"
+                    else:
+                        description += f"  {i}. {proc['command']} (PID {proc['pid']}) - {proc['cpu']}% CPU\n"
+
+            # Add memory breakdown if available
+            if diagnostic_info.get("memory_breakdown"):
+                description += f"\n📊 Memory Status:\n{diagnostic_info['memory_breakdown']}"
+
+            # 🌐 Web Search for Solutions - Triggered AI Reaction
+            web_solutions = []
+            learn_more_links = []
+            if top_offenders and anomaly.severity in ["critical", "high"]:
+                # Build search query based on the issue
+                culprit = top_offenders[0]['command']
+                search_query = f"linux {anomaly.type} high usage {culprit} how to fix"
+
+                try:
+                    from services.web_service import WebSearchService
+                    web_service = WebSearchService()
+                    search_results = await web_service.search(search_query)
+
+                    if search_results:
+                        diagnostic_info["web_search_query"] = search_query
+                        diagnostic_info["web_solutions"] = search_results[:3]
+
+                        # Add solutions to description
+                        description += f"\n\n🌐 Related Solutions Found:\n"
+                        for result in search_results[:3]:
+                            title = result.get('title', '')[:60]
+                            snippet = result.get('snippet', '')[:100]
+                            url = result.get('url', '')
+                            description += f"  • {title}\n    {snippet}...\n"
+                            learn_more_links.append(f"[{title}]({url})")
+                            web_solutions.append({
+                                "title": title,
+                                "snippet": snippet,
+                                "url": url
+                            })
+
+                        # Add web solutions to recommended actions
+                        if search_results[0].get('title'):
+                            recommended_actions.append(f"Read: {search_results[0].get('title', 'Online solution')}")
+
+                        logger.info(f"🌐 Found {len(search_results)} web solutions for {anomaly.type} issue")
+
+                except Exception as e:
+                    logger.debug(f"Could not search web for solutions: {e}")
+
+            # Format learn_more with web links if available
+            learn_more_text = f"Current value: {anomaly.value}%, Threshold: {anomaly.threshold}%. Auto-diagnosed at {datetime.now().strftime('%H:%M:%S')}."
+            if learn_more_links:
+                learn_more_text += "\n\n📚 Related Resources:\n" + "\n".join(learn_more_links[:3])
 
             inbox.add_finding(
                 type=FindingType.ANOMALY,
                 title=f"System {anomaly.type.upper()}: {anomaly.severity.upper()}",
-                description=anomaly.description,
+                description=description,
                 source="monitor_system_health",
                 priority=priority,
                 expires_in_days=1,  # Short expiry for system issues
@@ -504,13 +681,17 @@ class ProactiveEngine:
                     "anomaly_type": anomaly.type,
                     "severity": anomaly.severity,
                     "value": anomaly.value,
-                    "threshold": anomaly.threshold
+                    "threshold": anomaly.threshold,
+                    "diagnostic_info": diagnostic_info,
+                    "top_offenders": top_offenders,
+                    "web_solutions": web_solutions
                 },
                 impact=impact,
                 recommended_actions=recommended_actions,
                 resolution_steps=resolution_steps,
                 category=f"system_{anomaly.type}",
-                learn_more=f"Current value: {anomaly.value}, Threshold: {anomaly.threshold}"
+                related_files=related_files if related_files else None,
+                learn_more=learn_more_text
             )
             findings_created += 1
 
@@ -1091,6 +1272,161 @@ class ProactiveEngine:
             "action_distribution": action_distribution,
             "category_distribution": category_counts,
             "reflection": reflection_text
+        }
+
+    async def _action_learn_from_web(self, context: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        Actively research and learn from the web.
+
+        This makes Darwin dynamically discover new knowledge, tools, and techniques
+        rather than being limited to a fixed set of predefined behaviors.
+        """
+        from consciousness.findings_inbox import get_findings_inbox, FindingType, FindingPriority
+        from services.web_service import WebSearchService
+        from tools.local_explorer import LocalExplorer
+
+        inbox = get_findings_inbox()
+        web_service = WebSearchService()
+        explorer = LocalExplorer()
+
+        # Dynamic learning topics based on context
+        learning_topics = []
+
+        # 1. Learn based on discovered project types
+        try:
+            discoveries = explorer.discoveries[-10:] if explorer.discoveries else []
+            languages_found = set()
+            project_types = set()
+
+            for project in discoveries:
+                for lang in project.get("stats", {}).get("languages", {}).keys():
+                    languages_found.add(lang)
+                proj_type = project.get("primary_type")
+                if proj_type:
+                    project_types.add(proj_type)
+
+            # Generate learning queries based on discoveries
+            for lang in list(languages_found)[:2]:
+                learning_topics.append({
+                    "query": f"{lang} best practices 2024",
+                    "category": "language_learning",
+                    "context": f"Found {lang} in local projects"
+                })
+                learning_topics.append({
+                    "query": f"{lang} performance optimization tips",
+                    "category": "optimization",
+                    "context": f"Optimizing {lang} code"
+                })
+
+            for ptype in list(project_types)[:2]:
+                learning_topics.append({
+                    "query": f"{ptype} project best tools",
+                    "category": "tooling",
+                    "context": f"Found {ptype} projects locally"
+                })
+        except Exception as e:
+            logger.debug(f"Could not analyze discoveries: {e}")
+
+        # 2. General curiosity topics (always included)
+        general_topics = [
+            {"query": "linux system monitoring tools 2024", "category": "system_tools", "context": "General knowledge"},
+            {"query": "developer productivity tools", "category": "tooling", "context": "Improving workflow"},
+            {"query": "code quality analysis techniques", "category": "code_quality", "context": "Better analysis"},
+            {"query": "automated testing best practices", "category": "testing", "context": "Testing knowledge"},
+            {"query": "CI/CD pipeline optimization", "category": "devops", "context": "DevOps learning"},
+            {"query": "debugging techniques for developers", "category": "debugging", "context": "Problem solving"},
+            {"query": "software architecture patterns", "category": "architecture", "context": "Design patterns"},
+            {"query": "API design best practices", "category": "api_design", "context": "API knowledge"},
+        ]
+
+        # Add a random general topic if we don't have enough context-specific ones
+        if len(learning_topics) < 3:
+            learning_topics.extend(random.sample(general_topics, min(2, len(general_topics))))
+
+        # 3. Execute web research
+        learned_items = []
+        findings_created = 0
+
+        for topic in learning_topics[:3]:  # Limit to 3 searches per run
+            try:
+                search_results = await web_service.search(topic["query"])
+
+                if search_results:
+                    # Store learned knowledge
+                    knowledge_item = {
+                        "topic": topic["query"],
+                        "category": topic["category"],
+                        "context": topic["context"],
+                        "learned_at": datetime.now().isoformat(),
+                        "sources": []
+                    }
+
+                    # Extract key learnings from search results
+                    for result in search_results[:3]:
+                        knowledge_item["sources"].append({
+                            "title": result.get("title", ""),
+                            "snippet": result.get("snippet", ""),
+                            "url": result.get("url", "")
+                        })
+
+                    learned_items.append(knowledge_item)
+
+                    # Create a finding about what was learned
+                    description = f"🔎 Researched: **{topic['query']}**\n\n"
+                    description += f"Context: {topic['context']}\n\n"
+                    description += "📚 What I found:\n"
+
+                    recommended_actions = []
+                    for i, result in enumerate(search_results[:3], 1):
+                        title = result.get('title', 'Unknown')[:50]
+                        snippet = result.get('snippet', '')[:120]
+                        description += f"\n{i}. **{title}**\n   {snippet}...\n"
+                        if i == 1:
+                            recommended_actions.append(f"Read more about: {title}")
+
+                    recommended_actions.append(f"Apply {topic['category']} knowledge to local projects")
+                    recommended_actions.append("Save useful patterns for future reference")
+
+                    inbox.add_finding(
+                        type=FindingType.INSIGHT,
+                        title=f"Learned: {topic['category'].replace('_', ' ').title()}",
+                        description=description,
+                        source="learn_from_web",
+                        priority=FindingPriority.LOW,
+                        expires_in_days=14,  # Knowledge lasts longer
+                        metadata={
+                            "topic": topic["query"],
+                            "category": topic["category"],
+                            "context": topic["context"],
+                            "sources": knowledge_item["sources"],
+                            "search_timestamp": datetime.now().isoformat()
+                        },
+                        impact=f"Learning about {topic['category']} expands Darwin's knowledge base and improves future recommendations.",
+                        recommended_actions=recommended_actions,
+                        category=topic["category"],
+                        related_files=[],
+                        learn_more=f"Web search: '{topic['query']}' | Found {len(search_results)} results"
+                    )
+                    findings_created += 1
+
+                    logger.info(f"📚 Learned about: {topic['query']} ({len(search_results)} sources)")
+
+            except Exception as e:
+                logger.debug(f"Could not research topic '{topic['query']}': {e}")
+
+        # Store learned knowledge for future use (could be persisted to semantic memory)
+        self._learned_knowledge = getattr(self, '_learned_knowledge', [])
+        self._learned_knowledge.extend(learned_items)
+        # Keep last 100 learned items
+        self._learned_knowledge = self._learned_knowledge[-100:]
+
+        logger.info(f"🎓 Learning session complete: {len(learned_items)} topics researched, {findings_created} findings created")
+
+        return {
+            "topics_researched": len(learned_items),
+            "findings_created": findings_created,
+            "learned_items": learned_items,
+            "knowledge_base_size": len(self._learned_knowledge)
         }
 
     async def run_proactive_loop(
