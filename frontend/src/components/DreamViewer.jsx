@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
 import DreamVisualizer from './DreamVisualizer';
+import { API_BASE } from '../utils/config';
 
 export default function DreamViewer() {
   const [dreamStatus, setDreamStatus] = useState(null);
@@ -8,7 +9,7 @@ export default function DreamViewer() {
   const [loading, setLoading] = useState(false);
   const [showHistory, setShowHistory] = useState(false);
 
-  const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000';
+  const API_URL = API_BASE;
 
   // Fetch current dream status every 5 seconds
   useEffect(() => {

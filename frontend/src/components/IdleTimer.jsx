@@ -1,11 +1,12 @@
 import { useState, useEffect, useCallback } from 'react';
+import { API_BASE } from '../utils/config';
 
 export default function IdleTimer() {
   const [idleTime, setIdleTime] = useState(0); // seconds
   const [isIdle, setIsIdle] = useState(false);
   const [dreamStatus, setDreamStatus] = useState(null);
 
-  const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000';
+  const API_URL = API_BASE;
   const IDLE_THRESHOLD = 5 * 60; // 5 minutes in seconds
 
   // Track user activity

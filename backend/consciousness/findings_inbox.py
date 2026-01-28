@@ -56,6 +56,13 @@ class Finding:
     viewed_at: Optional[str] = None
     dismissed_at: Optional[str] = None
     metadata: Dict[str, Any] = field(default_factory=dict)
+    # Enhanced actionable fields
+    impact: Optional[str] = None  # What this means / why it matters
+    recommended_actions: List[str] = field(default_factory=list)  # Suggested actions
+    resolution_steps: List[str] = field(default_factory=list)  # How to resolve (for issues)
+    category: Optional[str] = None  # Sub-category within the type
+    related_files: List[str] = field(default_factory=list)  # Relevant file paths
+    learn_more: Optional[str] = None  # Additional context or resources
 
     def is_expired(self) -> bool:
         """Check if finding has expired."""
@@ -111,7 +118,13 @@ class FindingsInbox:
         source: str,
         priority: FindingPriority = FindingPriority.MEDIUM,
         expires_in_days: int = 7,
-        metadata: Optional[Dict[str, Any]] = None
+        metadata: Optional[Dict[str, Any]] = None,
+        impact: Optional[str] = None,
+        recommended_actions: Optional[List[str]] = None,
+        resolution_steps: Optional[List[str]] = None,
+        category: Optional[str] = None,
+        related_files: Optional[List[str]] = None,
+        learn_more: Optional[str] = None
     ) -> str:
         """
         Add a new finding to the inbox.
@@ -124,6 +137,12 @@ class FindingsInbox:
             priority: Priority level
             expires_in_days: Days until auto-cleanup (0 = never)
             metadata: Additional data specific to the finding type
+            impact: What this means / why it matters
+            recommended_actions: List of suggested actions to take
+            resolution_steps: Step-by-step guide to resolve issues
+            category: Sub-category within the finding type
+            related_files: Relevant file paths
+            learn_more: Additional context or documentation links
 
         Returns:
             The ID of the created finding
@@ -142,7 +161,13 @@ class FindingsInbox:
             source=source,
             priority=priority.value,
             expires_at=expires_at,
-            metadata=metadata or {}
+            metadata=metadata or {},
+            impact=impact,
+            recommended_actions=recommended_actions or [],
+            resolution_steps=resolution_steps or [],
+            category=category,
+            related_files=related_files or [],
+            learn_more=learn_more
         )
 
         self.findings.append(finding)

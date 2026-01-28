@@ -388,19 +388,39 @@ class ProactiveEngine:
             # Only create finding if project looks interesting
             stats = project.get("stats", {})
             if stats.get("code_files", 0) > 5:
+                project_type = project.get('primary_type', 'unknown')
+                project_path = project.get('path', '')
+                project_name = project.get('name', 'Unknown')
+                languages = stats.get("languages", {})
+                primary_lang = max(languages.items(), key=lambda x: x[1])[0] if languages else "unknown"
+
+                # Generate actionable content based on project type
+                recommended_actions = [
+                    f"Review the project structure at {project_path}",
+                    f"Check the README for project documentation" if project.get("readme_preview") else "Consider adding a README file",
+                    f"Analyze code quality and patterns in {primary_lang} files"
+                ]
+
+                impact = f"This {project_type} project could be analyzed for code patterns, best practices, or potential improvements. It uses primarily {primary_lang}."
+
                 inbox.add_finding(
                     type=FindingType.DISCOVERY,
-                    title=f"Found project: {project.get('name', 'Unknown')}",
-                    description=f"Discovered {project.get('primary_type', 'unknown')} project at {project.get('path')} with {stats.get('code_files', 0)} code files and {stats.get('total_lines', 0)} lines of code.",
+                    title=f"Found project: {project_name}",
+                    description=f"Discovered {project_type} project at {project_path} with {stats.get('code_files', 0)} code files and {stats.get('total_lines', 0)} lines of code.",
                     source="explore_local_projects",
                     priority=FindingPriority.LOW,
                     expires_in_days=7,
                     metadata={
-                        "project_path": project.get("path"),
-                        "project_type": project.get("primary_type"),
-                        "languages": stats.get("languages", {}),
+                        "project_path": project_path,
+                        "project_type": project_type,
+                        "languages": languages,
                         "has_readme": bool(project.get("readme_preview"))
-                    }
+                    },
+                    impact=impact,
+                    recommended_actions=recommended_actions,
+                    category=project_type,
+                    related_files=[project_path],
+                    learn_more=f"Run 'ls -la {project_path}' to see project contents"
                 )
                 findings_created += 1
 
@@ -426,10 +446,53 @@ class ProactiveEngine:
         health = analyzer.analyze_system_status(status)
         anomalies = analyzer.detect_anomalies(status)
 
-        # Create findings for anomalies
+        # Create findings for anomalies with resolution steps
         findings_created = 0
         for anomaly in anomalies:
             priority = FindingPriority.HIGH if anomaly.severity == "critical" else FindingPriority.MEDIUM
+
+            # Generate resolution steps based on anomaly type
+            resolution_steps = []
+            recommended_actions = []
+            impact = ""
+
+            if anomaly.type == "cpu":
+                impact = "High CPU usage can slow down all processes and make the system unresponsive."
+                resolution_steps = [
+                    "Run 'top' or 'htop' to identify processes using high CPU",
+                    "Check for runaway processes or infinite loops",
+                    "Consider killing non-essential high-CPU processes",
+                    "Review recent changes that might have caused CPU spike"
+                ]
+                recommended_actions = [
+                    "Monitor CPU usage over time",
+                    "Identify and optimize CPU-intensive processes"
+                ]
+            elif anomaly.type == "memory":
+                impact = "High memory usage can cause swapping, degrading performance significantly."
+                resolution_steps = [
+                    "Run 'free -h' to check memory distribution",
+                    "Use 'ps aux --sort=-%mem | head' to find memory-hungry processes",
+                    "Clear caches if safe: 'sync && echo 3 > /proc/sys/vm/drop_caches'",
+                    "Consider restarting memory-leaking applications"
+                ]
+                recommended_actions = [
+                    "Identify applications with memory leaks",
+                    "Consider increasing swap space if frequently low on memory"
+                ]
+            elif anomaly.type == "disk":
+                impact = "Low disk space can prevent applications from writing data and cause system instability."
+                resolution_steps = [
+                    "Run 'df -h' to see disk usage by partition",
+                    "Find large files: 'find / -size +100M -type f 2>/dev/null'",
+                    "Clean package caches: 'apt clean' or 'yum clean all'",
+                    "Remove old logs: 'journalctl --vacuum-time=7d'"
+                ]
+                recommended_actions = [
+                    "Set up disk space monitoring alerts",
+                    "Configure log rotation to prevent log bloat"
+                ]
+
             inbox.add_finding(
                 type=FindingType.ANOMALY,
                 title=f"System {anomaly.type.upper()}: {anomaly.severity.upper()}",
@@ -442,7 +505,12 @@ class ProactiveEngine:
                     "severity": anomaly.severity,
                     "value": anomaly.value,
                     "threshold": anomaly.threshold
-                }
+                },
+                impact=impact,
+                recommended_actions=recommended_actions,
+                resolution_steps=resolution_steps,
+                category=f"system_{anomaly.type}",
+                learn_more=f"Current value: {anomaly.value}, Threshold: {anomaly.threshold}"
             )
             findings_created += 1
 
@@ -495,21 +563,60 @@ class ProactiveEngine:
             health_analysis = analyzer.analyze_project_health(project)
             analyses.append(health_analysis)
 
-            # Create insights from analysis
+            # Create insights from analysis with actionable recommendations
             if health_analysis["issues"]:
+                # Generate recommendations based on issues
+                recommended_actions = []
+                resolution_steps = []
+
+                for issue in health_analysis["issues"][:5]:
+                    issue_lower = issue.lower()
+                    if "readme" in issue_lower or "documentation" in issue_lower:
+                        recommended_actions.append("Add a comprehensive README.md file")
+                        resolution_steps.append("Create README.md with project description, installation, and usage")
+                    elif "test" in issue_lower:
+                        recommended_actions.append("Add unit tests for better code reliability")
+                        resolution_steps.append("Create a tests/ directory and add test files")
+                    elif "license" in issue_lower:
+                        recommended_actions.append("Add a LICENSE file to clarify usage rights")
+                        resolution_steps.append("Choose an appropriate license (MIT, Apache, GPL) and add LICENSE file")
+                    elif "gitignore" in issue_lower:
+                        recommended_actions.append("Add .gitignore to prevent committing unwanted files")
+                        resolution_steps.append("Create .gitignore with common patterns for your language")
+                    elif "dependency" in issue_lower or "requirements" in issue_lower:
+                        recommended_actions.append("Document project dependencies")
+                        resolution_steps.append("Create requirements.txt, package.json, or equivalent")
+
+                # Determine impact based on health score
+                score = health_analysis["health_score"]
+                if score >= 80:
+                    impact = "This is a well-maintained project with minor improvements possible."
+                elif score >= 60:
+                    impact = "This project has some areas that could be improved for better maintainability."
+                elif score >= 40:
+                    impact = "This project needs attention - several best practices are missing."
+                else:
+                    impact = "This project requires significant work to meet standard quality guidelines."
+
                 inbox.add_finding(
                     type=FindingType.INSIGHT,
                     title=f"Analysis of {health_analysis['project_name']}",
                     description=f"Project health score: {health_analysis['health_score']}/100. Issues: {', '.join(health_analysis['issues'][:3])}. Positives: {', '.join(health_analysis['positive_indicators'][:3])}",
                     source="analyze_new_discoveries",
-                    priority=FindingPriority.LOW,
+                    priority=FindingPriority.LOW if score >= 60 else FindingPriority.MEDIUM,
                     expires_in_days=14,
                     metadata={
                         "project_path": project_path,
                         "health_score": health_analysis["health_score"],
                         "issues": health_analysis["issues"],
                         "positive_indicators": health_analysis["positive_indicators"]
-                    }
+                    },
+                    impact=impact,
+                    recommended_actions=recommended_actions[:5],
+                    resolution_steps=resolution_steps[:5],
+                    category="project_health",
+                    related_files=[project_path],
+                    learn_more=f"Health score breakdown: {len(health_analysis['positive_indicators'])} positives, {len(health_analysis['issues'])} issues"
                 )
                 findings_created += 1
 
@@ -554,6 +661,30 @@ class ProactiveEngine:
         all_questions = contextual_questions + base_questions
         question = random.choice(all_questions)
 
+        # Generate exploration suggestions for the curiosity
+        exploration_actions = {
+            "patterns": ["Analyze multiple projects to identify common patterns", "Compare code structures across repositories"],
+            "evolved": ["Check git history if available", "Look at file modification dates"],
+            "bugs": ["Review error handling code", "Check for common anti-patterns"],
+            "performance": ["Profile CPU-intensive operations", "Analyze memory usage patterns"],
+            "complex": ["Calculate cyclomatic complexity", "Review deeply nested code"],
+            "security": ["Scan for hardcoded credentials", "Review input validation"],
+            "dependencies": ["Check package versions", "Look for known vulnerabilities"],
+            "error handling": ["Review try-catch patterns", "Check error logging"],
+            "reuse": ["Look for duplicate code", "Identify candidates for abstraction"],
+            "developer experience": ["Review build scripts", "Check documentation completeness"],
+        }
+
+        recommended_actions = ["Consider investigating this question through code exploration"]
+        for keyword, actions in exploration_actions.items():
+            if keyword in question.lower():
+                recommended_actions = actions
+                break
+
+        impact = "Curiosity drives learning and discovery. Exploring this question could lead to valuable insights about the codebase."
+        if question in contextual_questions:
+            impact = "This question arose from current system context and may be particularly relevant right now."
+
         # Create a curiosity finding
         inbox.add_finding(
             type=FindingType.CURIOSITY,
@@ -566,7 +697,11 @@ class ProactiveEngine:
                 "question": question,
                 "context_driven": question in contextual_questions,
                 "generated_at": datetime.now().isoformat()
-            }
+            },
+            impact=impact,
+            recommended_actions=recommended_actions,
+            category="exploration" if question in contextual_questions else "general",
+            learn_more="Curiosity questions help drive proactive exploration and learning."
         )
 
         return {
@@ -625,6 +760,28 @@ class ProactiveEngine:
         # Pick an insight to share
         insight = random.choice(insights)
 
+        # Generate context-aware recommendations based on the insight
+        recommended_actions = []
+        impact = "General observation about the current state of the environment."
+        category = "observation"
+
+        if "CPU" in insight or "cpu" in insight:
+            recommended_actions = ["Run 'top' or 'htop' to see process details", "Consider scheduling intensive tasks for later"]
+            impact = "System resource usage affects all running processes and overall responsiveness."
+            category = "system_status"
+        elif "resources" in insight.lower() and "excellent" in insight.lower():
+            recommended_actions = ["Good time to run builds or tests", "Consider starting resource-intensive analysis"]
+            impact = "Low resource usage means the system can handle additional workload efficiently."
+            category = "system_status"
+        elif "discovered" in insight.lower() or "projects" in insight.lower():
+            recommended_actions = ["Review the discovered projects in the Findings inbox", "Select interesting projects for deeper analysis"]
+            impact = "Understanding your codebase helps identify patterns and improvement opportunities."
+            category = "discovery"
+        elif "active" in insight.lower() or "actions" in insight.lower():
+            recommended_actions = ["Review action history for patterns", "Adjust proactive action priorities if needed"]
+            impact = "Understanding activity patterns helps optimize autonomous behavior."
+            category = "activity"
+
         # Create insight finding
         inbox.add_finding(
             type=FindingType.INSIGHT,
@@ -635,14 +792,18 @@ class ProactiveEngine:
             expires_in_days=5,
             metadata={
                 "insight": insight,
-                "category": "observation",
+                "category": category,
                 "shared_at": datetime.now().isoformat()
-            }
+            },
+            impact=impact,
+            recommended_actions=recommended_actions,
+            category=category,
+            learn_more="Insights are generated from continuous monitoring and analysis."
         )
 
         return {
             "insight": insight,
-            "category": "observation",
+            "category": category,
             "shared_at": datetime.now().isoformat()
         }
 
@@ -685,6 +846,22 @@ class ProactiveEngine:
                 suggestions.append(f"'{least_used[0]}' category is underutilized")
 
         if suggestions:
+            # Generate actionable recommendations
+            recommended_actions = []
+            resolution_steps = []
+
+            for suggestion in suggestions:
+                if "triggering more" in suggestion.lower():
+                    for action_name in underutilized[:3]:
+                        recommended_actions.append(f"Consider when to trigger '{action_name}'")
+                    resolution_steps.append("Review the conditions that trigger underutilized actions")
+                    resolution_steps.append("Adjust cooldown times if actions are too infrequent")
+                if "underutilized" in suggestion.lower():
+                    recommended_actions.append("Balance action categories for more comprehensive monitoring")
+                    resolution_steps.append("Check if category-specific conditions are being met")
+
+            impact = f"Optimizing tool usage ensures comprehensive coverage of all monitoring aspects. Currently tracking {total_executions} total executions."
+
             inbox.add_finding(
                 type=FindingType.SUGGESTION,
                 title="Tool Usage Optimization",
@@ -696,7 +873,12 @@ class ProactiveEngine:
                     "action_stats": action_stats,
                     "category_usage": category_usage,
                     "suggestions": suggestions
-                }
+                },
+                impact=impact,
+                recommended_actions=recommended_actions,
+                resolution_steps=resolution_steps,
+                category="optimization",
+                learn_more=f"Total actions executed: {total_executions}, Categories: {len(category_usage)}"
             )
 
         return {
@@ -759,6 +941,29 @@ class ProactiveEngine:
                     indicators[ind_type] = indicators.get(ind_type, 0) + 1
 
         if len(patterns_found) > 0:
+            # Generate insights based on patterns
+            recommended_actions = []
+            impact = ""
+
+            # Language-based recommendations
+            if language_counts:
+                dominant_lang = max(language_counts.items(), key=lambda x: x[1])[0]
+                recommended_actions.append(f"Focus learning on {dominant_lang} best practices")
+                recommended_actions.append(f"Look for {dominant_lang}-specific patterns and idioms")
+                impact = f"Understanding that {dominant_lang} is the dominant language helps focus learning and analysis efforts."
+
+            # Project type recommendations
+            if type_counts:
+                for proj_type, count in type_counts.items():
+                    if count >= 2:
+                        recommended_actions.append(f"Study common patterns in {proj_type} projects")
+
+            # Indicator-based recommendations
+            if indicators:
+                common_indicators = [k for k, v in indicators.items() if v >= 2]
+                if common_indicators:
+                    recommended_actions.append(f"Leverage common tools: {', '.join(common_indicators[:3])}")
+
             inbox.add_finding(
                 type=FindingType.INSIGHT,
                 title="Codebase Patterns Learned",
@@ -770,7 +975,11 @@ class ProactiveEngine:
                     "patterns": patterns_found,
                     "projects_analyzed": len(discoveries),
                     "language_distribution": language_counts
-                }
+                },
+                impact=impact or "Understanding codebase patterns helps in making better recommendations and analyses.",
+                recommended_actions=recommended_actions,
+                category="pattern_analysis",
+                learn_more=f"Analyzed {len(discoveries)} projects, found patterns in {len(language_counts)} languages"
             )
 
         logger.info(f"📚 Learned {len(patterns_found)} patterns from {len(discoveries)} projects")
@@ -827,6 +1036,33 @@ class ProactiveEngine:
 
         reflection_text = " ".join(reflections)
 
+        # Generate actionable recommendations based on reflection
+        recommended_actions = []
+        resolution_steps = []
+
+        if total_actions > 0:
+            if least_used and least_used.execution_count == 0:
+                recommended_actions.append(f"Try '{least_used.name}' action to broaden capabilities")
+                resolution_steps.append(f"Review conditions that trigger '{least_used.name}'")
+
+            if category_counts:
+                max_cat = max(category_counts.items(), key=lambda x: x[1])
+                min_cat = min(category_counts.items(), key=lambda x: x[1])
+                if max_cat[1] > min_cat[1] * 3:
+                    recommended_actions.append(f"Increase focus on '{min_cat[0]}' category")
+                    resolution_steps.append(f"Schedule more '{min_cat[0]}' activities")
+
+            # Performance-based recommendations
+            if total_actions > 50:
+                recommended_actions.append("Consider reviewing action effectiveness")
+            elif total_actions < 10:
+                recommended_actions.append("Allow more time for proactive actions to accumulate")
+        else:
+            recommended_actions.append("Wait for proactive engine to accumulate activity data")
+            resolution_steps.append("Ensure consciousness engine is running and actions are enabled")
+
+        impact = f"Self-reflection helps optimize autonomous behavior. With {total_actions} actions executed, {'there is good data for analysis.' if total_actions > 10 else 'more data is needed for meaningful patterns.'}"
+
         # Create reflection finding
         inbox.add_finding(
             type=FindingType.INSIGHT,
@@ -840,7 +1076,12 @@ class ProactiveEngine:
                 "action_distribution": action_distribution,
                 "category_counts": category_counts,
                 "reflection": reflection_text
-            }
+            },
+            impact=impact,
+            recommended_actions=recommended_actions,
+            resolution_steps=resolution_steps,
+            category="self_analysis",
+            learn_more=f"Categories: {', '.join(f'{k}({v})' for k, v in category_counts.items())}" if category_counts else "No category data yet"
         )
 
         return {

@@ -1,6 +1,7 @@
 import { useEffect, useState, useCallback, useRef } from 'react';
+import { WS_BASE } from '../utils/config';
 
-const WS_URL = import.meta.env.VITE_WS_URL || 'ws://localhost:8000';
+const WS_URL = WS_BASE;
 const RECONNECT_DELAY = 3000; // 3 seconds
 
 export function useWebSocket() {

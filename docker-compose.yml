@@ -50,8 +50,10 @@ services:
     ports:
       - "0.0.0.0:3050:3050"  # Bind to all interfaces for remote access
     environment:
-      - VITE_API_URL=${VITE_API_URL:-http://myserver.local:8000}
-      - VITE_WS_URL=${VITE_WS_URL:-ws://myserver.local:8000}
+      # Auto-detection in frontend code handles localhost, 192.168.1.117, myserver.local
+      # Set VITE_API_URL/VITE_WS_URL only if you need a custom endpoint
+      - VITE_API_URL=${VITE_API_URL:-}
+      - VITE_WS_URL=${VITE_WS_URL:-}
       - HOST=0.0.0.0  # Allow external connections
     volumes:
       - ./frontend:/app

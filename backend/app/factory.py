@@ -23,10 +23,18 @@ def create_app() -> FastAPI:
         lifespan=lifespan
     )
 
-    # CORS middleware
+    # CORS middleware - allow all frontend access methods
     app.add_middleware(
         CORSMiddleware,
-        allow_origins=["http://localhost:3000", "http://localhost:3001", "http://localhost:5173", "http://myserver.local:3050"],
+        allow_origins=[
+            "http://localhost:3000",
+            "http://localhost:3001",
+            "http://localhost:3050",
+            "http://localhost:5173",
+            "http://127.0.0.1:3050",
+            "http://192.168.1.117:3050",
+            "http://myserver.local:3050",
+        ],
         allow_credentials=True,
         allow_methods=["*"],
         allow_headers=["*"],

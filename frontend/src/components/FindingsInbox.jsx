@@ -1,6 +1,5 @@
 import { useState, useEffect } from 'react';
-
-const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:8000';
+import { API_BASE } from '../utils/config';
 
 export default function FindingsInbox({ isOpen, onClose }) {
   const [findings, setFindings] = useState([]);
@@ -331,11 +330,92 @@ export default function FindingsInbox({ isOpen, onClose }) {
                   </p>
                 </div>
 
-                {/* Metadata */}
-                {selectedFinding.metadata && Object.keys(selectedFinding.metadata).length > 0 && (
+                {/* Impact - What this means */}
+                {selectedFinding.impact && (
+                  <div className="bg-gradient-to-r from-amber-900/30 to-orange-900/30 border border-amber-700/50 rounded-lg p-4">
+                    <div className="text-base font-semibold text-amber-300 mb-2">💡 O Que Isto Significa:</div>
+                    <p className="text-base text-amber-100 leading-relaxed">
+                      {selectedFinding.impact}
+                    </p>
+                  </div>
+                )}
+
+                {/* Recommended Actions */}
+                {selectedFinding.recommended_actions && selectedFinding.recommended_actions.length > 0 && (
+                  <div className="bg-gradient-to-r from-blue-900/30 to-cyan-900/30 border border-blue-700/50 rounded-lg p-4">
+                    <div className="text-base font-semibold text-blue-300 mb-3">🎯 Ações Recomendadas:</div>
+                    <ul className="space-y-2">
+                      {selectedFinding.recommended_actions.map((action, idx) => (
+                        <li key={idx} className="flex items-start gap-3 text-blue-100">
+                          <span className="text-blue-400 font-bold mt-0.5">→</span>
+                          <span className="text-base">{action}</span>
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
+
+                {/* Resolution Steps - How to resolve */}
+                {selectedFinding.resolution_steps && selectedFinding.resolution_steps.length > 0 && (
+                  <div className="bg-gradient-to-r from-green-900/30 to-emerald-900/30 border border-green-700/50 rounded-lg p-4">
+                    <div className="text-base font-semibold text-green-300 mb-3">🔧 Como Resolver:</div>
+                    <ol className="space-y-2">
+                      {selectedFinding.resolution_steps.map((step, idx) => (
+                        <li key={idx} className="flex items-start gap-3 text-green-100">
+                          <span className="bg-green-600 text-white text-xs font-bold w-6 h-6 rounded-full flex items-center justify-center flex-shrink-0 mt-0.5">
+                            {idx + 1}
+                          </span>
+                          <span className="text-base">{step}</span>
+                        </li>
+                      ))}
+                    </ol>
+                  </div>
+                )}
+
+                {/* Related Files */}
+                {selectedFinding.related_files && selectedFinding.related_files.length > 0 && (
                   <div className="bg-slate-800 rounded-lg p-4">
-                    <div className="text-base font-semibold text-slate-300 mb-3">📊 Detalhes:</div>
-                    <div className="space-y-2">
+                    <div className="text-base font-semibold text-slate-300 mb-2">📁 Ficheiros Relacionados:</div>
+                    <div className="space-y-1">
+                      {selectedFinding.related_files.map((file, idx) => (
+                        <div key={idx} className="flex items-center gap-2">
+                          <span className="text-slate-400">📄</span>
+                          <code className="text-sm text-cyan-400 bg-slate-700/50 px-2 py-1 rounded font-mono">
+                            {file}
+                          </code>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {/* Learn More */}
+                {selectedFinding.learn_more && (
+                  <div className="bg-slate-800/50 border border-slate-700 rounded-lg p-4">
+                    <div className="text-base font-semibold text-slate-300 mb-2">📚 Mais Informação:</div>
+                    <p className="text-sm text-slate-400 leading-relaxed">
+                      {selectedFinding.learn_more}
+                    </p>
+                  </div>
+                )}
+
+                {/* Category Badge */}
+                {selectedFinding.category && (
+                  <div className="flex items-center gap-2">
+                    <span className="text-slate-400 text-sm">Categoria:</span>
+                    <span className="px-3 py-1 rounded-full bg-purple-600/30 border border-purple-500/50 text-purple-300 text-sm">
+                      {selectedFinding.category}
+                    </span>
+                  </div>
+                )}
+
+                {/* Metadata - Collapsed by default */}
+                {selectedFinding.metadata && Object.keys(selectedFinding.metadata).length > 0 && (
+                  <details className="bg-slate-800 rounded-lg">
+                    <summary className="p-4 cursor-pointer text-base font-semibold text-slate-300 hover:bg-slate-700/50 rounded-lg transition-colors">
+                      📊 Detalhes Técnicos ({Object.keys(selectedFinding.metadata).length} campos)
+                    </summary>
+                    <div className="p-4 pt-0 space-y-2">
                       {Object.entries(selectedFinding.metadata).map(([key, value]) => (
                         <div key={key} className="flex items-start gap-2">
                           <span className="text-sm text-slate-400 font-mono min-w-32">
@@ -347,7 +427,7 @@ export default function FindingsInbox({ isOpen, onClose }) {
                         </div>
                       ))}
                     </div>
-                  </div>
+                  </details>
                 )}
 
                 {/* Timestamps */}

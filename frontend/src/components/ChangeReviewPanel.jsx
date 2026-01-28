@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import DiffViewer from './DiffViewer';
 import ValidationDisplay from './ValidationDisplay';
+import { API_BASE } from '../utils/config';
 
 export default function ChangeReviewPanel() {
   const [pendingChanges, setPendingChanges] = useState([]);
@@ -9,7 +10,7 @@ export default function ChangeReviewPanel() {
   const [actionLoading, setActionLoading] = useState(false);
   const [message, setMessage] = useState(null);
 
-  const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000';
+  const API_URL = API_BASE;
 
   useEffect(() => {
     fetchPendingChanges();

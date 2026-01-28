@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react';
+import { API_BASE } from '../utils/config';
 
 export default function HistoryBrowser() {
   const [history, setHistory] = useState([]);
@@ -6,7 +7,7 @@ export default function HistoryBrowser() {
   const [loading, setLoading] = useState(false);
   const [selectedChange, setSelectedChange] = useState(null);
 
-  const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000';
+  const API_URL = API_BASE;
 
   useEffect(() => {
     fetchHistory();

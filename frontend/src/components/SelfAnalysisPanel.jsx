@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
 import { api } from '../utils/api';
+import { API_BASE } from '../utils/config';
 
 export default function SelfAnalysisPanel() {
   const [loading, setLoading] = useState(false);
@@ -11,7 +12,7 @@ export default function SelfAnalysisPanel() {
   const analyzeSystem = async () => {
     setLoading(true);
     try {
-      const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000';
+      const API_URL = API_BASE;
       const response = await fetch(`${API_URL}/api/v1/introspection/analyze`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -35,7 +36,7 @@ export default function SelfAnalysisPanel() {
 
   const fetchInsights = async (priority = null, component = null) => {
     try {
-      const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000';
+      const API_URL = API_BASE;
       let url = `${API_URL}/api/v1/introspection/insights?limit=100`;
       if (priority && priority !== 'all') url += `&priority=${priority}`;
       if (component && component !== 'all') url += `&component=${component}`;

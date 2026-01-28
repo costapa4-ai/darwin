@@ -39,6 +39,13 @@ class CreateFindingRequest(BaseModel):
     priority: str = "medium"
     expires_in_days: int = 7
     metadata: Optional[dict] = None
+    # Enhanced actionable fields
+    impact: Optional[str] = None
+    recommended_actions: Optional[List[str]] = None
+    resolution_steps: Optional[List[str]] = None
+    category: Optional[str] = None
+    related_files: Optional[List[str]] = None
+    learn_more: Optional[str] = None
 
 
 @router.get("")
@@ -200,7 +207,13 @@ async def create_finding(request: CreateFindingRequest):
             source=request.source,
             priority=priority,
             expires_in_days=request.expires_in_days,
-            metadata=request.metadata
+            metadata=request.metadata,
+            impact=request.impact,
+            recommended_actions=request.recommended_actions,
+            resolution_steps=request.resolution_steps,
+            category=request.category,
+            related_files=request.related_files,
+            learn_more=request.learn_more
         )
 
         return {
