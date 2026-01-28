@@ -1,0 +1,118 @@
+version: '3.8'
+
+services:
+  backend:
+    build: ./backend
+    ports:
+      - "0.0.0.0:8000:8000"  # Bind to all interfaces for remote access
+    environment:
+      - CLAUDE_API_KEY=${CLAUDE_API_KEY}
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
+      - GEMINI_API_KEY=${GEMINI_API_KEY}
+      - OPENAI_API_KEY=${OPENAI_API_KEY}
+      - AI_PROVIDER=${AI_PROVIDER:-gemini}
+      - REDIS_URL=redis://redis:6379
+      - DATABASE_URL=sqlite:///data/darwin.db
+      - MAX_REQUESTS_PER_MINUTE=${MAX_REQUESTS_PER_MINUTE:-10}
+      - MAX_API_CALLS_PER_HOUR=${MAX_API_CALLS_PER_HOUR:-50}
+      - EXECUTION_TIMEOUT=${EXECUTION_TIMEOUT:-30}
+      - MAX_MEMORY_MB=${MAX_MEMORY_MB:-256}
+      - ALLOWED_MODULES=${ALLOWED_MODULES}
+      - ENABLE_WEB_SEARCH=${ENABLE_WEB_SEARCH:-true}
+      - MAX_GENERATIONS=${MAX_GENERATIONS:-5}
+      - POPULATION_SIZE=${POPULATION_SIZE:-3}
+      # Phase 2 & 3 settings
+      - ENABLE_SEMANTIC_MEMORY=${ENABLE_SEMANTIC_MEMORY:-true}
+      - ENABLE_MULTI_MODEL=${ENABLE_MULTI_MODEL:-true}
+      - ENABLE_MULTI_AGENT=${ENABLE_MULTI_AGENT:-true}
+      - ENABLE_DREAM_MODE=${ENABLE_DREAM_MODE:-true}
+      - ENABLE_CODE_POETRY=${ENABLE_CODE_POETRY:-true}
+      - ENABLE_CURIOSITY=${ENABLE_CURIOSITY:-true}
+      - CONSCIOUSNESS_DEBUG_MODE=off
+      # Ollama (local LLM - FREE!)
+      - OLLAMA_ENABLED=${OLLAMA_ENABLED:-true}
+      - OLLAMA_URL=${OLLAMA_URL:-http://ollama:11434}
+      - OLLAMA_MODEL=${OLLAMA_MODEL:-llama3.2}
+    volumes:
+      - ./data:/app/data
+      - ./logs:/app/logs
+      - ./backend:/app
+    depends_on:
+      - redis
+      - sandbox
+      - ollama
+    networks:
+      - darwin-net
+    restart: unless-stopped
+
+  frontend:
+    build: ./frontend
+    ports:
+      - "0.0.0.0:3050:3050"  # Bind to all interfaces for remote access
+    environment:
+      - VITE_API_URL=${VITE_API_URL:-http://myserver.local:8000}
+      - VITE_WS_URL=${VITE_WS_URL:-ws://myserver.local:8000}
+      - HOST=0.0.0.0  # Allow external connections
+    volumes:
+      - ./frontend:/app
+      - /app/node_modules
+    depends_on:
+      - backend
+    networks:
+      - darwin-net
+    restart: unless-stopped
+
+  sandbox:
+    build: ./sandbox
+    environment:
+      - EXECUTION_TIMEOUT=30
+      - MAX_MEMORY_MB=256
+    networks:
+      - darwin-net
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    read_only: true
+    tmpfs:
+      - /tmp
+
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis-data:/data
+    networks:
+      - darwin-net
+    restart: unless-stopped
+
+  # 🦙 Ollama - Local LLM for FREE inference (CPU mode)
+  ollama:
+    image: ollama/ollama:latest
+    ports:
+      - "11434:11434"
+    volumes:
+      - ollama-data:/root/.ollama
+    networks:
+      - darwin-net
+    restart: unless-stopped
+    # Uncomment below for GPU support (requires nvidia-docker):
+    # deploy:
+    #   resources:
+    #     reservations:
+    #       devices:
+    #         - driver: nvidia
+    #           count: all
+    #           capabilities: [gpu]
+
+networks:
+  darwin-net:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.20.0.0/16
+
+volumes:
+  redis-data:
+  ollama-data:

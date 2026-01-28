@@ -1,0 +1,787 @@
+"""
+Code Generator: Generates code to implement Self-Analysis insights
+Uses AI to create code changes based on improvement suggestions
+"""
+import difflib
+from typing import Dict, Any, Optional, List
+from dataclasses import dataclass, asdict
+from pathlib import Path
+from datetime import datetime
+import json
+
+from introspection.self_analyzer import CodeInsight
+
+
+@dataclass
+class GeneratedCode:
+    """Represents code generated to implement an improvement"""
+    insight_id: str
+    insight_title: str
+    file_path: str
+    original_code: str
+    new_code: str
+    diff_html: str
+    diff_unified: str
+    explanation: str
+    risk_level: str  # 'low', 'medium', 'high'
+    estimated_time_minutes: int
+    tests_code: Optional[str] = None
+    generated_at: str = None
+    is_new_file: bool = False  # Whether this is a new file creation
+    tool_test_passed: Optional[bool] = None  # NEW: Whether tool passed automated tests
+    tool_test_report: Optional[str] = None  # NEW: Detailed test report
+
+    def __post_init__(self):
+        if self.generated_at is None:
+            self.generated_at = datetime.now().isoformat()
+
+
+class CodeGenerator:
+    """
+    Generates code to implement Self-Analysis insights
+    Uses AI (Nucleus) to create actual code changes
+    """
+
+    # Critical files that should NOT be modified directly
+    # Darwin should create new tools/modules instead
+    PROTECTED_FILES = {
+        'main.py',                          # Application entry point
+        'config.py',                        # Configuration
+        'docker-compose.yml',               # Docker orchestration
+        'Dockerfile',                       # Docker build
+        'requirements.txt',                 # Dependencies
+        '.env',                             # Environment variables
+        'pyproject.toml',                   # Project metadata
+        'api/routes.py',                    # Core API routes (can add new route files)
+        'core/redis_client.py',            # Core Redis connection
+        'core/semantic_memory.py',         # Core memory system
+        'introspection/code_generator.py', # This file (self-protection)
+        'introspection/code_validator.py', # Validation system
+        'consciousness/consciousness_engine.py',  # Core consciousness
+        'consciousness/tool_registry.py',   # Tool registry system
+        'ai/multi_model_router.py',        # AI routing
+        'utils/logger.py',                  # Logging infrastructure
+    }
+
+    def __init__(self, nucleus=None, multi_model_router=None, tool_registry=None):
+        """
+        Args:
+            nucleus: AI service for code generation (Nucleus instance)
+            multi_model_router: Multi-model router for AI generation
+            tool_registry: Tool registry to check for existing tools
+        """
+        self.nucleus = nucleus
+        self.multi_model_router = multi_model_router
+        self.tool_registry = tool_registry
+        self.project_root = Path("/app")
+
+    def _check_duplicate_tool(self, insight: CodeInsight) -> Optional[str]:
+        """
+        Check if similar tool already exists to prevent duplicates
+
+        Returns:
+            Error message if duplicate found, None otherwise
+        """
+        # Check for duplicate architecture pattern tools
+        title_lower = (insight.title or '').lower()
+        code_location = insight.code_location or ''
+
+        # DEBUG: Log what we're checking
+        print(f"🔍 Duplicate check - Title: '{insight.title}', Location: '{code_location}'")
+
+        # Check if this is an architecture pattern tool (check title AND location)
+        is_arch_pattern = ('architecture_apply_pattern' in title_lower or
+                          'architecture_apply_pattern' in code_location.lower() or
+                          'apply pattern from' in title_lower)
+
+        if is_arch_pattern:
+            print(f"   ✓ Detected architecture pattern tool")
+
+            # Try to get list of existing tools
+            if self.tool_registry:
+                try:
+                    existing_tools = self.tool_registry.list_tools()
+                    print(f"   📊 Found {len(existing_tools)} total tools in registry")
+
+                    # Count architecture pattern tools
+                    arch_pattern_tools = [
+                        tool['name'] for tool in existing_tools
+                        if 'architecture_apply_pattern' in tool['name'].lower()
+                    ]
+
+                    print(f"   📊 Found {len(arch_pattern_tools)} architecture pattern tools (threshold: 3)")
+
+                    if len(arch_pattern_tools) >= 3:
+                        print(f"🚫 DUPLICATE PREVENTED: Already have {len(arch_pattern_tools)} architecture pattern tools!")
+                        print(f"   Existing: {', '.join(arch_pattern_tools[:5])}")
+                        return f"Duplicate tool prevented: Already have {len(arch_pattern_tools)} architecture pattern tools. " \
+                               f"These tools are rarely useful and clutter the system. " \
+                               f"Focus on creating unique, practical tools instead."
+                except Exception as e:
+                    print(f"   ⚠️  Warning: Could not check tool registry: {e}")
+                    import traceback
+                    traceback.print_exc()
+
+            # Also check filesystem
+            try:
+                tools_dir = Path("/app/tools")
+                if tools_dir.exists():
+                    existing_files = list(tools_dir.glob("architecture_apply_pattern*.py"))
+                    if len(existing_files) >= 3:
+                        print(f"⚠️  DUPLICATE PREVENTED: Already have {len(existing_files)} architecture pattern files")
+                        return f"Duplicate tool: Already have {len(existing_files)} architecture pattern tools in filesystem."
+            except Exception as e:
+                print(f"   Warning: Could not check filesystem: {e}")
+
+        # Check for other duplicate patterns (can expand this)
+        # Future: Add more duplicate detection rules here
+
+        return None
+
+    async def generate_code_for_insight(self, insight: CodeInsight) -> Optional[GeneratedCode]:
+        """
+        Generate code to implement a specific insight
+
+        Args:
+            insight: CodeInsight from Self-Analysis
+
+        Returns:
+            GeneratedCode with original, new code, and diff
+            None if generation should be skipped (e.g., duplicate)
+        """
+        print(f"🔧 Generating code for: {insight.title}")
+
+        # 0. Check for duplicates BEFORE generating
+        duplicate_error = self._check_duplicate_tool(insight)
+        if duplicate_error:
+            print(f"❌ Skipping generation: {duplicate_error}")
+            # Return None to indicate skipping
+            return None
+
+        # 1. Read current code
+        original_code = self._read_current_code(insight.code_location)
+
+        # 2. Generate new code using AI
+        if self.nucleus:
+            new_code, explanation = await self._generate_with_ai(insight, original_code)
+        else:
+            # Fallback: template-based generation
+            new_code, explanation = self._generate_with_template(insight, original_code)
+
+        # 2.5 IMPORTANT: Clean markdown code fences (```python, ```)
+        new_code = self._clean_markdown_fences(new_code)
+
+        # 3. Create diffs
+        diff_unified = self._create_unified_diff(original_code, new_code, insight.code_location)
+        diff_html = self._create_html_diff(original_code, new_code)
+
+        # 4. Assess risk
+        risk_level = self._assess_risk(insight, original_code, new_code)
+
+        # 5. Estimate implementation time
+        estimated_time = self._estimate_time(insight, original_code, new_code)
+
+        # 6. Generate tests (if needed)
+        tests_code = None
+        if self._needs_tests(insight):
+            tests_code = await self._generate_tests(insight, new_code)
+
+        # Determine file path
+        file_path = self._determine_file_path(insight)
+
+        # 🆕 NEW: Check if this is a new file
+        is_new_file = not Path(file_path).exists()
+
+        return GeneratedCode(
+            insight_id=f"insight_{hash(insight.title)}",
+            insight_title=insight.title,
+            file_path=file_path,
+            original_code=original_code,
+            new_code=new_code,
+            diff_html=diff_html,
+            diff_unified=diff_unified,
+            explanation=explanation,
+            risk_level=risk_level,
+            estimated_time_minutes=estimated_time,
+            tests_code=tests_code,
+            is_new_file=is_new_file  # 🆕 NEW
+        )
+
+    def _determine_file_path(self, insight: CodeInsight) -> str:
+        """
+        Determine the appropriate file path for generated code
+
+        Args:
+            insight: CodeInsight to generate code for
+
+        Returns:
+            File path where code should be saved (relative to project_root=/app)
+
+        PROTECTION: Critical files are protected. Instead of modifying them,
+        Darwin creates new tools/modules in the tools/ directory.
+        """
+        # If code_location is specified, check if it's protected
+        if insight.code_location and insight.code_location != "unknown":
+            # Clean up any incorrect paths
+            path = insight.code_location
+            # Remove leading 'backend/' if present (main.py is at root)
+            if path.startswith('backend/'):
+                path = path.replace('backend/', '', 1)
+
+            # CHECK PROTECTION: Is this a critical file?
+            if self._is_protected_file(path):
+                print(f"   🛡️ PROTECTED: {path} is a critical file")
+                print(f"   ✨ Creating new tool instead of modifying core infrastructure")
+                # Redirect to create a new tool instead
+                return self._create_tool_path_from_insight(insight)
+
+            return path
+
+        # For tool creation (new files), generate path in tools/ directory
+        if insight.title.startswith("Create "):
+            tool_name = insight.title.replace("Create ", "").strip()
+            # Convert to snake_case filename
+            filename = tool_name.lower().replace(" ", "_").replace("-", "_")
+            # Remove non-alphanumeric characters except underscore
+            filename = ''.join(c for c in filename if c.isalnum() or c == '_')
+            return f"tools/{filename}.py"
+
+        # For optimizations/features, check if target would be protected
+        if hasattr(insight, 'component') and insight.component:
+            component = insight.component
+            target_path = None
+
+            if component == 'backend':
+                target_path = "main.py"
+            elif component == 'docker':
+                target_path = "Dockerfile"
+            elif component == 'api':
+                target_path = f"api/{insight.title.lower().replace(' ', '_')}_routes.py"
+            elif component == 'core':
+                target_path = f"core/{insight.title.lower().replace(' ', '_')}.py"
+            elif component == 'consciousness':
+                target_path = f"consciousness/{insight.title.lower().replace(' ', '_')}.py"
+            elif component == 'learning':
+                target_path = f"learning/{insight.title.lower().replace(' ', '_')}.py"
+
+            # CHECK PROTECTION for inferred paths
+            if target_path and self._is_protected_file(target_path):
+                print(f"   🛡️ PROTECTED: {target_path} is a critical file")
+                print(f"   ✨ Creating new tool instead of modifying core infrastructure")
+                return self._create_tool_path_from_insight(insight)
+
+            if target_path:
+                return target_path
+
+        # Default: Create new tool (safer than modifying main.py)
+        print(f"   ✨ Creating new tool for: {insight.title}")
+        return self._create_tool_path_from_insight(insight)
+
+    def _is_protected_file(self, file_path: str) -> bool:
+        """
+        Check if a file path matches any protected file patterns
+
+        Args:
+            file_path: File path to check (relative to project root)
+
+        Returns:
+            True if file is protected, False otherwise
+        """
+        # Normalize path for comparison
+        normalized = file_path.strip().replace('\\', '/')
+
+        # Remove leading slash if present
+        if normalized.startswith('/'):
+            normalized = normalized[1:]
+
+        # Check exact matches
+        if normalized in self.PROTECTED_FILES:
+            return True
+
+        # Check if trying to modify any file in protected directories
+        protected_dirs = ['ai/', 'core/', 'utils/']
+        for protected_dir in protected_dirs:
+            if normalized.startswith(protected_dir):
+                # Allow new files in these directories, but protect existing core files
+                base_name = normalized.split('/')[-1]
+                if base_name in ['__init__.py', 'redis_client.py', 'semantic_memory.py',
+                                'logger.py', 'multi_model_router.py']:
+                    return True
+
+        return False
+
+    def _create_tool_path_from_insight(self, insight: CodeInsight) -> str:
+        """
+        Create a new tool file path based on insight details
+
+        Args:
+            insight: CodeInsight to create tool for
+
+        Returns:
+            Path to new tool file in tools/ directory
+        """
+        # Generate tool name from insight title
+        tool_name = insight.title
+
+        # Remove common prefixes
+        for prefix in ["Create ", "Add ", "Implement ", "Improve ", "Optimize "]:
+            if tool_name.startswith(prefix):
+                tool_name = tool_name[len(prefix):]
+                break
+
+        # Convert to snake_case filename
+        filename = tool_name.lower()
+        filename = filename.replace(" ", "_").replace("-", "_")
+        # Remove non-alphanumeric characters except underscore
+        filename = ''.join(c for c in filename if c.isalnum() or c == '_')
+
+        # Add component prefix if available
+        if hasattr(insight, 'component') and insight.component:
+            component = insight.component.lower()
+            if component not in filename:
+                filename = f"{component}_{filename}"
+
+        return f"tools/{filename}.py"
+
+    def _clean_markdown_fences(self, code: str) -> str:
+        """
+        Remove markdown code fences from generated code.
+
+        AI models often wrap code in ```python or ``` blocks which break syntax.
+        This method strips those fences to get clean Python code.
+
+        Args:
+            code: Generated code that might contain markdown fences
+
+        Returns:
+            Clean code without markdown fences
+        """
+        lines = code.split('\n')
+        cleaned_lines = []
+
+        for line in lines:
+            stripped = line.strip()
+            # Skip lines that are just markdown fences
+            if stripped in ['```', '```python', '```py', '```javascript', '```js']:
+                continue
+            cleaned_lines.append(line)
+
+        return '\n'.join(cleaned_lines)
+
+    def _read_current_code(self, code_location: Optional[str]) -> str:
+        """Read current code from file"""
+        if not code_location:
+            return "# No specific file location provided"
+
+        try:
+            file_path = self.project_root / code_location
+            if file_path.exists():
+                with open(file_path, 'r', encoding='utf-8') as f:
+                    return f.read()
+            else:
+                return f"# File not found: {code_location}"
+        except Exception as e:
+            return f"# Error reading file: {str(e)}"
+
+    async def _generate_with_ai(self, insight: CodeInsight, current_code: str) -> tuple[str, str]:
+        """Generate code using AI (MultiModelRouter)"""
+        prompt = self._create_generation_prompt(insight, current_code)
+
+        try:
+            # Use multi_model_router if available
+            if self.multi_model_router:
+                result = await self.multi_model_router.generate(
+                    task_description=f"Generate Python code for: {insight.title}",
+                    prompt=prompt,
+                    max_tokens=2000
+                )
+
+                # Extract code from result
+                response = result.get('result', '') if isinstance(result, dict) else str(result)
+
+                # Try to extract code block from markdown
+                code = self._extract_code_from_response(response, current_code)
+                explanation = f"AI-generated implementation of: {insight.title}"
+
+                return code, explanation
+
+            # Fallback if no router
+            print(f"⚠️ No multi_model_router available")
+            return self._generate_with_template(insight, current_code)
+
+        except Exception as e:
+            print(f"❌ AI generation failed: {e}")
+            # Fallback to template
+            return self._generate_with_template(insight, current_code)
+
+    def _extract_code_from_response(self, response: str, fallback: str) -> str:
+        """Extract Python code from AI response (handles markdown code blocks)"""
+        import re
+
+        # Try to find Python code block
+        code_block_pattern = r'```(?:python)?\s*\n(.*?)\n```'
+        matches = re.findall(code_block_pattern, response, re.DOTALL)
+
+        if matches:
+            # Return the first code block found
+            return matches[0].strip()
+
+        # If no code block, check if the response looks like code
+        lines = response.split('\n')
+        code_lines = [l for l in lines if l.strip() and not l.strip().startswith('#')]
+
+        if len(code_lines) > 0:
+            # Response seems to contain code
+            return response.strip()
+
+        # No code found, return fallback
+        return fallback
+
+    def _generate_with_template(self, insight: CodeInsight, current_code: str) -> tuple[str, str]:
+        """
+        Fallback: Generate code using templates
+        Used when AI is not available
+        """
+        explanation = f"Template-based implementation of: {insight.title}"
+
+        # Different templates based on insight type
+        if "connection pooling" in insight.title.lower():
+            new_code = self._template_connection_pooling(current_code)
+
+        elif "type hints" in insight.title.lower():
+            new_code = self._template_add_type_hints(current_code)
+
+        elif "logging" in insight.title.lower():
+            new_code = self._template_add_logging(current_code)
+
+        elif "error handling" in insight.title.lower():
+            new_code = self._template_add_error_handling(current_code)
+
+        else:
+            # Generic template: add TODO comment
+            new_code = f"# TODO: Implement {insight.title}\n# {insight.description}\n\n{current_code}"
+
+        return new_code, explanation
+
+    def _create_generation_prompt(self, insight: CodeInsight, current_code: str) -> str:
+        """Create AI prompt for code generation with learned quality requirements"""
+
+        # Get learned quality requirements from past rejected code
+        quality_requirements = ""
+        try:
+            from introspection.quality_analyzer import QualityAnalyzer
+            analyzer = QualityAnalyzer()
+            quality_requirements = analyzer.get_improvement_prompt()
+        except Exception as e:
+            print(f"⚠️ Could not load quality requirements: {e}")
+
+        base_requirements = """### Requirements - IMPORTANT:
+1. Generate COMPLETE, FUNCTIONAL, PRODUCTION-READY Python code
+2. DO NOT use TODO comments or placeholders - implement everything fully
+3. Include proper error handling with try/except blocks
+4. Add comprehensive docstrings and inline comments
+5. Use type hints for all functions and variables
+6. Follow PEP 8 style guidelines
+7. Ensure backward compatibility
+8. Make code robust and maintainable
+9. If creating new functions, implement them completely
+10. If modifying existing code, provide the full improved version
+11. **CRITICAL**: All functions must accept optional parameters for tool registry compatibility:
+    - Add `top_k: int = None` parameter to all function signatures
+    - Add `**kwargs` at the end of all function signatures
+    - Document these as "for compatibility with tool registry"
+    - Example: `def my_function(arg1: str, top_k: int = None, **kwargs) -> str:`"""
+
+        # Add learned requirements if available
+        if quality_requirements:
+            requirements_section = base_requirements + "\n\n" + quality_requirements
+        else:
+            requirements_section = base_requirements
+
+        return f"""You are an expert Python developer improving the Darwin System codebase.
+
+## Task: Implement the following improvement
+
+### Insight Details:
+- **Title:** {insight.title}
+- **Type:** {insight.type}
+- **Priority:** {insight.priority}
+
+### Problem:
+{insight.description}
+
+### Current Code:
+```python
+{current_code}
+```
+
+### Proposed Solution:
+{insight.proposed_change}
+
+### Expected Benefits:
+{', '.join(insight.benefits) if insight.benefits else 'Improve code quality and functionality'}
+
+{requirements_section}
+
+### Output Format:
+Return ONLY the complete Python code in a code block. No explanations, no TODO comments, no placeholders.
+The code must be immediately usable and functional.
+
+```python
+# Your complete implementation here
+```
+"""
+
+    def _create_unified_diff(self, original: str, new: str, filename: str) -> str:
+        """Create unified diff format"""
+        original_lines = original.splitlines(keepends=True)
+        new_lines = new.splitlines(keepends=True)
+
+        diff = difflib.unified_diff(
+            original_lines,
+            new_lines,
+            fromfile=f"a/{filename}",
+            tofile=f"b/{filename}",
+            lineterm=''
+        )
+
+        return ''.join(diff)
+
+    def _create_html_diff(self, original: str, new: str) -> str:
+        """Create HTML diff for frontend display"""
+        original_lines = original.splitlines()
+        new_lines = new.splitlines()
+
+        differ = difflib.HtmlDiff()
+        html_diff = differ.make_table(
+            original_lines,
+            new_lines,
+            fromdesc="Original",
+            todesc="Proposed",
+            context=True,
+            numlines=3
+        )
+
+        return html_diff
+
+    def _assess_risk(self, insight: CodeInsight, original: str, new: str) -> str:
+        """
+        Assess risk level of the change
+
+        Returns: 'low', 'medium', or 'high'
+
+        Adjusted to be less conservative for Darwin's self-improvement:
+        - backend/core changes get +1 instead of +2 (Darwin modifies itself)
+        - Medium threshold increased from 6 to 8
+        - High threshold starts at 10+ instead of 7+
+        """
+        risk_score = 0
+
+        # Factor 1: Priority (high priority = potentially risky)
+        if insight.priority == 'high':
+            risk_score += 2
+        elif insight.priority == 'medium':
+            risk_score += 1
+
+        # Factor 2: Code change size
+        original_lines = len(original.splitlines())
+        new_lines = len(new.splitlines())
+        lines_changed = abs(new_lines - original_lines)
+
+        if lines_changed > 100:
+            risk_score += 3
+        elif lines_changed > 50:
+            risk_score += 2
+        elif lines_changed > 20:
+            risk_score += 1
+
+        # Factor 3: Component affected (REDUCED PENALTY)
+        if insight.component in ['backend', 'core']:
+            risk_score += 1  # Reduced from +2 (Darwin self-improves backend)
+        elif insight.component == 'docker':
+            risk_score += 1
+
+        # Factor 4: Type of change
+        if insight.type in ['refactor', 'optimization']:
+            risk_score += 1  # Reduced from +2 (common for AI)
+        elif insight.type == 'feature':
+            risk_score += 1
+
+        # Factor 5: Breaking changes indicators
+        if self._has_breaking_changes(original, new):
+            risk_score += 3
+
+        # Classify risk (ADJUSTED THRESHOLDS)
+        if risk_score <= 4:
+            return 'low'
+        elif risk_score <= 8:
+            return 'medium'
+        else:
+            return 'high'
+
+    def _has_breaking_changes(self, original: str, new: str) -> bool:
+        """Check for potential breaking changes"""
+        breaking_indicators = [
+            'def __init__',  # Constructor changes
+            'class ',  # Class definition changes
+            'import ',  # Import changes
+            'raise ',  # New exceptions
+        ]
+
+        for indicator in breaking_indicators:
+            original_count = original.count(indicator)
+            new_count = new.count(indicator)
+            if original_count != new_count:
+                return True
+
+        return False
+
+    def _estimate_time(self, insight: CodeInsight, original: str, new: str) -> int:
+        """
+        Estimate implementation time in minutes
+
+        Returns: estimated minutes
+        """
+        base_time = 5  # Base 5 minutes
+
+        # Add time based on complexity
+        lines_changed = abs(len(new.splitlines()) - len(original.splitlines()))
+        base_time += lines_changed // 10  # 1 minute per 10 lines
+
+        # Add time based on priority
+        if insight.priority == 'high':
+            base_time += 10
+        elif insight.priority == 'medium':
+            base_time += 5
+
+        # Add time for testing
+        if self._needs_tests(insight):
+            base_time += 15
+
+        return min(base_time, 60)  # Cap at 60 minutes
+
+    def _needs_tests(self, insight: CodeInsight) -> bool:
+        """Determine if change needs tests"""
+        return insight.type in ['feature', 'optimization', 'refactor']
+
+    async def _generate_tests(self, insight: CodeInsight, new_code: str) -> Optional[str]:
+        """Generate test code for the change"""
+        if not self.multi_model_router:
+            return None
+
+        prompt = f"""Generate pytest tests for this code change.
+
+## Change Description:
+{insight.description}
+
+## New Code:
+```python
+{new_code}
+```
+
+Generate comprehensive pytest tests that validate:
+1. Basic functionality works
+2. Edge cases are handled
+3. Error conditions are tested
+
+Return ONLY the test code, no explanations.
+"""
+
+        try:
+            result = await self.multi_model_router.generate(
+                task_description=f"Generate tests for: {insight.title}",
+                prompt=prompt,
+                max_tokens=1000
+            )
+            # Extract code from result
+            response = result.get('result', '') if isinstance(result, dict) else str(result)
+            return self._extract_code_from_response(response, None)
+        except Exception as e:
+            print(f"❌ Test generation failed: {e}")
+            return None
+
+    # Template implementations for common changes
+
+    def _template_connection_pooling(self, current_code: str) -> str:
+        """Template for adding connection pooling"""
+        if 'sqlite3.connect' in current_code:
+            new_code = current_code.replace(
+                'import sqlite3',
+                'from sqlalchemy import create_engine\nfrom sqlalchemy.orm import sessionmaker\nfrom sqlalchemy.pool import QueuePool'
+            )
+            new_code = new_code.replace(
+                'sqlite3.connect(',
+                '# Connection pooling added\ncreate_engine(\n            "sqlite:///'
+            )
+            return new_code
+        return current_code
+
+    def _template_add_type_hints(self, current_code: str) -> str:
+        """Template for adding type hints"""
+        lines = current_code.splitlines()
+        new_lines = []
+
+        for line in lines:
+            if line.strip().startswith('def ') and '->' not in line:
+                # Add return type hint
+                if ':' in line and '(' in line:
+                    line = line.rstrip() + ' -> Any:'
+            new_lines.append(line)
+
+        new_code = '\n'.join(new_lines)
+
+        # Add typing imports if not present
+        if 'from typing import' not in new_code:
+            new_code = 'from typing import Any, Dict, List, Optional\n\n' + new_code
+
+        return new_code
+
+    def _template_add_logging(self, current_code: str) -> str:
+        """Template for adding logging"""
+        if 'from utils.logger import' not in current_code:
+            new_code = 'from utils.logger import setup_logger\n\n' + current_code
+
+            # Add logger initialization
+            if 'class ' in new_code:
+                new_code = new_code.replace(
+                    'class ',
+                    'logger = setup_logger(__name__)\n\nclass ',
+                    1
+                )
+            return new_code
+        return current_code
+
+    def _template_add_error_handling(self, current_code: str) -> str:
+        """Template for adding error handling"""
+        # Wrap main logic in try-except
+        lines = current_code.splitlines()
+        new_lines = []
+        in_function = False
+        indent = ''
+
+        for i, line in enumerate(lines):
+            if line.strip().startswith('def '):
+                in_function = True
+                indent = ' ' * (len(line) - len(line.lstrip()) + 4)
+                new_lines.append(line)
+                continue
+
+            if in_function and line.strip() and not line.strip().startswith('#'):
+                new_lines.append(f"{indent}try:")
+                new_lines.append(f"{indent}    {line.strip()}")
+                # Add remaining lines
+                for j in range(i + 1, len(lines)):
+                    if lines[j].strip():
+                        new_lines.append(f"{indent}    {lines[j].strip()}")
+                new_lines.append(f"{indent}except Exception as e:")
+                new_lines.append(f"{indent}    logger.error(f'Error: {{e}}')")
+                new_lines.append(f"{indent}    raise")
+                break
+
+            new_lines.append(line)
+
+        return '\n'.join(new_lines)
+
+    def to_dict(self, generated: GeneratedCode) -> Dict[str, Any]:
+        """Convert GeneratedCode to dictionary"""
+        return asdict(generated)
