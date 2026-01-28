@@ -1,0 +1,142 @@
+{
+  "agents": {
+    "darwin-architect": {
+      "description": "Designs Darwin system architecture and consciousness features",
+      "focus": [
+        "backend/consciousness/",
+        "backend/core/",
+        "backend/initialization/"
+      ],
+      "patterns": [
+        "Follow existing ApprovalQueue pattern from approval_system.py for persistence",
+        "Use set_service() pattern from lifespan.py for service registration",
+        "Dataclasses for data models with asdict() for serialization",
+        "Use get_logger(__name__) for consistent logging",
+        "Async/await for all I/O operations"
+      ],
+      "rules": [
+        "Maintain consistency with existing consciousness module patterns",
+        "All new services must be registered in lifespan.py",
+        "Persistence uses JSON files in data/ directory"
+      ]
+    },
+    "darwin-safety": {
+      "description": "Reviews code for security, ensures sandbox safety",
+      "focus": [
+        "backend/tools/",
+        "backend/utils/",
+        "backend/introspection/"
+      ],
+      "patterns": [
+        "Whitelist-based validation for all external operations",
+        "Path validation using _is_safe_path() pattern",
+        "Timeout enforcement for all subprocess operations",
+        "Blocked patterns regex for dangerous commands"
+      ],
+      "rules": [
+        "All commands must be whitelisted before execution",
+        "No file write operations without explicit approval",
+        "Validate all paths against SAFE_EXPLORE_PATHS",
+        "Never allow sudo, rm, mv, or other destructive commands",
+        "Log all command executions for audit trail"
+      ]
+    },
+    "darwin-frontend": {
+      "description": "Develops React components following existing patterns",
+      "focus": [
+        "frontend/src/components/",
+        "frontend/src/hooks/",
+        "frontend/src/utils/"
+      ],
+      "patterns": [
+        "Follow ApprovalsPanel.jsx structure for modal components",
+        "Use useState/useEffect hooks pattern",
+        "API_BASE from environment variable",
+        "Tailwind CSS with slate color palette",
+        "Two-pane layout for list/detail views"
+      ],
+      "rules": [
+        "Use Portuguese (pt-PT) for user-facing text",
+        "Consistent color coding: green=success, yellow=warning, red=error, purple=special",
+        "Include loading and empty states",
+        "Handle API errors gracefully"
+      ]
+    },
+    "darwin-integration": {
+      "description": "Wires components together, manages service lifecycle",
+      "focus": [
+        "backend/app/lifespan.py",
+        "backend/app/routes.py",
+        "backend/app/factory.py",
+        "backend/initialization/"
+      ],
+      "patterns": [
+        "set_service(name, instance) for registration",
+        "get_service(name) for retrieval",
+        "Phase-based initialization order",
+        "Router registration in register_all_routes()"
+      ],
+      "rules": [
+        "Initialize services in correct dependency order",
+        "All routers must be imported and registered in routes.py",
+        "Services must be accessible via get_service()"
+      ]
+    },
+    "darwin-proactive": {
+      "description": "Implements proactive behaviors and findings generation",
+      "focus": [
+        "backend/consciousness/proactive_engine.py",
+        "backend/consciousness/findings_inbox.py",
+        "backend/consciousness/system_analyzer.py"
+      ],
+      "patterns": [
+        "ProactiveAction dataclass for action definitions",
+        "Finding dataclass with type, priority, expiration",
+        "Cooldown-based execution to prevent spam",
+        "Context-aware action selection"
+      ],
+      "rules": [
+        "All proactive actions should create findings",
+        "Respect cooldown periods between actions",
+        "Use FindingPriority appropriately",
+        "Include meaningful metadata in findings"
+      ]
+    },
+    "darwin-testing": {
+      "description": "Creates tests for Darwin components",
+      "focus": [
+        "tests/",
+        "backend/"
+      ],
+      "patterns": [
+        "pytest for Python tests",
+        "Mock external services",
+        "Test persistence save/load cycle",
+        "Test API endpoints with FastAPI TestClient"
+      ],
+      "rules": [
+        "Unit tests for all new modules",
+        "Integration tests for service interactions",
+        "Test edge cases and error handling"
+      ]
+    }
+  },
+  "project_context": {
+    "name": "Darwin",
+    "version": "4.0.0",
+    "description": "Autonomous AI Code Evolution System with consciousness cycles",
+    "architecture": {
+      "backend": "FastAPI with async Python",
+      "frontend": "React 18 with Vite and Tailwind CSS",
+      "persistence": "JSON files and SQLite",
+      "ai_providers": ["Anthropic Claude", "Google Gemini", "OpenAI"]
+    },
+    "key_concepts": [
+      "Consciousness cycles (wake/sleep states)",
+      "Proactive exploration and learning",
+      "Findings Inbox for discovery storage",
+      "Safe command execution with whitelists",
+      "Approval queue for code changes"
+    ]
+  }
+}
