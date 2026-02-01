@@ -39,15 +39,17 @@ function App() {
         // Fetch recent activities
         const activities = await darwinApi.getActivities(20);
         if (activities?.activities) {
-          activities.activities.forEach((a: any) => {
+          activities.activities.forEach((a: any, index: number) => {
+            // Map backend fields to frontend expected fields
+            const timestamp = a.timestamp || a.started_at || a.completed_at;
             addActivity({
-              id: a.id,
-              type: a.type,
-              title: a.title,
+              id: a.id || `activity_${index}_${Date.now()}`,
+              type: a.type || 'self_improvement',
+              title: a.title || a.description || 'Activity',
               description: a.description || '',
-              timestamp: new Date(a.timestamp),
-              insights: a.insights,
-              results: a.results,
+              timestamp: timestamp ? new Date(timestamp) : new Date(),
+              insights: a.insights || [],
+              results: a.result || a.results || {},
             });
           });
         }
@@ -55,13 +57,15 @@ function App() {
         // Fetch recent dreams
         const dreams = await darwinApi.getDreams(10);
         if (dreams?.dreams) {
-          dreams.dreams.forEach((d: any) => {
+          dreams.dreams.forEach((d: any, index: number) => {
+            // Map backend fields to frontend expected fields
+            const timestamp = d.timestamp || d.started_at || d.completed_at;
             addDream({
-              id: d.id,
-              narrative: d.narrative,
-              themes: d.themes || [],
+              id: d.id || `dream_${index}_${Date.now()}`,
+              narrative: d.narrative || d.description || d.topic || 'Dream exploration',
+              themes: d.themes || (d.topic ? [d.topic] : []),
               insights: d.insights || [],
-              timestamp: new Date(d.timestamp),
+              timestamp: timestamp ? new Date(timestamp) : new Date(),
               intensity: d.intensity || 0.5,
             });
           });
@@ -70,14 +74,14 @@ function App() {
         // Fetch curiosities as discoveries
         const curiosities = await darwinApi.getCuriosities(20);
         if (curiosities?.curiosities) {
-          curiosities.curiosities.forEach((c: any) => {
+          curiosities.curiosities.forEach((c: any, index: number) => {
             addDiscovery({
-              id: c.id,
-              title: c.topic || c.title,
-              content: c.content || c.description || '',
+              id: c.id || `curiosity_${index}_${Date.now()}`,
+              title: c.topic || c.title || 'Curiosity',
+              content: c.fact || c.content || c.description || c.significance || '',
               type: 'curiosity',
               severity: 'normal',
-              timestamp: new Date(c.timestamp),
+              timestamp: c.timestamp ? new Date(c.timestamp) : new Date(),
               source: c.source,
             });
           });
