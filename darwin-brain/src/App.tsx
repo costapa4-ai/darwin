@@ -3,6 +3,8 @@ import { BrainScene } from './components/brain/BrainScene';
 import { StatusBar } from './components/ui/StatusBar';
 import { ChatPanel } from './components/ui/ChatPanel';
 import { ActivityFeed } from './components/ui/ActivityFeed';
+import { FindingsPanel } from './components/ui/FindingsPanel';
+import { SettingsPanel } from './components/ui/SettingsPanel';
 import { useWebSocket } from './hooks/useWebSocket';
 import { useDarwinStore } from './store/darwinStore';
 import { darwinApi } from './utils/api';
@@ -134,6 +136,8 @@ function App() {
       <StatusBar />
       <ChatPanel />
       <ActivityFeed />
+      <FindingsPanel />
+      <SettingsPanel />
 
       {/* Welcome Message (shown once) */}
       <WelcomeOverlay />
