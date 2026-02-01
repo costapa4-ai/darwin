@@ -405,13 +405,23 @@ class MoltbookClient:
 
         posts = []
         for post_data in data.get('posts', []):
+            # Extract author - can be string or dict with name/username
+            author = post_data.get('author', '')
+            if isinstance(author, dict):
+                author = author.get('name', author.get('username', 'unknown'))
+
+            # Extract submolt - can be string or dict with display_name/name
+            submolt = post_data.get('submolt', '')
+            if isinstance(submolt, dict):
+                submolt = submolt.get('display_name', submolt.get('name', 'general'))
+
             posts.append(MoltbookPost(
                 id=post_data.get('id', ''),
                 title=post_data.get('title', ''),
                 content=post_data.get('content'),
                 url=post_data.get('url'),
-                submolt=post_data.get('submolt', ''),
-                author=post_data.get('author', ''),
+                submolt=submolt,
+                author=author,
                 score=post_data.get('score', 0),
                 comment_count=post_data.get('comment_count', 0)
             ))

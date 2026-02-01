@@ -43,16 +43,26 @@ _reading_history: List[dict] = []
 
 def add_reading_activity(post: dict, darwin_thought: Optional[str] = None):
     """Add a post that Darwin read to the reading history"""
+    # Extract author name (can be string or dict with 'name' key)
+    author = post.get("author", "")
+    if isinstance(author, dict):
+        author = author.get("name", author.get("username", "unknown"))
+
+    # Extract submolt name (can be string or dict with 'name'/'display_name' key)
+    submolt = post.get("submolt", "")
+    if isinstance(submolt, dict):
+        submolt = submolt.get("display_name", submolt.get("name", "general"))
+
     activity = {
         "id": f"read_{post.get('id', '')}_{datetime.now().timestamp()}",
         "post_id": post.get("id", ""),
         "title": post.get("title", ""),
         "content": post.get("content"),
-        "author": post.get("author", ""),
-        "submolt": post.get("submolt", ""),
+        "author": author,
+        "submolt": submolt,
         "score": post.get("score", 0),
         "comment_count": post.get("comment_count", 0),
-        "url": f"https://www.moltbook.com/s/{post.get('submolt', '')}/posts/{post.get('id', '')}",
+        "url": f"https://www.moltbook.com/s/{submolt}/posts/{post.get('id', '')}",
         "darwin_thought": darwin_thought,
         "timestamp": datetime.now().isoformat()
     }
