@@ -18,6 +18,7 @@ import { ConsciousnessCore } from './ConsciousnessCore';
 import { ParticleField, ThoughtParticles } from './ParticleField';
 import { NeuralConnections } from './NeuralConnections';
 import { ThoughtBubbles, ShowerThoughtDisplay } from './ThoughtBubbles';
+import { FloatingThoughts, ThoughtStream } from './FloatingThoughts';
 import { useDarwinStore } from '../../store/darwinStore';
 
 // Loading indicator
@@ -127,6 +128,12 @@ function SceneContent() {
 
       {/* Shower thought display */}
       <ShowerThoughtDisplay />
+
+      {/* Floating thought words */}
+      <FloatingThoughts />
+
+      {/* Rapid thought stream during thinking */}
+      <ThoughtStream />
     </group>
   );
 }
