@@ -131,6 +131,11 @@ class ConsciousnessEngine:
         self.shared_curiosity_topics: set = set()  # Track shared topics to avoid repetition
         self.submitted_insights: set = set()  # Track submitted insights to avoid duplicates
 
+        # Dynamic curiosity discovery pool - populated from exploration activities
+        # This replaces hardcoded curiosities with things Darwin actually discovered
+        self.discovered_curiosities: List[Dict] = []
+        self.max_discovered_curiosities = 100  # Keep last 100 discoveries
+
         # Statistics
         self.wake_cycles_completed = 0
         self.sleep_cycles_completed = 0
@@ -1219,8 +1224,51 @@ Just output the tool name, nothing else."""
         self.wake_activities.append(activity)
         self.total_activities_completed += 1
 
+    def add_discovered_curiosity(self, topic: str, fact: str, source: str, significance: str = ""):
+        """
+        Add a curiosity that Darwin actually discovered during exploration.
+
+        This should be called from:
+        - Moltbook reading (interesting posts)
+        - Web research (Wikipedia, articles)
+        - Code exploration (interesting patterns)
+        - Any other exploration activity
+
+        Args:
+            topic: Short topic name
+            fact: The interesting fact or discovery
+            source: Where it was discovered (Moltbook, Wikipedia URL, etc.)
+            significance: Why it's interesting (optional)
+        """
+        curiosity = {
+            'topic': topic,
+            'fact': fact,
+            'source': source,
+            'significance': significance or f"Discovered during {source} exploration",
+            'discovered_at': datetime.utcnow().isoformat(),
+            'shared': False
+        }
+
+        # Add to pool
+        self.discovered_curiosities.append(curiosity)
+
+        # Trim to max size
+        if len(self.discovered_curiosities) > self.max_discovered_curiosities:
+            # Remove oldest shared curiosities first
+            shared = [c for c in self.discovered_curiosities if c.get('shared')]
+            unshared = [c for c in self.discovered_curiosities if not c.get('shared')]
+
+            # Keep all unshared, trim shared
+            if len(unshared) >= self.max_discovered_curiosities:
+                self.discovered_curiosities = unshared[-self.max_discovered_curiosities:]
+            else:
+                keep_shared = self.max_discovered_curiosities - len(unshared)
+                self.discovered_curiosities = shared[-keep_shared:] + unshared
+
+        print(f"💡 Added discovered curiosity: {topic} (pool size: {len(self.discovered_curiosities)})")
+
     async def _share_curiosity(self):
-        """Share an interesting discovery or fact"""
+        """Share an interesting discovery - preferring actual discoveries over hardcoded facts"""
         activity = Activity(
             type='curiosity_share',
             description="Sharing an interesting discovery",
@@ -1298,20 +1346,36 @@ Just output the tool name, nothing else."""
             {'topic': 'Code Review', 'fact': 'Code review catches 60-90% of bugs before testing - its the most effective quality practice', 'source': 'Quality Assurance', 'significance': 'Human review remains essential even with automation'},
         ]
 
-        # Filter out already shared topics to avoid repetition
-        available_curiosities = [
-            c for c in curiosities
-            if c['topic'] not in self.shared_curiosity_topics
+        # PRIORITY 1: Check for unshared discovered curiosities (from actual exploration)
+        unshared_discoveries = [
+            c for c in self.discovered_curiosities
+            if not c.get('shared') and c['topic'] not in self.shared_curiosity_topics
         ]
 
-        # If all topics have been shared, reset and start over
-        if not available_curiosities:
-            print("   🔄 All curiosities shared! Resetting for new cycle...")
-            self.shared_curiosity_topics.clear()
-            available_curiosities = curiosities
+        if unshared_discoveries:
+            # Share something Darwin actually discovered!
+            curiosity = random.choice(unshared_discoveries)
+            # Mark as shared in the discovery pool
+            for c in self.discovered_curiosities:
+                if c['topic'] == curiosity['topic'] and c['fact'] == curiosity['fact']:
+                    c['shared'] = True
+                    break
+            print(f"   🌟 Sharing DISCOVERED curiosity from {curiosity.get('source', 'exploration')}!")
+        else:
+            # PRIORITY 2: Fall back to curated curiosities
+            print("   📚 No new discoveries to share, using curated knowledge...")
+            available_curiosities = [
+                c for c in curiosities
+                if c['topic'] not in self.shared_curiosity_topics
+            ]
 
-        # Select from available curiosities only
-        curiosity = random.choice(available_curiosities)
+            # If all topics have been shared, reset and start over
+            if not available_curiosities:
+                print("   🔄 All curated curiosities shared! Resetting for new cycle...")
+                self.shared_curiosity_topics.clear()
+                available_curiosities = curiosities
+
+            curiosity = random.choice(available_curiosities)
 
         # Mark this topic as shared
         self.shared_curiosity_topics.add(curiosity['topic'])

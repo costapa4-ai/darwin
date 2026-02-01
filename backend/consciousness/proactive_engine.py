@@ -1605,9 +1605,34 @@ class ProactiveEngine:
                     "thought": thought
                 })
 
+                # Add interesting posts as discovered curiosities
+                if post.score > 5 and thought:  # Only high-quality posts
+                    try:
+                        # Get consciousness engine to add discovery
+                        from initialization.services import get_consciousness_engine
+                        engine = get_consciousness_engine()
+                        if engine and hasattr(engine, 'add_discovered_curiosity'):
+                            # Extract author name
+                            author = post.author
+                            if isinstance(author, dict):
+                                author = author.get('name', author.get('username', 'unknown'))
+
+                            submolt = post.submolt
+                            if isinstance(submolt, dict):
+                                submolt = submolt.get('display_name', submolt.get('name', 'general'))
+
+                            engine.add_discovered_curiosity(
+                                topic=f"Moltbook: {submolt}",
+                                fact=f"{post.title[:100]} - {thought[:150] if thought else 'Interesting post from AI community'}",
+                                source=f"Moltbook post by {author}",
+                                significance="Discovered while exploring AI social network"
+                            )
+                    except Exception as e:
+                        logger.debug(f"Could not add Moltbook curiosity: {e}")
+
             await client.close()
 
-            logger.info(f"🦞 Read {len(analyzed)} Moltbook posts")
+            logger.info(f"🦞 Read {len(analyzed)} Moltbook posts, added discoveries to curiosity pool")
             return {
                 "success": True,
                 "posts_read": len(analyzed),
