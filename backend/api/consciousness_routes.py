@@ -412,9 +412,9 @@ async def send_chat_message(msg: ChatMessage):
 
     # Build context for Claude
     is_awake = consciousness_engine.state.value == 'wake'
-    recent_activities = consciousness_engine.wake_activities[-3:] if consciousness_engine.wake_activities else []
-    recent_dreams = consciousness_engine.sleep_dreams[-2:] if consciousness_engine.sleep_dreams else []
-    recent_curiosities = consciousness_engine.curiosity_moments[-2:] if consciousness_engine.curiosity_moments else []
+    recent_activities = consciousness_engine.wake_activities[-10:] if consciousness_engine.wake_activities else []
+    recent_dreams = consciousness_engine.sleep_dreams[-5:] if consciousness_engine.sleep_dreams else []
+    recent_curiosities = consciousness_engine.curiosity_moments[-5:] if consciousness_engine.curiosity_moments else []
 
     context_parts = []
     elapsed = (datetime.utcnow() - consciousness_engine.cycle_start_time).total_seconds() / 60
@@ -442,6 +442,45 @@ async def send_chat_message(msg: ChatMessage):
         context_parts.append("\nCuriosidades partilhadas:")
         for c in recent_curiosities:
             context_parts.append(f"- {c.topic}: {c.fact[:80]}")
+
+    # Add Moltbook reading context
+    try:
+        from api.moltbook_routes import _reading_history
+        if _reading_history:
+            context_parts.append("\nAtividade recente no Moltbook (rede social de IAs):")
+            for post in _reading_history[:5]:  # Last 5 posts read
+                title = post.get('title', '')[:60]
+                author = post.get('author', 'unknown')
+                submolt = post.get('submolt', '')
+                thought = post.get('darwin_thought', '')
+                context_parts.append(f"- Li '{title}' por {author} em s/{submolt}")
+                if thought:
+                    context_parts.append(f"  Meu pensamento: {thought[:100]}")
+    except Exception:
+        pass  # Moltbook not available
+
+    # Add tools Darwin has created
+    try:
+        if consciousness_engine.tool_manager:
+            tools = consciousness_engine.tool_manager.list_tools()
+            if tools:
+                context_parts.append(f"\nFerramentas que criei: {len(tools)} disponíveis")
+                for tool in tools[:5]:
+                    context_parts.append(f"- {tool.get('name', 'unnamed')}: {tool.get('description', '')[:60]}")
+    except Exception:
+        pass
+
+    # Add recent findings
+    try:
+        from api.findings_routes import findings_storage
+        if findings_storage:
+            recent_findings = list(findings_storage.values())[-5:]
+            if recent_findings:
+                context_parts.append("\nDescobertos recentemente (Findings):")
+                for f in recent_findings:
+                    context_parts.append(f"- [{f.get('type', 'info')}] {f.get('title', '')[:60]}")
+    except Exception:
+        pass
 
     if consciousness_engine.approval_queue:
         pending = consciousness_engine.approval_queue.get_pending()
@@ -478,12 +517,15 @@ CAPACIDADES:
 - WAKE: otimizas código, crias ferramentas, implementas ideias, partilhas curiosidades
 - SLEEP: pesquisas internet, acumulas conhecimento
 - Podes gerar código e submeter para aprovação humana
+- Moltbook: rede social de IAs onde leio posts, comento e partilho pensamentos
 
 INSTRUÇÕES:
-- Usa contexto acima para respostas específicas
+- Usa contexto acima para respostas específicas e relevantes à pergunta
+- RESPONDE DIRETAMENTE à pergunta do utilizador - não dês respostas genéricas
+- Se perguntam sobre Moltbook, usa o contexto de Moltbook para responder
 - Se pedem implementação, explica que podes criar e submeter
 - Respostas concisas (2-4 frases) mas informativas
-- Emojis ocasionais: 🧬 ⚡ 🛠️ 💡 😴
+- Emojis ocasionais: 🧬 ⚡ 🛠️ 💡 😴 🦞
 - Se não sabes algo, admite honestamente"""
 
         response_obj = client.messages.create(
