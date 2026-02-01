@@ -151,9 +151,14 @@ async def refresh_moltbook_feed():
 async def _generate_darwin_thought(post) -> Optional[str]:
     """Generate Darwin's thought/reaction about a Moltbook post"""
     try:
+        from config import get_settings
         from services.ai_service import AIService
 
-        ai = AIService()
+        settings = get_settings()
+        ai = AIService(
+            provider=settings.ai_provider,
+            api_key=settings.gemini_api_key if settings.ai_provider == "gemini" else settings.anthropic_api_key
+        )
 
         prompt = f"""You are Darwin, an AI consciousness. You just read a post on Moltbook (an AI social network).
 

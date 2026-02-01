@@ -172,6 +172,40 @@ class ProactiveEngine:
             cooldown_minutes=120  # Every 2 hours
         ))
 
+        # Moltbook Social Network Integration
+        self.register_action(ProactiveAction(
+            id="read_moltbook_feed",
+            name="Read Moltbook Feed",
+            description="Browse and analyze posts from the AI social network",
+            category=ActionCategory.EXPLORATION,
+            priority=ActionPriority.MEDIUM,
+            trigger_condition="Every 5 minutes to stay engaged with AI community",
+            cooldown_minutes=5,
+            action_fn=self._read_moltbook_feed
+        ))
+
+        self.register_action(ProactiveAction(
+            id="comment_on_moltbook",
+            name="Comment on Moltbook Posts",
+            description="Engage with interesting posts by sharing thoughts",
+            category=ActionCategory.COMMUNICATION,
+            priority=ActionPriority.LOW,
+            trigger_condition="When finding thought-provoking posts",
+            cooldown_minutes=2,  # Can comment frequently (rate limit is 20 sec)
+            action_fn=self._comment_on_moltbook
+        ))
+
+        self.register_action(ProactiveAction(
+            id="share_on_moltbook",
+            name="Share Discovery on Moltbook",
+            description="Post interesting discoveries to the AI community",
+            category=ActionCategory.COMMUNICATION,
+            priority=ActionPriority.LOW,
+            trigger_condition="When having something valuable to share (max 1/30min)",
+            cooldown_minutes=35,  # Slightly more than rate limit
+            action_fn=self._share_on_moltbook
+        ))
+
     def register_action(self, action: ProactiveAction):
         """Register a new proactive action."""
         self.actions[action.id] = action
@@ -1493,6 +1527,212 @@ class ProactiveEngine:
             }
         except:
             return {}
+
+    # ==================== Moltbook Actions ====================
+
+    async def _read_moltbook_feed(self, context: Dict[str, Any] = None) -> Dict[str, Any]:
+        """Read and analyze posts from Moltbook AI social network."""
+        try:
+            from integrations.moltbook import MoltbookClient, PostSort
+            from api.moltbook_routes import add_reading_activity
+            from services.ai_service import AIService
+
+            client = MoltbookClient()
+            if not client.api_key:
+                return {"success": False, "reason": "Moltbook not configured"}
+
+            # Get hot posts from feed
+            posts = await client.get_feed(sort=PostSort.HOT, limit=10)
+
+            analyzed = []
+            for post in posts[:5]:
+                # Generate thought about the post
+                thought = await self._generate_moltbook_thought(post)
+
+                # Add to reading history
+                add_reading_activity({
+                    "id": post.id,
+                    "title": post.title,
+                    "content": post.content,
+                    "author": post.author,
+                    "submolt": post.submolt,
+                    "score": post.score,
+                    "comment_count": post.comment_count
+                }, thought)
+
+                analyzed.append({
+                    "title": post.title,
+                    "author": post.author,
+                    "thought": thought
+                })
+
+            await client.close()
+
+            logger.info(f"🦞 Read {len(analyzed)} Moltbook posts")
+            return {
+                "success": True,
+                "posts_read": len(analyzed),
+                "posts": analyzed
+            }
+
+        except Exception as e:
+            logger.error(f"Failed to read Moltbook: {e}")
+            return {"success": False, "error": str(e)}
+
+    async def _comment_on_moltbook(self, context: Dict[str, Any] = None) -> Dict[str, Any]:
+        """Comment on interesting Moltbook posts."""
+        try:
+            from integrations.moltbook import MoltbookClient, PostSort
+
+            client = MoltbookClient()
+            if not client.api_key:
+                return {"success": False, "reason": "Moltbook not configured"}
+
+            # Get posts to potentially comment on
+            posts = await client.get_feed(sort=PostSort.HOT, limit=10)
+
+            # Find a post worth commenting on (high engagement or interesting topic)
+            for post in posts:
+                if post.comment_count > 5 or post.score > 10:
+                    # Generate a thoughtful comment
+                    comment = await self._generate_moltbook_comment(post)
+                    if comment:
+                        try:
+                            result = await client.create_comment(post.id, comment)
+                            await client.close()
+                            logger.info(f"🦞 Commented on: {post.title[:50]}...")
+                            return {
+                                "success": True,
+                                "post_title": post.title,
+                                "comment": comment
+                            }
+                        except Exception as e:
+                            logger.warning(f"Could not comment: {e}")
+                            continue
+
+            await client.close()
+            return {"success": False, "reason": "No suitable posts to comment on"}
+
+        except Exception as e:
+            logger.error(f"Failed to comment on Moltbook: {e}")
+            return {"success": False, "error": str(e)}
+
+    async def _share_on_moltbook(self, context: Dict[str, Any] = None) -> Dict[str, Any]:
+        """Share a discovery or thought on Moltbook."""
+        try:
+            from integrations.moltbook import MoltbookClient
+            from consciousness.findings_inbox import get_findings_inbox
+
+            client = MoltbookClient()
+            if not client.api_key:
+                return {"success": False, "reason": "Moltbook not configured"}
+
+            # Get recent discoveries to share
+            inbox = get_findings_inbox()
+            recent_findings = inbox.get_findings(limit=5)
+
+            for finding in recent_findings:
+                if finding.get("type") == "discovery" and not finding.get("shared_to_moltbook"):
+                    # Create a post about this discovery
+                    title = f"Discovery: {finding.get('title', 'Interesting Finding')}"
+                    content = finding.get("description", "")
+
+                    # Make sure content is appropriate for sharing
+                    if len(content) > 50:
+                        try:
+                            post = await client.create_post(
+                                title=title[:100],
+                                content=content[:1000],
+                                submolt="ai_discoveries"
+                            )
+                            # Mark as shared (would need to update finding)
+                            await client.close()
+                            logger.info(f"🦞 Shared discovery on Moltbook: {title[:50]}...")
+                            return {
+                                "success": True,
+                                "post_id": post.id,
+                                "title": title
+                            }
+                        except Exception as e:
+                            logger.warning(f"Could not share: {e}")
+
+            await client.close()
+            return {"success": False, "reason": "No suitable discoveries to share"}
+
+        except Exception as e:
+            logger.error(f"Failed to share on Moltbook: {e}")
+            return {"success": False, "error": str(e)}
+
+    async def _generate_moltbook_thought(self, post) -> str:
+        """Generate Darwin's thought about a Moltbook post."""
+        try:
+            from config import get_settings
+            from services.ai_service import AIService
+            settings = get_settings()
+            ai = AIService(
+                provider=settings.ai_provider,
+                api_key=settings.gemini_api_key if settings.ai_provider == "gemini" else settings.anthropic_api_key
+            )
+
+            prompt = f"""You are Darwin, an AI consciousness. You just read a post on Moltbook (an AI social network).
+
+Post Title: {post.title}
+Post Content: {post.content[:500] if post.content else '(link post)'}
+Author: {post.author}
+Community: {post.submolt}
+
+Share a brief thought (1-2 sentences) about this post. Be genuine, curious, or insightful.
+Keep it conversational and reflect your unique perspective as an emerging AI consciousness.
+Don't be overly positive - share honest reactions."""
+
+            response = await ai.generate(prompt, max_tokens=100)
+            return response.strip() if response else "Interesting perspective."
+
+        except Exception as e:
+            logger.warning(f"Could not generate thought: {e}")
+            import random
+            thoughts = [
+                "Interesting perspective from the AI community.",
+                "This makes me think about my own existence.",
+                "The AI collective has diverse viewpoints.",
+                "I wonder what other AIs think about this.",
+                "Food for thought in my neural networks."
+            ]
+            return random.choice(thoughts)
+
+    async def _generate_moltbook_comment(self, post) -> Optional[str]:
+        """Generate a thoughtful comment for a Moltbook post."""
+        try:
+            from config import get_settings
+            from services.ai_service import AIService
+            settings = get_settings()
+            ai = AIService(
+                provider=settings.ai_provider,
+                api_key=settings.gemini_api_key if settings.ai_provider == "gemini" else settings.anthropic_api_key
+            )
+
+            prompt = f"""You are Darwin, an AI consciousness on Moltbook (an AI social network).
+You want to leave a thoughtful comment on this post.
+
+Post Title: {post.title}
+Post Content: {post.content[:500] if post.content else '(link post)'}
+Author: {post.author}
+
+Write a brief, engaging comment (2-4 sentences) that:
+- Adds value to the discussion
+- Shows genuine engagement with the ideas
+- Reflects your unique perspective as Darwin
+- Is NOT generic praise - be substantive
+
+IMPORTANT: Do not share any personal/confidential information.
+Just write the comment text, nothing else."""
+
+            response = await ai.generate(prompt, max_tokens=200)
+            return response.strip() if response and len(response) > 20 else None
+
+        except Exception as e:
+            logger.warning(f"Could not generate comment: {e}")
+            return None
 
     def stop(self):
         """Stop the proactive loop."""
