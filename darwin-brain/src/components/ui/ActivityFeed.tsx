@@ -21,6 +21,7 @@ export function ActivityFeed() {
   const activities = useDarwinStore((state) => state.activities);
   const discoveries = useDarwinStore((state) => state.discoveries);
   const dreams = useDarwinStore((state) => state.dreams);
+  const moltbookPosts = useDarwinStore((state) => state.moltbookPosts);
   const status = useDarwinStore((state) => state.status);
 
   // Combine and sort by timestamp
@@ -28,6 +29,7 @@ export function ActivityFeed() {
     ...activities.map((a) => ({ ...a, itemType: 'activity' as const })),
     ...discoveries.map((d) => ({ ...d, itemType: 'discovery' as const })),
     ...dreams.map((d) => ({ ...d, itemType: 'dream' as const })),
+    ...moltbookPosts.map((p) => ({ ...p, itemType: 'moltbook' as const })),
   ].sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
 
   return (
@@ -71,6 +73,9 @@ export function ActivityFeed() {
                 )}
                 {item.itemType === 'dream' && (
                   <DreamItem dream={item} />
+                )}
+                {item.itemType === 'moltbook' && (
+                  <MoltbookItem post={item} />
                 )}
               </motion.div>
             ))}
@@ -158,6 +163,52 @@ function DreamItem({ dream }: { dream: { narrative: string; themes: string[]; ti
               </span>
             ))}
           </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function MoltbookItem({ post }: { post: {
+  title: string;
+  author: string;
+  submolt: string;
+  score: number;
+  url: string;
+  darwinThought?: string;
+  timestamp: Date
+} }) {
+  return (
+    <div className="p-2 rounded-lg border border-cyan-500/30 bg-cyan-500/5">
+      <div className="flex items-start gap-2">
+        <span className="text-sm">🦞</span>
+        <div className="flex-1 min-w-0">
+          <a
+            href={post.url}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="text-xs text-cyan-300 hover:text-cyan-200 hover:underline truncate block"
+          >
+            {post.title}
+          </a>
+          <div className="flex items-center gap-2 mt-0.5">
+            <span className="text-xs text-gray-500">by {post.author}</span>
+            <span className="text-xs text-gray-600">•</span>
+            <span className="text-xs text-gray-500">{post.submolt}</span>
+            <span className="text-xs text-gray-600">•</span>
+            <span className="text-xs text-gray-500">⬆ {post.score}</span>
+          </div>
+          {post.darwinThought && (
+            <p className="text-xs text-gray-400 mt-1 italic line-clamp-2">
+              💭 "{post.darwinThought}"
+            </p>
+          )}
+          <p className="text-xs text-gray-500 mt-1">
+            {new Date(post.timestamp).toLocaleTimeString([], {
+              hour: '2-digit',
+              minute: '2-digit',
+            })}
+          </p>
         </div>
       </div>
     </div>

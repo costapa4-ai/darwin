@@ -17,6 +17,7 @@ function App() {
   const addDream = useDarwinStore((state) => state.addDream);
   const addDiscovery = useDarwinStore((state) => state.addDiscovery);
   const setFindings = useDarwinStore((state) => state.setFindings);
+  const setMoltbookPosts = useDarwinStore((state) => state.setMoltbookPosts);
 
   // Initial data fetch
   useEffect(() => {
@@ -98,6 +99,30 @@ function App() {
             }))
           );
         }
+
+        // Fetch Moltbook reading activity
+        try {
+          const moltbook = await darwinApi.getMoltbookFeed(20);
+          if (moltbook?.posts) {
+            setMoltbookPosts(
+              moltbook.posts.map((p: any) => ({
+                id: p.id,
+                postId: p.post_id,
+                title: p.title,
+                content: p.content,
+                author: p.author,
+                submolt: p.submolt,
+                score: p.score,
+                commentCount: p.comment_count,
+                url: p.url,
+                darwinThought: p.darwin_thought,
+                timestamp: new Date(p.timestamp),
+              }))
+            );
+          }
+        } catch {
+          // Moltbook may not be configured yet
+        }
       } catch (error) {
         console.error('Failed to fetch initial data:', error);
       }
@@ -125,7 +150,7 @@ function App() {
     }, 10000);
 
     return () => clearInterval(interval);
-  }, [setStatus, addActivity, addDream, addDiscovery, setFindings]);
+  }, [setStatus, addActivity, addDream, addDiscovery, setFindings, setMoltbookPosts]);
 
   return (
     <div className="w-full h-full relative overflow-hidden">

@@ -163,6 +163,22 @@ export const darwinApi = {
     const { data } = await api.get('/api/health');
     return data;
   },
+
+  // Moltbook
+  async getMoltbookFeed(limit = 20) {
+    const { data } = await api.get(`/api/v1/moltbook/feed?limit=${limit}`);
+    return data;
+  },
+
+  async refreshMoltbookFeed() {
+    const { data } = await api.get('/api/v1/moltbook/refresh');
+    return data;
+  },
+
+  async getMoltbookStatus() {
+    const { data } = await api.get('/api/v1/moltbook/status');
+    return data;
+  },
 };
 
 export default darwinApi;

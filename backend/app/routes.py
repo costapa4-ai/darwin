@@ -29,6 +29,7 @@ from api import hooks_routes
 from api import ui_automation_routes
 from api import voice_routes
 from api import distributed_routes
+from api import moltbook_routes
 from api.websocket import manager
 from utils.logger import setup_logger
 
@@ -102,6 +103,9 @@ def register_all_routes(app: FastAPI):
 
     # Distributed Consciousness routes
     app.include_router(distributed_routes.router)
+
+    # Moltbook Integration routes
+    app.include_router(moltbook_routes.router)
 
     # WebSocket endpoint
     @app.websocket("/ws")

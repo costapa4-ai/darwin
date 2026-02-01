@@ -101,3 +101,17 @@ export interface WebSocketMessage {
   payload: unknown;
   timestamp: string;
 }
+
+export interface MoltbookPost {
+  id: string;
+  postId: string;
+  title: string;
+  content?: string;
+  author: string;
+  submolt: string;
+  score: number;
+  commentCount: number;
+  url: string;
+  darwinThought?: string;
+  timestamp: Date;
+}

@@ -7,6 +7,7 @@ import type {
   Discovery,
   Finding,
   ChatMessage,
+  MoltbookPost,
 } from '../types/darwin';
 
 interface DarwinStore {
@@ -39,6 +40,11 @@ interface DarwinStore {
   // Discoveries
   discoveries: Discovery[];
   addDiscovery: (discovery: Discovery) => void;
+
+  // Moltbook Posts
+  moltbookPosts: MoltbookPost[];
+  addMoltbookPost: (post: MoltbookPost) => void;
+  setMoltbookPosts: (posts: MoltbookPost[]) => void;
 
   // Findings
   findings: Finding[];
@@ -131,6 +137,14 @@ export const useDarwinStore = create<DarwinStore>((set) => ({
     set((state) => ({
       discoveries: [discovery, ...state.discoveries.slice(0, 49)],
     })),
+
+  // Moltbook Posts
+  moltbookPosts: [],
+  addMoltbookPost: (post) =>
+    set((state) => ({
+      moltbookPosts: [post, ...state.moltbookPosts.slice(0, 29)],
+    })),
+  setMoltbookPosts: (posts) => set({ moltbookPosts: posts }),
 
   // Findings
   findings: [],
