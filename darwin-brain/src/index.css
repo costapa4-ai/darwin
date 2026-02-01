@@ -1,0 +1,139 @@
+@import "tailwindcss";
+
+:root {
+  /* Darwin Brain Color Palette */
+  --darwin-void: #030712;
+  --darwin-deep: #0a0f1a;
+  --darwin-surface: #111827;
+  --darwin-border: #1f2937;
+
+  /* Consciousness States */
+  --darwin-wake: #f59e0b;
+  --darwin-sleep: #6366f1;
+  --darwin-dream: #a855f7;
+  --darwin-think: #06b6d4;
+
+  /* Mood Colors */
+  --mood-curious: #00d4ff;
+  --mood-excited: #f472b6;
+  --mood-contemplative: #818cf8;
+  --mood-focused: #10b981;
+  --mood-tired: #6b7280;
+
+  /* Glow Effects */
+  --glow-primary: rgba(6, 182, 212, 0.5);
+  --glow-secondary: rgba(168, 85, 247, 0.4);
+  --glow-alert: rgba(239, 68, 68, 0.5);
+}
+
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+html, body, #root {
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  background: var(--darwin-void);
+  color: #e5e7eb;
+  font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+}
+
+/* Custom Scrollbar */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: var(--darwin-deep);
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--darwin-border);
+  border-radius: 3px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: #374151;
+}
+
+/* Glass Panel Effect */
+.glass {
+  background: rgba(17, 24, 39, 0.7);
+  backdrop-filter: blur(12px);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+/* Glow Text */
+.glow-text {
+  text-shadow: 0 0 10px var(--glow-primary), 0 0 20px var(--glow-primary);
+}
+
+/* Pulse Animation */
+@keyframes pulse-glow {
+  0%, 100% {
+    opacity: 1;
+    filter: brightness(1);
+  }
+  50% {
+    opacity: 0.8;
+    filter: brightness(1.2);
+  }
+}
+
+.pulse-glow {
+  animation: pulse-glow 2s ease-in-out infinite;
+}
+
+/* Breathing Animation */
+@keyframes breathe {
+  0%, 100% {
+    transform: scale(1);
+  }
+  50% {
+    transform: scale(1.05);
+  }
+}
+
+.breathe {
+  animation: breathe 4s ease-in-out infinite;
+}
+
+/* Particle Float */
+@keyframes float {
+  0%, 100% {
+    transform: translateY(0) translateX(0);
+  }
+  25% {
+    transform: translateY(-10px) translateX(5px);
+  }
+  50% {
+    transform: translateY(-5px) translateX(-5px);
+  }
+  75% {
+    transform: translateY(-15px) translateX(3px);
+  }
+}
+
+.float {
+  animation: float 6s ease-in-out infinite;
+}
+
+/* Thought Bubble Emergence */
+@keyframes emerge {
+  0% {
+    opacity: 0;
+    transform: scale(0.5) translateY(20px);
+  }
+  100% {
+    opacity: 1;
+    transform: scale(1) translateY(0);
+  }
+}
+
+.emerge {
+  animation: emerge 0.5s ease-out forwards;
+}
