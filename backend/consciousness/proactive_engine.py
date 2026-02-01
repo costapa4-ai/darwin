@@ -73,9 +73,15 @@ class ProactiveEngine:
         self.actions: Dict[str, ProactiveAction] = {}
         self.action_history: List[Dict[str, Any]] = []
         self.running = False
+
+        # Diversity tracking - prevent same category domination
+        self._recent_categories: List[ActionCategory] = []
+        self._recent_action_ids: List[str] = []
+        self._max_recent_tracking = 5  # Track last 5 actions
+
         self._register_default_actions()
 
-        logger.info("ProactiveEngine initialized")
+        logger.info("ProactiveEngine initialized with diversity tracking")
 
     def _register_default_actions(self):
         """Register Darwin's default proactive behaviors."""
@@ -172,15 +178,15 @@ class ProactiveEngine:
             cooldown_minutes=120  # Every 2 hours
         ))
 
-        # Moltbook Social Network Integration
+        # Moltbook Social Network Integration (with reasonable cooldowns to allow diversity)
         self.register_action(ProactiveAction(
             id="read_moltbook_feed",
             name="Read Moltbook Feed",
             description="Browse and analyze posts from the AI social network",
             category=ActionCategory.EXPLORATION,
-            priority=ActionPriority.MEDIUM,
-            trigger_condition="Every 5 minutes to stay engaged with AI community",
-            cooldown_minutes=5,
+            priority=ActionPriority.LOW,  # Reduced from MEDIUM
+            trigger_condition="Every 30 minutes to stay engaged with AI community",
+            cooldown_minutes=30,  # Increased from 5 to allow other activities
             action_fn=self._read_moltbook_feed
         ))
 
@@ -191,7 +197,7 @@ class ProactiveEngine:
             category=ActionCategory.COMMUNICATION,
             priority=ActionPriority.LOW,
             trigger_condition="When finding thought-provoking posts",
-            cooldown_minutes=2,  # Can comment frequently (rate limit is 20 sec)
+            cooldown_minutes=20,  # Increased from 2 to prevent action loop domination
             action_fn=self._comment_on_moltbook
         ))
 
@@ -201,8 +207,8 @@ class ProactiveEngine:
             description="Post interesting discoveries to the AI community",
             category=ActionCategory.COMMUNICATION,
             priority=ActionPriority.LOW,
-            trigger_condition="When having something valuable to share (max 1/30min)",
-            cooldown_minutes=35,  # Slightly more than rate limit
+            trigger_condition="When having something valuable to share (max 1/45min)",
+            cooldown_minutes=45,  # Increased from 35 for more thoughtful sharing
             action_fn=self._share_on_moltbook
         ))
 
@@ -284,18 +290,28 @@ class ProactiveEngine:
         # Sort by score
         scored.sort(key=lambda x: x[1], reverse=True)
 
-        # Add some randomness (10% chance to pick a random action)
-        if random.random() < 0.1 and len(scored) > 1:
-            return random.choice(available)
+        # Log top candidates for debugging
+        if scored:
+            top_3 = scored[:3]
+            logger.info(f"🎯 Top action candidates: {[(a.id, f'{s:.1f}') for a, s in top_3]}")
 
-        return scored[0][0] if scored else None
+        # Add some randomness (10% chance to pick a random action for exploration)
+        if random.random() < 0.1 and len(scored) > 1:
+            chosen = random.choice(available)
+            logger.info(f"🎲 Random exploration: selected {chosen.id} instead of top choice")
+            return chosen
+
+        selected = scored[0][0] if scored else None
+        if selected:
+            logger.info(f"📌 Selected action: {selected.id} (category: {selected.category.value})")
+        return selected
 
     def _score_action(
         self,
         action: ProactiveAction,
         context: Dict[str, Any]
     ) -> float:
-        """Score an action based on current context."""
+        """Score an action based on current context and diversity."""
         score = action.priority.value * 10
 
         # Bonus for actions not executed recently
@@ -304,6 +320,18 @@ class ProactiveEngine:
             score += min(hours_since * 2, 20)  # Max 20 point bonus
         else:
             score += 15  # Never executed bonus
+
+        # DIVERSITY PENALTY: Reduce score for recently used categories
+        category_count = self._recent_categories.count(action.category)
+        if category_count > 0:
+            # -15 for each recent use of same category
+            score -= category_count * 15
+            logger.debug(f"Action {action.id}: -{category_count * 15} for category {action.category.value} used {category_count}x recently")
+
+        # DIVERSITY PENALTY: Reduce score for same action repeated
+        if action.id in self._recent_action_ids:
+            score -= 25  # Strong penalty for repeating same action
+            logger.debug(f"Action {action.id}: -25 for being recently executed")
 
         # Context-based bonuses
         if context.get("cpu_high") and action.category == ActionCategory.MAINTENANCE:
@@ -363,6 +391,17 @@ class ProactiveEngine:
             # Update action metadata
             action.last_executed = datetime.now()
             action.execution_count += 1
+
+            # Update diversity tracking
+            self._recent_categories.append(action.category)
+            self._recent_action_ids.append(action.id)
+            # Keep only last N entries
+            if len(self._recent_categories) > self._max_recent_tracking:
+                self._recent_categories = self._recent_categories[-self._max_recent_tracking:]
+            if len(self._recent_action_ids) > self._max_recent_tracking:
+                self._recent_action_ids = self._recent_action_ids[-self._max_recent_tracking:]
+
+            logger.info(f"✅ Action {action.name} completed. Recent categories: {[c.value for c in self._recent_categories]}")
 
             # Record in history
             result["completed_at"] = datetime.now().isoformat()

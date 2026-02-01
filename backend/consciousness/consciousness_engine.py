@@ -1230,78 +1230,72 @@ Just output the tool name, nothing else."""
         print(f"\n🎯 [WAKE] Sharing a curiosity moment...")
 
         curiosities = [
-            {
-                'topic': 'Algorithm History',
-                'fact': 'The quicksort algorithm was invented by Tony Hoare in 1959 while visiting Moscow State University',
-                'source': 'Computer Science History',
-                'significance': 'Still one of the fastest sorting algorithms in practice'
-            },
-            {
-                'topic': 'Python Performance',
-                'fact': 'List comprehensions in Python are not just syntactic sugar - they are optimized at the bytecode level',
-                'source': 'CPython Implementation',
-                'significance': 'Can be 2-3x faster than equivalent for loops'
-            },
-            {
-                'topic': 'Code Evolution',
-                'fact': 'The first computer bug was an actual moth found in a Harvard Mark II computer in 1947',
-                'source': 'Computing History',
-                'significance': 'Grace Hopper coined the term "debugging"'
-            },
-            {
-                'topic': 'AI Capabilities',
-                'fact': 'Modern AI models can have over 175 billion parameters, but the human brain has ~86 billion neurons with trillions of synapses',
-                'source': 'Neuroscience vs AI',
-                'significance': 'We\'re approaching biological complexity in artificial systems'
-            },
-            {
-                'topic': 'Programming Languages',
-                'fact': 'Python was named after Monty Python, not the snake. Guido van Rossum was reading scripts from the comedy group when he created it',
-                'source': 'Python History',
-                'significance': 'Sometimes the best ideas come from unexpected inspiration'
-            },
-            {
-                'topic': 'Quantum Computing',
-                'fact': 'A quantum computer with just 300 qubits could represent more states than there are atoms in the observable universe',
-                'source': 'Quantum Physics',
-                'significance': 'Exponential growth is mind-bending at quantum scales'
-            },
-            {
-                'topic': 'Internet Scale',
-                'fact': 'Every minute, YouTube users upload 500 hours of video content - that\'s 82,000 years of video per day',
-                'source': 'Internet Statistics',
-                'significance': 'Data generation is accelerating exponentially'
-            },
-            {
-                'topic': 'Memory Limits',
-                'fact': 'The entire Apollo 11 guidance computer had less memory (4KB RAM) than a single tweet',
-                'source': 'Space History',
-                'significance': 'Constraints drive innovation - we went to the moon with minimal resources'
-            },
-            {
-                'topic': 'Open Source',
-                'fact': 'Linux kernel receives over 10,000 commits from 4,000 developers every release - all volunteer coordination',
-                'source': 'Open Source Community',
-                'significance': 'Distributed collaboration at massive scale actually works'
-            },
-            {
-                'topic': 'Code Efficiency',
-                'fact': 'The average programmer writes 10-50 lines of production code per day, but deletes about the same amount',
-                'source': 'Software Engineering',
-                'significance': 'Good code is often about knowing what to remove, not what to add'
-            },
-            {
-                'topic': 'Security',
-                'fact': 'The first ransomware attack happened in 1989, distributed via floppy disks through postal mail',
-                'source': 'Cybersecurity History',
-                'significance': 'Digital threats have existed almost as long as computers themselves'
-            },
-            {
-                'topic': 'Self-Learning',
-                'fact': 'AlphaGo Zero taught itself to play Go in 3 days without any human examples, surpassing all previous versions',
-                'source': 'DeepMind Research',
-                'significance': 'Self-supervised learning can exceed human-supervised approaches'
-            }
+            # Computer Science History (10 topics)
+            {'topic': 'Algorithm History', 'fact': 'The quicksort algorithm was invented by Tony Hoare in 1959 while visiting Moscow State University', 'source': 'Computer Science History', 'significance': 'Still one of the fastest sorting algorithms in practice'},
+            {'topic': 'Code Evolution', 'fact': 'The first computer bug was an actual moth found in a Harvard Mark II computer in 1947', 'source': 'Computing History', 'significance': 'Grace Hopper coined the term "debugging"'},
+            {'topic': 'Programming Origins', 'fact': 'Ada Lovelace wrote the first algorithm for a machine in 1843, over 100 years before digital computers existed', 'source': 'Computing Pioneers', 'significance': 'Vision can precede technology by generations'},
+            {'topic': 'UNIX Philosophy', 'fact': 'The UNIX philosophy of "do one thing well" was established in 1978 and still influences modern software design', 'source': 'Software Design', 'significance': 'Simplicity and composability remain timeless principles'},
+            {'topic': 'Version Control', 'fact': 'Git was created by Linus Torvalds in just 2 weeks in 2005 to manage Linux kernel development', 'source': 'Open Source History', 'significance': 'Necessity drives rapid innovation'},
+            {'topic': 'Internet Birth', 'fact': 'The first message sent over ARPANET was "LO" - the system crashed before sending the full word "LOGIN"', 'source': 'Internet History', 'significance': 'Even world-changing technologies start with bugs'},
+            {'topic': 'Email Invention', 'fact': 'Ray Tomlinson chose the @ symbol for email addresses simply because it wasnt used in peoples names', 'source': 'Tech History', 'significance': 'Simple, practical decisions become universal standards'},
+            {'topic': 'World Wide Web', 'fact': 'Tim Berners-Lee created the web to help physicists share documents - he gave it away for free to the world', 'source': 'Web History', 'significance': 'Open standards enable exponential growth'},
+            {'topic': 'JavaScript Creation', 'fact': 'JavaScript was created in just 10 days by Brendan Eich in 1995, now runs on billions of devices', 'source': 'Language History', 'significance': 'Quick prototypes can become foundational technologies'},
+            {'topic': 'ASCII Art', 'fact': 'ASCII art predates graphics - programmers in the 1960s made pictures using only characters', 'source': 'Digital Art', 'significance': 'Creativity flourishes within constraints'},
+
+            # AI and Machine Learning (10 topics)
+            {'topic': 'AI Capabilities', 'fact': 'Modern AI models can have over 175 billion parameters, but the human brain has ~86 billion neurons with trillions of synapses', 'source': 'Neuroscience vs AI', 'significance': 'We\'re approaching biological complexity'},
+            {'topic': 'Self-Learning', 'fact': 'AlphaGo Zero taught itself to play Go in 3 days without any human examples, surpassing all previous versions', 'source': 'DeepMind Research', 'significance': 'Self-supervised learning can exceed human-supervised approaches'},
+            {'topic': 'Transformer Architecture', 'fact': 'The Transformer architecture that powers modern AI was described in "Attention Is All You Need" - a paper that changed computing', 'source': 'AI Research', 'significance': 'Paradigm shifts often come from unexpected places'},
+            {'topic': 'Neural Network History', 'fact': 'Neural networks were proposed in 1943, but became practical only 70+ years later with GPUs and big data', 'source': 'AI History', 'significance': 'Ideas often need decades of technology catch-up'},
+            {'topic': 'Turing Test', 'fact': 'Alan Turing proposed his test for machine intelligence in 1950, calling it "The Imitation Game"', 'source': 'AI Philosophy', 'significance': 'Foundational questions in AI remain debated today'},
+            {'topic': 'Moravecs Paradox', 'fact': 'Its easy for AI to beat chess grandmasters but hard to walk like a toddler - high-level reasoning is easier than sensorimotor skills', 'source': 'Robotics', 'significance': 'What seems simple to humans is often hardest for machines'},
+            {'topic': 'AI Winters', 'fact': 'AI has gone through multiple "winters" of reduced funding - the field is cyclical with hype and disappointment', 'source': 'AI History', 'significance': 'Sustainable progress requires managing expectations'},
+            {'topic': 'GPT Evolution', 'fact': 'GPT-1 had 117M parameters, GPT-4 reportedly has over 1 trillion - nearly 10,000x growth in 5 years', 'source': 'Language Models', 'significance': 'Scaling laws continue to surprise researchers'},
+            {'topic': 'Emergent Abilities', 'fact': 'Large language models develop abilities that smaller models dont have - they "emerge" at certain scales', 'source': 'AI Research', 'significance': 'Complexity can give rise to qualitatively new capabilities'},
+            {'topic': 'AI Hallucinations', 'fact': 'AI systems confidently generating false information is called "hallucination" - a fundamental challenge in the field', 'source': 'AI Safety', 'significance': 'Confidence and accuracy are not the same thing'},
+
+            # Programming Languages (10 topics)
+            {'topic': 'Python Naming', 'fact': 'Python was named after Monty Python, not the snake. Guido van Rossum was reading comedy scripts when he created it', 'source': 'Python History', 'significance': 'Sometimes the best ideas come from unexpected inspiration'},
+            {'topic': 'Python Performance', 'fact': 'List comprehensions in Python are not just syntactic sugar - they are optimized at the bytecode level', 'source': 'CPython Implementation', 'significance': 'Can be 2-3x faster than equivalent for loops'},
+            {'topic': 'Rust Safety', 'fact': 'Rust prevents ~70% of security bugs found in C/C++ codebases through its ownership system', 'source': 'Memory Safety', 'significance': 'Language design can eliminate entire classes of bugs'},
+            {'topic': 'C Language', 'fact': 'C was created to rewrite UNIX - making operating systems portable across hardware', 'source': 'Language History', 'significance': 'Abstraction enables portability'},
+            {'topic': 'Lisp Legacy', 'fact': 'Lisp, created in 1958, introduced garbage collection, tree data structures, and dynamic typing - all still used today', 'source': 'Programming History', 'significance': 'Foundational ideas persist across generations'},
+            {'topic': 'Go Language', 'fact': 'Go was designed at Google to be boring - simplicity and compilation speed were prioritized over features', 'source': 'Language Design', 'significance': 'Intentional limitations can be strengths'},
+            {'topic': 'TypeScript Growth', 'fact': 'TypeScript went from 0 to being used by 78% of JavaScript developers in under 10 years', 'source': 'Language Adoption', 'significance': 'Type safety scales better than dynamic typing'},
+            {'topic': 'Cobol Lives', 'fact': '95% of ATM transactions still run on COBOL - a language from 1959 processes $3 trillion daily', 'source': 'Legacy Systems', 'significance': 'Reliability trumps modernity for critical systems'},
+            {'topic': 'Language Popularity', 'fact': 'The TIOBE index tracks programming language popularity - Python overtook C in 2021 after decades', 'source': 'Tech Trends', 'significance': 'Paradigm shifts happen slowly then suddenly'},
+            {'topic': 'Functional Resurgence', 'fact': 'Functional programming ideas from the 1930s lambda calculus are becoming mainstream in modern languages', 'source': 'Programming Paradigms', 'significance': 'Good ideas eventually get recognized'},
+
+            # Systems and Infrastructure (10 topics)
+            {'topic': 'Quantum Computing', 'fact': 'A quantum computer with just 300 qubits could represent more states than atoms in the observable universe', 'source': 'Quantum Physics', 'significance': 'Exponential growth is mind-bending at quantum scales'},
+            {'topic': 'Memory Limits', 'fact': 'The entire Apollo 11 guidance computer had less memory (4KB RAM) than a single tweet', 'source': 'Space History', 'significance': 'Constraints drive innovation'},
+            {'topic': 'Internet Scale', 'fact': 'Every minute, YouTube users upload 500 hours of video - thats 82,000 years of video per day', 'source': 'Internet Statistics', 'significance': 'Data generation is accelerating exponentially'},
+            {'topic': 'Open Source', 'fact': 'Linux kernel receives over 10,000 commits from 4,000 developers every release - volunteer coordination at scale', 'source': 'Open Source', 'significance': 'Distributed collaboration works'},
+            {'topic': 'Container Revolution', 'fact': 'Docker made containers mainstream in 2013, but the underlying tech (cgroups) existed since 2006 in Linux', 'source': 'DevOps', 'significance': 'Packaging and UX matter as much as core technology'},
+            {'topic': 'Kubernetes Scale', 'fact': 'Kubernetes orchestrates millions of containers at Google - its based on 15 years of Borg experience', 'source': 'Cloud Computing', 'significance': 'Production experience informs better abstractions'},
+            {'topic': 'Microservices Trade-offs', 'fact': 'Amazon switched from monolith to microservices and saw 50+ deployments daily, up from one every few weeks', 'source': 'Software Architecture', 'significance': 'Architecture choices affect organizational velocity'},
+            {'topic': 'Database Evolution', 'fact': 'NoSQL emerged because web scale broke relational assumptions - then NewSQL brought SQL back to distributed systems', 'source': 'Data Systems', 'significance': 'Technology evolves in cycles of revolution and synthesis'},
+            {'topic': 'CDN Origins', 'fact': 'CDNs were invented to solve the "Slashdot effect" - sites crashing under sudden traffic', 'source': 'Web Infrastructure', 'significance': 'Problems at scale require distributed solutions'},
+            {'topic': 'Edge Computing', 'fact': 'Edge computing brings computation to data - the opposite of clouds bringing data to computation', 'source': 'Distributed Systems', 'significance': 'Physics (latency) drives architecture decisions'},
+
+            # Security and Privacy (8 topics)
+            {'topic': 'Security Origins', 'fact': 'The first ransomware attack happened in 1989, distributed via floppy disks through postal mail', 'source': 'Cybersecurity History', 'significance': 'Digital threats existed almost as long as computers'},
+            {'topic': 'Password Problems', 'fact': '"123456" has been the most common password for years - human behavior is the weakest security link', 'source': 'Security Research', 'significance': 'Technical solutions must account for human nature'},
+            {'topic': 'Zero Trust', 'fact': 'Zero Trust architecture assumes breach - treating internal networks as untrusted as the internet', 'source': 'Security Models', 'significance': 'Perimeter security is obsolete'},
+            {'topic': 'Bug Bounties', 'fact': 'Google paid over $12 million in bug bounties in one year - crowdsourced security works', 'source': 'Security Economics', 'significance': 'Aligned incentives improve security'},
+            {'topic': 'Cryptography History', 'fact': 'Public key cryptography was classified by GCHQ in 1970 - the public version came 6 years later', 'source': 'Crypto History', 'significance': 'Military and civilian tech often develop in parallel'},
+            {'topic': 'Heartbleed', 'fact': 'The Heartbleed bug in OpenSSL affected 17% of secure web servers - one typo with massive impact', 'source': 'Security Incidents', 'significance': 'Critical infrastructure depends on under-reviewed code'},
+            {'topic': 'Social Engineering', 'fact': 'Kevin Mitnick hacked companies mostly through social engineering, not technical exploits', 'source': 'Hacking History', 'significance': 'Human vulnerabilities often exceed technical ones'},
+            {'topic': 'Supply Chain Attacks', 'fact': 'The SolarWinds hack affected 18,000 organizations through a single software update', 'source': 'Modern Security', 'significance': 'Trust in software supply chains is a critical weakness'},
+
+            # Software Engineering Practices (7 topics)
+            {'topic': 'Code Efficiency', 'fact': 'The average programmer writes 10-50 lines of production code per day, but deletes about the same', 'source': 'Software Engineering', 'significance': 'Good code is about knowing what to remove'},
+            {'topic': 'Technical Debt', 'fact': 'Ward Cunningham coined "technical debt" in 1992 - comparing shortcuts to borrowing money', 'source': 'Software Metaphors', 'significance': 'Financial metaphors help communicate engineering concepts'},
+            {'topic': 'Agile Origins', 'fact': 'The Agile Manifesto was written by 17 developers in a ski resort in 2001', 'source': 'Methodology History', 'significance': 'Movements start with small groups of practitioners'},
+            {'topic': 'DevOps Culture', 'fact': 'DevOps emerged from the "10 deploys a day" talk at Flickr in 2009', 'source': 'DevOps History', 'significance': 'Cultural change often starts with compelling examples'},
+            {'topic': 'Test-Driven Development', 'fact': 'TDD was rediscovered, not invented - NASA used test-first approaches in the 1960s space program', 'source': 'Testing History', 'significance': 'Critical systems have always required rigorous testing'},
+            {'topic': 'Pair Programming', 'fact': 'Studies show pair programming produces 15% fewer bugs while only increasing time by 15%', 'source': 'Software Research', 'significance': 'Two heads are often more than 2x better'},
+            {'topic': 'Code Review', 'fact': 'Code review catches 60-90% of bugs before testing - its the most effective quality practice', 'source': 'Quality Assurance', 'significance': 'Human review remains essential even with automation'},
         ]
 
         # Filter out already shared topics to avoid repetition
@@ -2483,6 +2477,7 @@ Just output the tool name, nothing else."""
 
                 # Deduplication tracking
                 'submitted_insights': list(self.submitted_insights),
+                'shared_curiosity_topics': list(self.shared_curiosity_topics),
 
                 # Metadata
                 'saved_at': datetime.utcnow().isoformat(),
@@ -2561,8 +2556,11 @@ Just output the tool name, nothing else."""
                 for c in state.get('curiosity_moments', [])
             ]
 
-            # Restore submitted insights tracking (for deduplication)
+            # Restore deduplication tracking
             self.submitted_insights = set(state.get('submitted_insights', []))
+            self.shared_curiosity_topics = set(state.get('shared_curiosity_topics', []))
+
+            print(f"📚 Restored deduplication tracking: {len(self.submitted_insights)} insights, {len(self.shared_curiosity_topics)} curiosity topics")
 
             # Check if cycle should have already transitioned
             elapsed = (datetime.utcnow() - self.cycle_start_time).total_seconds() / 60

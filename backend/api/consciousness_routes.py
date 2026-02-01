@@ -210,6 +210,23 @@ async def get_consciousness_status():
     return consciousness_engine.get_status()
 
 
+def _safe_serialize(obj):
+    """Safely serialize objects that might contain non-serializable types"""
+    if obj is None:
+        return None
+    if isinstance(obj, (str, int, float, bool)):
+        return obj
+    if isinstance(obj, dict):
+        return {k: _safe_serialize(v) for k, v in obj.items()}
+    if isinstance(obj, (list, tuple)):
+        return [_safe_serialize(v) for v in obj]
+    # For any other type, convert to string
+    try:
+        return str(obj)
+    except:
+        return "<non-serializable>"
+
+
 @router.get("/wake-activities")
 async def get_wake_activities(limit: int = 10):
     """Get recent wake activities"""
@@ -225,8 +242,8 @@ async def get_wake_activities(limit: int = 10):
                 'description': a.description,
                 'started_at': a.started_at.isoformat(),
                 'completed_at': a.completed_at.isoformat() if a.completed_at else None,
-                'insights': a.insights,
-                'result': a.result
+                'insights': list(a.insights) if a.insights else [],
+                'result': _safe_serialize(a.result)
             }
             for a in activities
         ],
@@ -250,9 +267,9 @@ async def get_sleep_dreams(limit: int = 10):
                 'started_at': d.started_at.isoformat(),
                 'completed_at': d.completed_at.isoformat() if d.completed_at else None,
                 'success': d.success,
-                'insights': d.insights,
-                'insights_count': len(d.insights),
-                'exploration_details': d.exploration_details  # NEW: Include URLs, repos, files explored
+                'insights': list(d.insights) if d.insights else [],
+                'insights_count': len(d.insights) if d.insights else 0,
+                'exploration_details': _safe_serialize(d.exploration_details)
             }
             for d in dreams
         ],
