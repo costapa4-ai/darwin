@@ -43,8 +43,11 @@ export function ChatPanel() {
   const loadHistory = async () => {
     try {
       const data = await darwinApi.getChatHistory(30);
-      if (data.history) {
-        data.history.reverse().forEach((msg: { role: string; content: string; timestamp: string }) => {
+      // API returns 'messages' not 'history'
+      const history = data.messages || data.history || [];
+      if (history.length > 0) {
+        // Reverse to show oldest first, then add each message
+        [...history].reverse().forEach((msg: { role: string; content: string; timestamp: string; state?: string; personality_mode?: string }) => {
           addMessage({
             id: Math.random().toString(36),
             role: msg.role as 'user' | 'darwin',
@@ -77,13 +80,13 @@ export function ChatPanel() {
     try {
       const response = await darwinApi.sendMessage(userMessage);
 
-      // Add Darwin's response
+      // Add Darwin's response (API returns 'content' not 'response')
       addMessage({
         id: Math.random().toString(36),
         role: 'darwin',
-        content: response.response,
+        content: response.content || response.response || 'No response',
         timestamp: new Date(),
-        mood: response.mood,
+        mood: response.mood || response.personality_mode,
         hasVoice: response.voice_path != null,
         voicePath: response.voice_path,
       });
