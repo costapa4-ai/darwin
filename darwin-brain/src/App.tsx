@@ -30,9 +30,9 @@ function App() {
             state: status.state || 'wake',
             mood: status.mood || 'curious',
             cycleProgress: status.cycle_progress || 0,
-            activitiesCount: status.activities_count || 0,
-            discoveriesCount: status.discoveries_count || 0,
-            dreamsCount: status.dreams_count || 0,
+            activitiesCount: status.total_activities || status.activities_count || 0,
+            discoveriesCount: status.total_discoveries || status.discoveries_count || 0,
+            dreamsCount: status.sleep_cycles_completed || status.dreams_count || 0,
           });
         }
 
@@ -143,9 +143,9 @@ function App() {
             state: status.state || 'wake',
             mood: status.mood || 'curious',
             cycleProgress: status.cycle_progress || 0,
-            activitiesCount: status.activities_count || 0,
-            discoveriesCount: status.discoveries_count || 0,
-            dreamsCount: status.dreams_count || 0,
+            activitiesCount: status.total_activities || status.activities_count || 0,
+            discoveriesCount: status.total_discoveries || status.discoveries_count || 0,
+            dreamsCount: status.sleep_cycles_completed || status.dreams_count || 0,
           });
         }
       } catch {
