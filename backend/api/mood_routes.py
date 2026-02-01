@@ -308,3 +308,71 @@ async def get_available_events():
         'events': events,
         'count': len(events)
     }
+
+
+@router.get("/environment")
+async def get_environmental_influence():
+    """
+    🌍 Get environmental factors influencing mood
+
+    Returns:
+    - Time of day and its mood tendencies
+    - Discovery momentum (recent discoveries boost)
+    - Frustration level (recent errors)
+    - Engagement level (user interactions)
+    - Daily counters
+    """
+    if not communicator:
+        raise HTTPException(status_code=503, detail="Mood system not initialized")
+
+    try:
+        env_data = communicator.mood.get_environmental_influence()
+        current_mood = communicator.mood.get_current_mood()
+
+        return {
+            'success': True,
+            'environment': env_data,
+            'current_mood': current_mood['mood'],
+            'time_of_day': env_data['time_of_day'],
+            'mood_tendency_for_time': [
+                {'mood': m.value, 'weight': w}
+                for m, w in env_data.get('time_mood_tendency', [])
+            ]
+        }
+
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error getting environment: {str(e)}")
+
+
+@router.post("/environment/shift")
+async def apply_environmental_shift():
+    """
+    🔄 Apply environmental mood shift
+
+    Triggers a potential mood shift based on environmental factors
+    (time of day, recent activity, etc.)
+    """
+    if not communicator:
+        raise HTTPException(status_code=503, detail="Mood system not initialized")
+
+    try:
+        new_mood = communicator.mood.apply_environmental_mood_shift()
+
+        if new_mood:
+            return {
+                'success': True,
+                'mood_changed': True,
+                'new_mood': new_mood.value,
+                'description': communicator.mood.get_mood_description(),
+                'reason': 'environmental_shift'
+            }
+        else:
+            return {
+                'success': True,
+                'mood_changed': False,
+                'current_mood': communicator.mood.current_mood.value,
+                'message': 'No mood change triggered (too soon or conditions not met)'
+            }
+
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error applying shift: {str(e)}")

@@ -19,6 +19,16 @@ from api import inquiry_routes
 from api import cost_routes
 from api import findings_routes
 from api import command_routes
+from api import existential_routes
+from api import diary_routes
+from api import expedition_routes
+from api import learning_routes
+from api import channel_routes
+from api import financial_routes
+from api import hooks_routes
+from api import ui_automation_routes
+from api import voice_routes
+from api import distributed_routes
 from api.websocket import manager
 from utils.logger import setup_logger
 
@@ -62,6 +72,36 @@ def register_all_routes(app: FastAPI):
 
     # Safe Command Execution routes
     app.include_router(command_routes.router)
+
+    # Existential/Philosophical routes
+    app.include_router(existential_routes.router)
+
+    # Diary routes
+    app.include_router(diary_routes.router)
+
+    # Curiosity Expedition routes
+    app.include_router(expedition_routes.router)
+
+    # Learning System routes
+    app.include_router(learning_routes.router)
+
+    # Channel Gateway routes
+    app.include_router(channel_routes.router)
+
+    # Financial Consciousness routes
+    app.include_router(financial_routes.router)
+
+    # Hooks System routes
+    app.include_router(hooks_routes.router)
+
+    # UI Automation routes
+    app.include_router(ui_automation_routes.router)
+
+    # Voice Synthesis routes
+    app.include_router(voice_routes.router)
+
+    # Distributed Consciousness routes
+    app.include_router(distributed_routes.router)
 
     # WebSocket endpoint
     @app.websocket("/ws")

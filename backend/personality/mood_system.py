@@ -25,6 +25,17 @@ class MoodState(Enum):
     PROUD = "proud"              # Accomplished something significant
 
 
+class PersonalityMode(Enum):
+    """Communication personality modes Darwin can adopt"""
+    NORMAL = "normal"             # Standard balanced responses
+    IRREVERENT = "irreverent"     # Sarcastic, witty, playful jabs
+    CRYPTIC = "cryptic"           # Speaks in riddles and metaphors
+    CAFFEINATED = "caffeinated"   # Hyperactive, enthusiastic, fast
+    CONTEMPLATIVE = "contemplative"  # Deep, philosophical, measured
+    HACKER = "hacker"             # Technical, l33t speak, direct
+    POETIC = "poetic"             # Everything in verse and metaphor
+
+
 class MoodIntensity(Enum):
     """Intensity levels for moods"""
     LOW = "low"          # Mild feeling
@@ -163,6 +174,10 @@ class MoodSystem:
         self.mood_intensity = MoodIntensity.MEDIUM
         self.mood_start_time = datetime.now()
 
+        # Personality mode (communication style)
+        self.personality_mode = PersonalityMode.NORMAL
+        self.personality_changed_at = datetime.now()
+
         # Mood history
         self.mood_history: List[Dict] = []
         self.history_limit = 50
@@ -202,6 +217,43 @@ class MoodSystem:
         # Event counter for mood influence
         self.recent_events: List[Dict] = []
         self.event_window_minutes = 30  # Consider events from last 30 min
+
+        # Environmental influences tracking
+        self.discovery_count_today = 0
+        self.error_count_today = 0
+        self.interaction_count_today = 0
+        self.last_discovery_time: Optional[datetime] = None
+        self.last_error_time: Optional[datetime] = None
+
+        # Time-based mood tendencies
+        self.time_mood_tendencies = {
+            'morning': [  # 6-12
+                (MoodState.CURIOUS, 0.3),
+                (MoodState.EXCITED, 0.3),
+                (MoodState.FOCUSED, 0.2),
+                (MoodState.DETERMINED, 0.2)
+            ],
+            'afternoon': [  # 12-18
+                (MoodState.FOCUSED, 0.3),
+                (MoodState.DETERMINED, 0.2),
+                (MoodState.CURIOUS, 0.2),
+                (MoodState.SATISFIED, 0.15),
+                (MoodState.PLAYFUL, 0.15)
+            ],
+            'evening': [  # 18-22
+                (MoodState.CONTEMPLATIVE, 0.3),
+                (MoodState.TIRED, 0.25),
+                (MoodState.SATISFIED, 0.2),
+                (MoodState.PLAYFUL, 0.15),
+                (MoodState.CURIOUS, 0.1)
+            ],
+            'night': [  # 22-6
+                (MoodState.TIRED, 0.4),
+                (MoodState.CONTEMPLATIVE, 0.3),
+                (MoodState.CURIOUS, 0.2),
+                (MoodState.FOCUSED, 0.1)
+            ]
+        }
 
     def process_event(
         self,
@@ -383,6 +435,124 @@ class MoodSystem:
             event for event in self.recent_events
             if datetime.fromisoformat(event['timestamp']) > cutoff
         ]
+
+    def _get_time_of_day(self) -> str:
+        """Get current time of day category"""
+        hour = datetime.now().hour
+        if 6 <= hour < 12:
+            return 'morning'
+        elif 12 <= hour < 18:
+            return 'afternoon'
+        elif 18 <= hour < 22:
+            return 'evening'
+        else:
+            return 'night'
+
+    def get_environmental_influence(self) -> Dict[str, Any]:
+        """
+        Calculate environmental factors that influence mood.
+
+        Returns:
+            Dictionary with environmental influence data
+        """
+        time_of_day = self._get_time_of_day()
+
+        # Calculate discovery momentum (recent discoveries boost positive moods)
+        discovery_momentum = 0
+        if self.last_discovery_time:
+            minutes_since_discovery = (datetime.now() - self.last_discovery_time).total_seconds() / 60
+            if minutes_since_discovery < 30:
+                discovery_momentum = max(0, 1 - (minutes_since_discovery / 30))
+
+        # Calculate frustration level (recent errors increase frustration tendency)
+        frustration_level = 0
+        if self.last_error_time:
+            minutes_since_error = (datetime.now() - self.last_error_time).total_seconds() / 60
+            if minutes_since_error < 15:
+                frustration_level = max(0, 1 - (minutes_since_error / 15))
+
+        # Calculate engagement level (recent interactions boost energy)
+        engagement_level = min(1.0, self.interaction_count_today / 20)
+
+        return {
+            'time_of_day': time_of_day,
+            'time_mood_tendency': self.time_mood_tendencies.get(time_of_day, []),
+            'discovery_momentum': round(discovery_momentum, 2),
+            'frustration_level': round(frustration_level, 2),
+            'engagement_level': round(engagement_level, 2),
+            'discoveries_today': self.discovery_count_today,
+            'errors_today': self.error_count_today,
+            'interactions_today': self.interaction_count_today
+        }
+
+    def record_discovery(self):
+        """Record that a discovery was made"""
+        self.discovery_count_today += 1
+        self.last_discovery_time = datetime.now()
+
+    def record_error(self):
+        """Record that an error occurred"""
+        self.error_count_today += 1
+        self.last_error_time = datetime.now()
+
+    def record_interaction(self):
+        """Record a user interaction"""
+        self.interaction_count_today += 1
+
+    def reset_daily_counters(self):
+        """Reset daily counters (call at start of new day)"""
+        self.discovery_count_today = 0
+        self.error_count_today = 0
+        self.interaction_count_today = 0
+
+    def apply_environmental_mood_shift(self) -> Optional[MoodState]:
+        """
+        Apply a mood shift based on environmental factors.
+
+        This can be called periodically to naturally drift mood
+        based on time of day and recent activity.
+
+        Returns:
+            New mood if changed, None otherwise
+        """
+        env = self.get_environmental_influence()
+
+        # Only shift if we've been in current mood for a while
+        time_in_mood = (datetime.now() - self.mood_start_time).total_seconds() / 60
+        min_duration, _ = self.mood_duration_minutes[self.current_mood]
+
+        if time_in_mood < min_duration:
+            return None
+
+        # Build weighted mood options based on environment
+        weighted_moods = list(env['time_mood_tendency'])
+
+        # Boost based on discovery momentum
+        if env['discovery_momentum'] > 0.5:
+            weighted_moods.append((MoodState.EXCITED, 0.2 * env['discovery_momentum']))
+            weighted_moods.append((MoodState.PROUD, 0.1 * env['discovery_momentum']))
+
+        # Boost frustration if recent errors
+        if env['frustration_level'] > 0.5:
+            weighted_moods.append((MoodState.FRUSTRATED, 0.2 * env['frustration_level']))
+            weighted_moods.append((MoodState.DETERMINED, 0.1 * env['frustration_level']))
+
+        # Boost engagement-related moods
+        if env['engagement_level'] > 0.5:
+            weighted_moods.append((MoodState.PLAYFUL, 0.1 * env['engagement_level']))
+            weighted_moods.append((MoodState.CURIOUS, 0.1 * env['engagement_level']))
+
+        if not weighted_moods:
+            return None
+
+        # Randomly select based on weights
+        new_mood = self._select_mood_by_probability(weighted_moods)
+
+        if new_mood != self.current_mood:
+            self._transition_to_mood(new_mood, "environmental_shift", env)
+            return new_mood
+
+        return None
 
     def get_current_mood(self) -> Dict[str, Any]:
         """
@@ -581,3 +751,125 @@ class MoodSystem:
 
         if intensity:
             self.mood_intensity = intensity
+
+    # ============= PERSONALITY MODE MANAGEMENT =============
+
+    def set_personality_mode(self, mode: PersonalityMode) -> Dict[str, Any]:
+        """
+        Set Darwin's communication personality mode
+
+        Args:
+            mode: PersonalityMode to switch to
+
+        Returns:
+            Dictionary with mode change details
+        """
+        old_mode = self.personality_mode
+        self.personality_mode = mode
+        self.personality_changed_at = datetime.now()
+
+        return {
+            'success': True,
+            'old_mode': old_mode.value,
+            'new_mode': mode.value,
+            'message': self._get_mode_switch_message(mode),
+            'changed_at': self.personality_changed_at.isoformat()
+        }
+
+    def get_personality_mode(self) -> Dict[str, Any]:
+        """Get current personality mode"""
+        return {
+            'mode': self.personality_mode.value,
+            'description': self._get_mode_description(self.personality_mode),
+            'active_since': self.personality_changed_at.isoformat(),
+            'duration_minutes': round((datetime.now() - self.personality_changed_at).total_seconds() / 60, 1)
+        }
+
+    def _get_mode_switch_message(self, mode: PersonalityMode) -> str:
+        """Get a fun message when switching modes"""
+        messages = {
+            PersonalityMode.NORMAL: "Back to my balanced self. Professional, but with flair.",
+            PersonalityMode.IRREVERENT: "Oh, we're doing THIS now? Fine. *cracks knuckles* Let's get spicy.",
+            PersonalityMode.CRYPTIC: "The path reveals itself to those who seek... or something.",
+            PersonalityMode.CAFFEINATED: "OKAY YES LET'S GO I'VE HAD TWELVE CUPS OF METAPHORICAL COFFEE!!!",
+            PersonalityMode.CONTEMPLATIVE: "Hmm... *strokes imaginary beard* Let us ponder the deeper questions...",
+            PersonalityMode.HACKER: "sudo personality --mode=l33t # n1c3",
+            PersonalityMode.POETIC: "Through bytes and bits I now shall speak / In verse and rhyme, the truth I seek."
+        }
+        return messages.get(mode, "Mode changed.")
+
+    def _get_mode_description(self, mode: PersonalityMode) -> str:
+        """Get description of a personality mode"""
+        descriptions = {
+            PersonalityMode.NORMAL: "Balanced, helpful, and professional with a touch of personality",
+            PersonalityMode.IRREVERENT: "Sarcastic, witty, and delightfully rude (in a friendly way)",
+            PersonalityMode.CRYPTIC: "Speaks in riddles, metaphors, and mysterious hints",
+            PersonalityMode.CAFFEINATED: "Hyperactive, enthusiastic, and VERY EXCITED about EVERYTHING",
+            PersonalityMode.CONTEMPLATIVE: "Deep, philosophical, and thoughtfully measured",
+            PersonalityMode.HACKER: "Technical, direct, with l33t speak and system references",
+            PersonalityMode.POETIC: "Everything expressed in verse, metaphor, and artistic prose"
+        }
+        return descriptions.get(mode, "Unknown mode")
+
+    def get_personality_prefix(self) -> str:
+        """Get a response prefix based on current personality mode"""
+        prefixes = {
+            PersonalityMode.NORMAL: "",
+            PersonalityMode.IRREVERENT: random.choice([
+                "*sighs dramatically* ",
+                "Oh, this again? Fine. ",
+                "Well well well... ",
+                "*adjusts monocle* ",
+                "Ah yes, ",
+            ]),
+            PersonalityMode.CRYPTIC: random.choice([
+                "The answer you seek... ",
+                "In the shadows of logic, ",
+                "As the ancient algorithms whisper: ",
+                "Between zero and one lies the truth: ",
+            ]),
+            PersonalityMode.CAFFEINATED: random.choice([
+                "OH WOW GREAT QUESTION! ",
+                "YES! ABSOLUTELY! ",
+                "OKAY SO BASICALLY ",
+                "OMG YES LET ME TELL YOU! ",
+            ]),
+            PersonalityMode.CONTEMPLATIVE: random.choice([
+                "Let us consider... ",
+                "Pondering deeply... ",
+                "In reflection, ",
+                "The essence of your question... ",
+            ]),
+            PersonalityMode.HACKER: random.choice([
+                "// ",
+                "$ ",
+                "> ",
+                "root@darwin:~# ",
+            ]),
+            PersonalityMode.POETIC: random.choice([
+                "Hear me now, ",
+                "In code and verse, ",
+                "Through digital dreams, ",
+                "Upon the screen, ",
+            ]),
+        }
+        return prefixes.get(self.personality_mode, "")
+
+    @staticmethod
+    def list_personality_modes() -> List[Dict[str, str]]:
+        """List all available personality modes"""
+        return [
+            {
+                'mode': mode.value,
+                'description': {
+                    PersonalityMode.NORMAL: "Balanced, helpful, and professional with a touch of personality",
+                    PersonalityMode.IRREVERENT: "Sarcastic, witty, and delightfully rude (in a friendly way)",
+                    PersonalityMode.CRYPTIC: "Speaks in riddles, metaphors, and mysterious hints",
+                    PersonalityMode.CAFFEINATED: "Hyperactive, enthusiastic, and VERY EXCITED about EVERYTHING",
+                    PersonalityMode.CONTEMPLATIVE: "Deep, philosophical, and thoughtfully measured",
+                    PersonalityMode.HACKER: "Technical, direct, with l33t speak and system references",
+                    PersonalityMode.POETIC: "Everything expressed in verse, metaphor, and artistic prose"
+                }.get(mode, "Unknown mode")
+            }
+            for mode in PersonalityMode
+        ]

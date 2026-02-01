@@ -57,7 +57,10 @@ async def init_consciousness_engine(
         'context_awareness': None,
         'mood_system': None,
         'question_system': None,
-        'tool_manager': None
+        'tool_manager': None,
+        'diary_engine': None,
+        'expedition_engine': None,
+        'financial_consciousness': None
     }
 
     if not settings.enable_dream_mode or not phase3.get('agent_coordinator'):
@@ -136,6 +139,36 @@ async def init_consciousness_engine(
         surprise_system = SurpriseSystem()
         logger.info("All personality systems initialized")
 
+        # Diary Engine
+        from consciousness.diary_engine import DiaryEngine
+        services['diary_engine'] = DiaryEngine(
+            diary_dir="./data/consciousness/diary",
+            mood_system=services['mood_system']
+        )
+        logger.info("Diary Engine initialized")
+
+        # Curiosity Expeditions Engine
+        from consciousness.curiosity_expeditions import CuriosityExpeditions
+        services['expedition_engine'] = CuriosityExpeditions(
+            expeditions_dir="./data/expeditions",
+            web_researcher=phase2.get('web_researcher'),
+            semantic_memory=phase2.get('semantic_memory'),
+            mood_system=services['mood_system'],
+            websocket_manager=manager,
+            diary_engine=services['diary_engine'],
+            meta_learner=phase4.get('enhanced_meta_learner')
+        )
+        logger.info("Curiosity Expeditions Engine initialized")
+
+        # Financial Consciousness
+        from consciousness.financial_consciousness import FinancialConsciousness
+        services['financial_consciousness'] = FinancialConsciousness(
+            multi_model_router=phase2.get('multi_model_router'),
+            mood_system=services['mood_system'],
+            diary_engine=services['diary_engine']
+        )
+        logger.info("Financial Consciousness initialized")
+
         # Proactive Communicator
         services['communicator'] = ProactiveCommunicator(
             websocket_manager=manager,
@@ -171,14 +204,28 @@ async def init_consciousness_engine(
             hierarchical_memory=phase2.get('hierarchical_memory'),
             communicator=services['communicator'],
             code_narrator=phase3.get('code_narrator') if settings.enable_code_poetry else None,
-            diary_writer=phase3.get('diary_writer') if settings.enable_daily_diary else None
+            diary_writer=phase3.get('diary_writer') if settings.enable_daily_diary else None,
+            diary_engine=services['diary_engine']
         )
+
+        # Link diary engine back to consciousness engine
+        if services['diary_engine']:
+            services['diary_engine'].consciousness_engine = services['consciousness_engine']
 
         # Initialize routes
         from api import consciousness_routes, context_routes, mood_routes
-        from api import question_routes, memory_routes
+        from api import question_routes, memory_routes, existential_routes, diary_routes
+        from api import expedition_routes, learning_routes, financial_routes
 
-        consciousness_routes.initialize_consciousness(services['consciousness_engine'])
+        consciousness_routes.initialize_consciousness(services['consciousness_engine'], services['mood_system'])
+        existential_routes.initialize_existential(services['consciousness_engine'], services['mood_system'])
+        diary_routes.initialize_diary(services['diary_engine'])
+        expedition_routes.initialize_expeditions(services['expedition_engine'])
+        financial_routes.initialize_financial(services['financial_consciousness'])
+        learning_routes.initialize_learning(
+            phase4.get('enhanced_meta_learner'),
+            phase4.get('self_reflection_system')
+        )
         context_routes.initialize_context(services['communicator'])
         mood_routes.initialize_mood(services['communicator'])
         question_routes.initialize_questions(services['communicator'])

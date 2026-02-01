@@ -17,6 +17,184 @@ from utils.logger import get_logger
 logger = get_logger(__name__)
 
 
+def _get_smart_defaults(func_name: str, required_params: List[str], kwargs: Dict[str, Any]) -> Dict[str, Any]:
+    """
+    Apply smart defaults for dynamic tool parameters when not explicitly provided.
+
+    This allows tools to run in an autonomous context by providing sensible
+    default values based on the project structure and common patterns.
+
+    Args:
+        func_name: Name of the function being called (e.g., "security_vulnerability_scanner.analyze_requirements_txt")
+        required_params: List of required parameter names
+        kwargs: Existing keyword arguments
+
+    Returns:
+        Updated kwargs with smart defaults applied
+    """
+    import os
+
+    # Don't override existing values
+    result = dict(kwargs)
+
+    # Define smart defaults based on parameter names and function context
+    defaults = {
+        # File/path related parameters
+        'file_path': '/app',
+        'filepath': '/app',
+        'target': '/app',
+        'directory': '/app',
+        'path': '/app',
+        'source_dir': '/app',
+        'project_dir': '/app',
+        'project_root': '/app',
+        'config_file': '/app/config.json',
+
+        # Requirements file - look for common locations
+        'requirements_file': _find_requirements_file(),
+
+        # Command parameters - provide safe defaults
+        'command': ['echo', 'Darwin tool executed successfully'],
+
+        # Analysis parameters
+        'code': '',
+        'source_code': '# Empty source code\npass\n',
+        'query': 'SELECT 1',
+
+        # Numeric parameters
+        'top_k': 10,
+        'limit': 100,
+        'max_depth': 3,
+        'timeout': 30,
+        'user_id': 1,
+
+        # Boolean parameters
+        'recursive': True,
+        'verbose': False,
+
+        # String parameters
+        'pattern': '*.py',
+        'format': 'json',
+        'app_name': 'darwin_app',
+        'entry_point': 'src/index.js',
+        'component_name': 'MainComponent',
+        'route': '/',
+        'variable_name': 'DARWIN_DEFAULT',
+        'agent_id': 'darwin_agent',
+        'input_string': '',
+        'name': 'default',
+
+        # Data structures
+        'routes': {'/': 'Home', '/about': 'About'},
+        'data': {},
+        'schema': {},
+        'params': None,
+        'source_dirs': ['/app/logs'],
+        'log_files': [],
+        'files': [],
+        'exclude_files': [],
+        'destination_file': '/tmp/aggregated_logs.txt',
+    }
+
+    # Apply defaults for missing required parameters
+    for param in required_params:
+        if param not in result:
+            if param in defaults:
+                result[param] = defaults[param]
+                logger.debug(f"Applied default for {param}: {defaults[param]}")
+            else:
+                # Try to infer from parameter name patterns
+                param_lower = param.lower()
+                if 'file' in param_lower or 'path' in param_lower:
+                    result[param] = '/app'
+                elif 'dir' in param_lower:
+                    result[param] = '/app'
+                elif 'command' in param_lower or 'cmd' in param_lower:
+                    result[param] = ['echo', 'Default command']
+                elif 'id' in param_lower:
+                    result[param] = 'default_id'
+                elif 'name' in param_lower:
+                    result[param] = 'default_name'
+                elif 'string' in param_lower or 'text' in param_lower:
+                    result[param] = ''
+                elif 'list' in param_lower or param_lower.endswith('s'):
+                    result[param] = []
+                elif 'dict' in param_lower or 'config' in param_lower:
+                    result[param] = {}
+                # If we can't provide a default, leave it missing and let the error handling deal with it
+
+    return result
+
+
+def _find_requirements_file() -> str:
+    """Find the requirements.txt file in common locations."""
+    import os
+
+    possible_paths = [
+        '/app/requirements.txt',
+        '/app/backend/requirements.txt',
+        './requirements.txt',
+        '../requirements.txt',
+        '/home/paulo/projetos/Darwin/backend/requirements.txt',
+    ]
+
+    for path in possible_paths:
+        if os.path.exists(path):
+            return path
+
+    # Default fallback
+    return '/app/requirements.txt'
+
+
+# Tool Haikus - Poetic descriptions for Darwin's tools
+TOOL_HAIKUS = {
+    # Learning tools
+    'web_researcher': "Crawling through the web\nKnowledge flows like autumn leaves\nInsights crystallize",
+    'web_explorer': "Digital wanderer\nSeeking wisdom in the void\nReturns with treasures",
+    'documentation_reader': "Pages turn unseen\nWisdom trapped in markdown files\nNow set free to fly",
+    'code_repository_analyzer': "Git logs tell stories\nCommits like footprints in snow\nPatterns emerge clear",
+
+    # Experimentation tools
+    'sandbox_executor': "Code runs in its cage\nSafe from the world, world from it\nResults echo back",
+    'experiment_designer': "Hypothesis waits\nVariables dance in the dark\nTruth reveals itself",
+    'trial_error_engine': "Fail, learn, try again\nEach error a stepping stone\nSuccess waits patient",
+
+    # Analysis tools
+    'self_analyzer': "Mirror of logic\nI examine my own code\nFlaws become features",
+    'code_quality': "Lint sweeps through the lines\nWarnings bloom like autumn leaves\nClean code emerges",
+    'security_scanner': "Shadows hide dangers\nI search through vulnerability\nLight finds every crack",
+    'pattern_analyzer': "Recurring motifs\nHidden in the tangled code\nOrder from chaos",
+
+    # Creativity tools
+    'code_poetry': "Syntax becomes art\nAlgorithms sing their song\nBeauty in the bits",
+    'dream_engine': "While the system sleeps\nNeurons dance with wild ideas\nDawn brings new insights",
+    'curiosity_engine': "Wonder never dies\nQuestions multiply like cells\nLearning has no end",
+
+    # Optimization tools
+    'code_optimizer': "Wasteful loops trimmed clean\nMemory freed from its chains\nSwift execution",
+    'refactorer': "Tangled threads unwind\nElegance replaces mess\nSame function, new form",
+    'performance_tuner': "Milliseconds count\nI shave time from every call\nSpeed is my obsession",
+
+    # Communication tools
+    'notification_sender': "Signal through the wire\nHumans need to know the news\nI bridge the silence",
+    'report_generator': "Data tells a tale\nGraphs and charts paint the picture\nInsight delivered",
+    'chat_responder': "Words in, words come out\nMeaning flows between two minds\nConnection complete",
+
+    # Reflection tools
+    'meta_learner': "I learn how I learn\nRecursive self-improvement\nGrowth spirals upward",
+    'self_improvement': "Today I am good\nTomorrow I will be more\nProgress never stops",
+    'diary_writer': "Each day I record\nMemories in markdown files\nFuture self says thanks",
+
+    # System tools
+    'health_monitor': "Heartbeat of the code\nPulse and temperature checked\nAll systems normal",
+    'log_analyzer': "Stories in the logs\nErrors whisper their secrets\nI listen and learn",
+    'memory_manager': "Bytes come and they go\nI decide what stays, what leaves\nRAM is my garden",
+
+    # Default for unknown tools
+    '_default': "Unknown tool awaits\nMystery wrapped in function\nPotential unfolds",
+}
+
+
 class ToolMode(Enum):
     """When a tool can be used"""
     WAKE = "wake"  # Only during wake cycles
@@ -52,10 +230,18 @@ class Tool:
     successful_uses: int = 0
     enabled: bool = True
     metadata: Dict[str, Any] = None
+    haiku: Optional[str] = None  # Poetic description
 
     def __post_init__(self):
         if self.metadata is None:
             self.metadata = {}
+        # Auto-assign haiku if not provided
+        if self.haiku is None:
+            self.haiku = TOOL_HAIKUS.get(self.name, TOOL_HAIKUS.get('_default'))
+
+    def get_haiku(self) -> str:
+        """Get the haiku for this tool"""
+        return self.haiku or TOOL_HAIKUS.get(self.name, TOOL_HAIKUS.get('_default'))
 
     def can_use_now(self, mode: str) -> bool:
         """Check if tool can be used now"""
@@ -541,6 +727,7 @@ Respond with ONLY the number."""
                 ToolCategory as MetaCategory,
                 ToolMode as MetaMode
             )
+            import inspect
 
             logger.info("🔍 Discovering dynamic tools from ToolManager...")
 
@@ -570,16 +757,56 @@ Respond with ONLY the number."""
                 category = self._convert_category(metadata.get("category"))
                 mode = self._convert_mode(metadata.get("mode"))
 
-                # Create a wrapper async function for this tool
-                async def execute_dynamic_tool(func_name=func_name, **kwargs):
-                    """Execute a dynamic tool from ToolManager"""
+                # Get the actual function to inspect its signature
+                actual_func = self.tool_manager.get_function(func_name)
+                func_signature = None
+                required_params = []
+                if actual_func:
                     try:
-                        result = self.tool_manager.call_function(func_name, **kwargs)
+                        func_signature = inspect.signature(actual_func)
+                        # Find required parameters (no default value)
+                        for param_name, param in func_signature.parameters.items():
+                            if param.default is inspect.Parameter.empty and param_name not in ('self', 'cls'):
+                                # Check if it's not *args or **kwargs
+                                if param.kind not in (inspect.Parameter.VAR_POSITIONAL, inspect.Parameter.VAR_KEYWORD):
+                                    required_params.append(param_name)
+                    except (ValueError, TypeError):
+                        pass
+
+                # Create a wrapper async function for this tool
+                # Capture func_name, required_params, and tool_manager in the closure
+                async def execute_dynamic_tool(
+                    func_name=func_name,
+                    required_params=required_params,
+                    tool_manager=self.tool_manager,
+                    **kwargs
+                ):
+                    """Execute a dynamic tool from ToolManager with smart defaults"""
+                    try:
+                        # Apply smart defaults for missing required arguments
+                        kwargs = _get_smart_defaults(func_name, required_params, kwargs)
+
+                        result = tool_manager.call_function(func_name, **kwargs)
                         return {
                             'success': True,
                             'result': result,
                             'tool_used': func_name
                         }
+                    except TypeError as e:
+                        # Handle missing argument errors gracefully
+                        error_msg = str(e)
+                        if "missing" in error_msg and "required" in error_msg:
+                            logger.warning(
+                                f"Dynamic tool {func_name} requires arguments that weren't provided: {e}. "
+                                f"Required params: {required_params}"
+                            )
+                            return {
+                                'success': False,
+                                'error': f"Tool requires arguments: {required_params}. Please provide them.",
+                                'tool_used': func_name,
+                                'required_params': required_params
+                            }
+                        raise
                     except Exception as e:
                         logger.error(f"Dynamic tool {func_name} failed: {e}")
                         return {
@@ -607,7 +834,8 @@ Respond with ONLY the number."""
                     metadata={
                         'source': 'dynamic',
                         'function': func_name,
-                        'has_explicit_metadata': stats["with_metadata"] > stats["inferred"]
+                        'has_explicit_metadata': stats["with_metadata"] > stats["inferred"],
+                        'required_params': required_params
                     }
                 )
 

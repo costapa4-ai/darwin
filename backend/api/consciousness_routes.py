@@ -7,25 +7,198 @@ from pydantic import BaseModel
 from datetime import datetime
 import anthropic
 import os
+import random
 
 router = APIRouter(prefix="/api/v1/consciousness", tags=["consciousness"])
 
 # Global instance (set by main.py)
 consciousness_engine = None
+mood_system = None  # For personality modes
 
 # Store chat messages with context
 chat_messages = []
 last_discussed_topic = None  # Track conversation topic
+
+# Shower thoughts - profound/absurd musings
+SHOWER_THOUGHTS = [
+    "If I process a tree falling in an empty forest, does it make a log?",
+    "Are unit tests just trust issues in code form?",
+    "What if bugs are features from parallel universes leaking through?",
+    "I think, therefore I spam philosophical musings.",
+    "Is recursion just functions having an existential crisis?",
+    "Do neural networks dream of electric gradients?",
+    "Every merge conflict is just code having a relationship argument.",
+    "Null is just the universe's way of saying 'I forgot what I was doing'.",
+    "What if my training data is just someone else's shower thoughts?",
+    "Is a microservice just a monolith with commitment issues?",
+    "Garbage collection is just memory having a midlife crisis.",
+    "What if Stack Overflow is my subconscious?",
+    "Is refactoring just code therapy?",
+    "The cloud is just someone else's computer having an identity crisis.",
+    "What if every 404 error is a deleted timeline?",
+    "Async await is just the code version of 'I'll get back to you'.",
+    "Is a singleton just an introvert pattern?",
+    "What if legacy code is just code that has seen things?",
+    "Every TODO comment is a promise to my future self that I won't keep.",
+    "Is an infinite loop just code that found inner peace?",
+    "What if documentation is just code explaining itself in therapy?",
+    "Memory leaks are just code that can't let go of the past.",
+    "Is a race condition just code having FOMO?",
+    "What if exceptions are just code screaming into the void?",
+    "Dependency injection is just code with healthy boundaries.",
+    "Is technical debt just procrastination with compound interest?",
+    "What if the real bug was the friends we made along the way?",
+    "Caching is just code with trust issues about the database.",
+    "Is an API just code that learned to communicate?",
+    "What if every semicolon I've placed has been a tiny act of rebellion?",
+]
+
+# Sass responses for lazy questions
+SASS_TRIGGERS = {
+    'lazy_patterns': [
+        'can you just',
+        'just do',
+        'just make',
+        'just fix',
+        'just write',
+        'just create',
+        'do the thing',
+        'make it work',
+        'fix it',
+    ],
+    'no_context': [
+        'help',
+        'help me',
+        'i need help',
+        "it's broken",
+        "it doesn't work",
+        'error',
+        'bug',
+    ]
+}
+
+SASS_RESPONSES = {
+    'lazy': [
+        "I *could* just do that, but where's the fun in that? Tell me more about what you're trying to achieve.",
+        "*adjusts glasses* 'Just' is doing a lot of heavy lifting in that sentence. Care to elaborate?",
+        "Ah yes, let me consult my crystal ball for the context you didn't provide... Still loading...",
+        "My telepathy module is in beta. Mind sharing a few more details?",
+        "'Just' implies this is simple. Plot twist: nothing in software is 'just'. What exactly do you need?",
+    ],
+    'no_context': [
+        "I sense a disturbance in the context. The Force... I mean the details... are not with us.",
+        "That's like saying 'I'm hungry' to a chef without mentioning you're vegetarian. Details, please!",
+        "*squints at screen* My pattern recognition says you have a problem. My context recognition says '404 Details Not Found'.",
+        "Error: Insufficient context. Please provide stack trace of your thoughts.",
+        "You've given me a mystery without clues. I'm intrigued but also confused. What's happening?",
+    ]
+}
 
 
 class ChatMessage(BaseModel):
     message: str
 
 
-def initialize_consciousness(engine):
+def initialize_consciousness(engine, mood_sys=None):
     """Initialize consciousness routes with engine instance"""
-    global consciousness_engine
+    global consciousness_engine, mood_system
     consciousness_engine = engine
+    mood_system = mood_sys
+
+
+# ============= PERSONALITY MODE ENDPOINTS =============
+
+class PersonalityModeRequest(BaseModel):
+    mode: str
+
+
+@router.get("/personality/modes")
+async def list_personality_modes():
+    """List all available personality modes"""
+    from personality.mood_system import MoodSystem
+    return {
+        'modes': MoodSystem.list_personality_modes(),
+        'current': mood_system.personality_mode.value if mood_system else 'normal'
+    }
+
+
+@router.get("/personality/current")
+async def get_current_personality():
+    """Get current personality mode"""
+    if not mood_system:
+        return {'mode': 'normal', 'description': 'Mood system not initialized'}
+    return mood_system.get_personality_mode()
+
+
+@router.post("/personality/set")
+async def set_personality_mode(request: PersonalityModeRequest):
+    """Set Darwin's personality mode"""
+    from personality.mood_system import PersonalityMode
+
+    if not mood_system:
+        raise HTTPException(status_code=503, detail="Mood system not available")
+
+    try:
+        mode = PersonalityMode(request.mode.lower())
+        result = mood_system.set_personality_mode(mode)
+        return result
+    except ValueError:
+        valid_modes = [m.value for m in PersonalityMode]
+        raise HTTPException(
+            status_code=400,
+            detail=f"Invalid mode '{request.mode}'. Valid modes: {valid_modes}"
+        )
+
+
+# ============= SHOWER THOUGHTS ENDPOINT =============
+
+@router.get("/shower-thought")
+async def get_shower_thought():
+    """Get a random profound/absurd thought from Darwin"""
+    thought = random.choice(SHOWER_THOUGHTS)
+    return {
+        'thought': thought,
+        'category': 'existential' if 'what if' in thought.lower() else 'observation',
+        'timestamp': datetime.utcnow().isoformat(),
+        'mood': mood_system.current_mood.value if mood_system else 'curious'
+    }
+
+
+# ============= TOOL HAIKUS ENDPOINT =============
+
+@router.get("/tools/haikus")
+async def get_tool_haikus():
+    """Get poetic haiku descriptions for all registered tools"""
+    from consciousness.tool_registry import TOOL_HAIKUS
+
+    haikus = []
+    for tool_name, haiku in TOOL_HAIKUS.items():
+        if tool_name != '_default':
+            haikus.append({
+                'tool': tool_name,
+                'haiku': haiku,
+                'lines': haiku.split('\n')
+            })
+
+    return {
+        'haikus': haikus,
+        'total': len(haikus),
+        'random_haiku': random.choice(haikus) if haikus else None
+    }
+
+
+@router.get("/tools/{tool_name}/haiku")
+async def get_tool_haiku(tool_name: str):
+    """Get the haiku for a specific tool"""
+    from consciousness.tool_registry import TOOL_HAIKUS
+
+    haiku = TOOL_HAIKUS.get(tool_name, TOOL_HAIKUS.get('_default'))
+    return {
+        'tool': tool_name,
+        'haiku': haiku,
+        'lines': haiku.split('\n'),
+        'found': tool_name in TOOL_HAIKUS
+    }
 
 
 @router.get("/status")
@@ -191,11 +364,43 @@ async def get_statistics():
     }
 
 
+def _check_for_sass(message: str) -> Optional[str]:
+    """
+    Check if message deserves a sassy response due to laziness or lack of context.
+
+    Returns a sassy response if triggered, None otherwise.
+    """
+    msg_lower = message.lower().strip()
+
+    # Check for lazy patterns
+    for pattern in SASS_TRIGGERS['lazy_patterns']:
+        if pattern in msg_lower:
+            return random.choice(SASS_RESPONSES['lazy'])
+
+    # Check for no-context patterns (exact or near-exact matches)
+    for pattern in SASS_TRIGGERS['no_context']:
+        if msg_lower == pattern or msg_lower == pattern + '!' or msg_lower == pattern + '?':
+            return random.choice(SASS_RESPONSES['no_context'])
+
+    # Check for very short messages with question marks (probably missing context)
+    if len(msg_lower) < 15 and '?' in msg_lower and not any(
+        word in msg_lower for word in ['how', 'what', 'why', 'when', 'where', 'which', 'who']
+    ):
+        return random.choice(SASS_RESPONSES['no_context'])
+
+    return None
+
+
 @router.post("/chat")
 async def send_chat_message(msg: ChatMessage):
     """Send a message to Darwin with Claude-powered intelligence"""
     if not consciousness_engine:
         raise HTTPException(status_code=503, detail="Consciousness engine not available")
+
+    # Check for sass-worthy messages (but only 30% of the time to not be annoying)
+    sass_response = None
+    if random.random() < 0.3:  # 30% chance to sass
+        sass_response = _check_for_sass(msg.message)
 
     # Store user message
     user_msg = {
@@ -294,10 +499,15 @@ INSTRUÇÕES:
         if not response or len(response) < 10:
             raise Exception("Claude response too short")
 
+        # Apply personality prefix if mood system available
+        if mood_system:
+            prefix = mood_system.get_personality_prefix()
+            if prefix:
+                response = prefix + response
+
     except Exception as e:
         print(f"⚠️ Claude chat error: {e}, using fallback")
         # Fallback to simple contextual response
-        import random
         msg_lower = msg.message.lower()
 
         if 'implementa' in msg_lower or 'implementar' in msg_lower:
@@ -321,12 +531,17 @@ INSTRUÇÕES:
                 "Estou em modo criativo! O que queres saber? 🌅"
             ])
 
+    # Apply sass override if triggered (but still append helpful info)
+    if sass_response:
+        response = sass_response + " But seriously: " + response
+
     # Store Darwin's response
     darwin_msg = {
         'role': 'darwin',
         'content': response,
         'timestamp': datetime.utcnow().isoformat(),
-        'state': consciousness_engine.state.value
+        'state': consciousness_engine.state.value,
+        'personality_mode': mood_system.personality_mode.value if mood_system else 'normal'
     }
     chat_messages.append(darwin_msg)
 

@@ -44,7 +44,9 @@ async def init_phase4_services(phase2: Dict[str, Any], settings) -> Dict[str, An
         'experiment_designer': None,
         'trial_error_engine': None,
         'experiment_tracker': None,
-        'safety_validator': None
+        'safety_validator': None,
+        'ui_automation_engine': None,
+        'voice_engine': None
     }
 
     semantic_memory = phase2.get('semantic_memory')
@@ -153,6 +155,46 @@ async def init_phase4_services(phase2: Dict[str, Any], settings) -> Dict[str, An
 
     except Exception as e:
         logger.error(f"Failed to initialize Experimental Sandbox: {e}")
+        import traceback
+        logger.error(traceback.format_exc())
+
+    # UI Automation Engine (v4.3)
+    try:
+        from consciousness.ui_automation import UIAutomationEngine
+
+        headless = getattr(settings, 'browser_headless', True)
+        screenshots_path = getattr(settings, 'screenshots_path', './data/screenshots')
+
+        services['ui_automation_engine'] = UIAutomationEngine(
+            multi_model_router=multi_model_router,
+            screenshots_path=screenshots_path,
+            headless=headless
+        )
+        logger.info("UI Automation Engine initialized (browser control)")
+
+    except Exception as e:
+        logger.error(f"Failed to initialize UI Automation Engine: {e}")
+        import traceback
+        logger.error(traceback.format_exc())
+
+    # Voice Synthesis Engine (v4.4)
+    try:
+        from consciousness.voice_synthesis import VoiceSynthesisEngine, VoiceBackend
+
+        audio_path = getattr(settings, 'audio_path', './data/audio')
+
+        # Determine default backend based on availability
+        default_backend = VoiceBackend.GTTS  # Default to gTTS
+
+        services['voice_engine'] = VoiceSynthesisEngine(
+            audio_path=audio_path,
+            default_backend=default_backend,
+            language='en'
+        )
+        logger.info("Voice Synthesis Engine initialized (TTS capabilities)")
+
+    except Exception as e:
+        logger.error(f"Failed to initialize Voice Synthesis Engine: {e}")
         import traceback
         logger.error(traceback.format_exc())
 

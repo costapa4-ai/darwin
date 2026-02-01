@@ -173,6 +173,35 @@ async def lifespan(app: FastAPI):
     tool_registry = init_tool_registry(phase2, phase4, phase3)
     set_service('tool_registry', tool_registry)
 
+    # Initialize UI automation routes
+    if phase4.get('ui_automation_engine'):
+        from api import ui_automation_routes
+        ui_automation_routes.initialize_ui_automation(phase4['ui_automation_engine'])
+        logger.info("UI Automation routes initialized")
+
+    # Initialize Voice synthesis routes
+    if phase4.get('voice_engine'):
+        from api import voice_routes
+        voice_routes.initialize_voice(phase4['voice_engine'])
+        logger.info("Voice Synthesis routes initialized")
+
+    # Phase 5: Distributed Consciousness
+    from initialization.distributed import init_distributed_services
+    distributed = await init_distributed_services(settings, {**phase2, **phase4})
+    for name, service in distributed.items():
+        set_service(name, service)
+
+    # Initialize distributed routes
+    if any(distributed.values()):
+        from api import distributed_routes
+        distributed_routes.initialize_distributed(
+            instance_registry=distributed.get('instance_registry'),
+            memory_sync=distributed.get('memory_sync'),
+            mesh_network=distributed.get('mesh_network'),
+            fork_manager=distributed.get('fork_manager')
+        )
+        logger.info("Distributed Consciousness routes initialized")
+
     # Initialize Consciousness Engine
     from initialization.consciousness import init_consciousness_engine
     consciousness_result = await init_consciousness_engine(
@@ -188,6 +217,44 @@ async def lifespan(app: FastAPI):
 
     for name, service in consciousness_result.items():
         set_service(name, service)
+
+    # Initialize Channel Gateway
+    from initialization.channels import init_channel_gateway
+    channel_gateway = await init_channel_gateway(settings)
+    set_service('channel_gateway', channel_gateway)
+
+    # Initialize channel routes
+    if channel_gateway:
+        from api import channel_routes
+        channel_routes.initialize_channels(channel_gateway)
+
+        # Hook voice engine into channel gateway for audio broadcasts
+        if phase4.get('voice_engine'):
+            channel_gateway.voice_engine = phase4['voice_engine']
+            logger.info("Voice engine connected to channel gateway")
+
+        # Hook gateway into consciousness engine for broadcasts
+        consciousness_engine = consciousness_result.get('consciousness_engine')
+        if consciousness_engine:
+            consciousness_engine.channel_gateway = channel_gateway
+
+        # Hook gateway into expedition engine for discovery broadcasts
+        expedition_engine = consciousness_result.get('expedition_engine')
+        if expedition_engine:
+            expedition_engine.channel_gateway = channel_gateway
+
+        # Hook gateway into findings inbox for high-priority alerts
+        try:
+            from consciousness.findings_inbox import get_findings_inbox
+            findings_inbox = get_findings_inbox()
+            findings_inbox.channel_gateway = channel_gateway
+        except Exception as e:
+            logger.debug(f"Could not hook findings inbox: {e}")
+
+        # Hook gateway into financial consciousness for budget alerts
+        financial_consciousness = consciousness_result.get('financial_consciousness')
+        if financial_consciousness:
+            financial_consciousness.channel_gateway = channel_gateway
 
     # Log startup summary
     phase2_features = {k: v is not None for k, v in phase2.items()}
@@ -215,5 +282,19 @@ async def lifespan(app: FastAPI):
     dream_engine = _services.get('dream_engine')
     if dream_engine and dream_engine.is_dreaming:
         dream_engine.stop_dream_mode()
+
+    channel_gateway = _services.get('channel_gateway')
+    if channel_gateway and channel_gateway.enabled:
+        await channel_gateway.stop()
+
+    # Stop distributed services
+    from initialization.distributed import stop_distributed_services
+    distributed_services = {
+        'instance_registry': _services.get('instance_registry'),
+        'memory_sync': _services.get('memory_sync'),
+        'mesh_network': _services.get('mesh_network'),
+        'fork_manager': _services.get('fork_manager')
+    }
+    await stop_distributed_services(distributed_services)
 
     logger.info("Darwin System shutdown complete")

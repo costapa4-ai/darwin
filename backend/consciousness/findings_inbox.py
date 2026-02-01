@@ -106,6 +106,7 @@ class FindingsInbox:
 
         self.findings: List[Finding] = []
         self.archived: List[Finding] = []  # Viewed/dismissed findings
+        self.channel_gateway = None  # Set externally for channel broadcasts
 
         self._load_state()
         logger.info(f"FindingsInbox initialized with {len(self.findings)} active findings")
@@ -185,6 +186,27 @@ class FindingsInbox:
                 asyncio.create_task(notify_new_finding(asdict(finding)))
         except Exception as e:
             logger.debug(f"Could not send WebSocket notification: {e}")
+
+        # Broadcast high-priority findings to channels
+        if self.channel_gateway and priority in [FindingPriority.HIGH, FindingPriority.URGENT]:
+            try:
+                import asyncio
+                severity = "critical" if priority == FindingPriority.URGENT else "important"
+                discovery_text = f"**{title}**\n\n{description[:300]}"
+                if impact:
+                    discovery_text += f"\n\n💡 *Impact:* {impact[:200]}"
+
+                loop = asyncio.get_event_loop()
+                if loop.is_running():
+                    asyncio.create_task(
+                        self.channel_gateway.broadcast_discovery(
+                            discovery=discovery_text,
+                            discovery_type=type.value,
+                            severity=severity
+                        )
+                    )
+            except Exception as e:
+                logger.debug(f"Could not broadcast to channels: {e}")
 
         return finding_id
 

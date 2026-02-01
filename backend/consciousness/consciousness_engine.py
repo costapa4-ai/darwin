@@ -80,7 +80,8 @@ class ConsciousnessEngine:
         hierarchical_memory=None,  # NEW: Hierarchical memory system
         communicator=None,  # NEW: Proactive communication system
         code_narrator=None,  # NEW: Poetry generation
-        diary_writer=None  # NEW: Daily diary
+        diary_writer=None,  # Legacy: Daily diary
+        diary_engine=None  # NEW: Memory diary engine
     ):
         self.coordinator = agent_coordinator
         self.web_researcher = web_researcher
@@ -96,7 +97,8 @@ class ConsciousnessEngine:
         self.hierarchical_memory = hierarchical_memory  # NEW
         self.communicator = communicator  # NEW: Makes Darwin "speak"
         self.code_narrator = code_narrator  # NEW: Poetry generation
-        self.diary_writer = diary_writer  # NEW: Daily diary
+        self.diary_writer = diary_writer  # Legacy: Daily diary
+        self.diary_engine = diary_engine  # NEW: Memory diary engine
         self.config = config or {}
 
         # Multi-Agent Reflexion System (reduces confirmation bias)
@@ -234,6 +236,24 @@ class ConsciousnessEngine:
         print(f"\n😴 Darwin is getting tired... transitioning to SLEEP")
         print(f"📊 Wake cycle summary: {len(self.wake_activities)} activities completed")
 
+        # Trigger before_sleep hooks
+        try:
+            from consciousness.hooks import trigger_hook, HookEvent
+            await trigger_hook(HookEvent.BEFORE_SLEEP, {
+                'activities_count': len(self.wake_activities),
+                'wake_cycles_completed': self.wake_cycles_completed
+            }, source='consciousness_engine')
+        except Exception as e:
+            print(f"⚠️ Hook trigger failed: {e}")
+
+        # Write diary entry before sleeping
+        if self.diary_engine:
+            try:
+                diary_path = await self.diary_engine.write_daily_entry(trigger="wake_to_sleep")
+                print(f"📔 Diary entry written: {diary_path}")
+            except Exception as e:
+                print(f"⚠️ Failed to write diary: {e}")
+
         # Announce transition via communicator
         if self.communicator:
             await self.communicator.share_reflection(
@@ -248,6 +268,16 @@ class ConsciousnessEngine:
         self.state = ConsciousnessState.SLEEP
         self.cycle_start_time = datetime.utcnow()
         self.wake_cycles_completed += 1
+
+        # Broadcast to channels
+        if hasattr(self, 'channel_gateway') and self.channel_gateway:
+            try:
+                await self.channel_gateway.broadcast_status(
+                    f"Darwin is entering SLEEP mode. Completed {len(self.wake_activities)} activities during wake cycle.",
+                    "sleep"
+                )
+            except Exception as e:
+                print(f"⚠️ Channel broadcast failed: {e}")
 
         # Celebrate milestones
         if self.communicator and self.wake_cycles_completed % 10 == 0:
@@ -266,10 +296,29 @@ class ConsciousnessEngine:
         if len(self.wake_activities) > 50:
             self.wake_activities = self.wake_activities[-50:]
 
+        # Trigger after_sleep hooks
+        try:
+            from consciousness.hooks import trigger_hook, HookEvent
+            await trigger_hook(HookEvent.AFTER_SLEEP, {
+                'wake_cycles_completed': self.wake_cycles_completed
+            }, source='consciousness_engine')
+        except Exception as e:
+            print(f"⚠️ Hook trigger failed: {e}")
+
     async def _transition_to_wake(self):
         """Transition from sleep to wake"""
         print(f"\n🌅 Darwin is waking up... transitioning to WAKE")
         print(f"📊 Sleep cycle summary: {len(self.sleep_dreams)} dreams explored")
+
+        # Trigger before_wake hooks
+        try:
+            from consciousness.hooks import trigger_hook, HookEvent
+            await trigger_hook(HookEvent.BEFORE_WAKE, {
+                'dreams_count': len(self.sleep_dreams),
+                'sleep_cycles_completed': self.sleep_cycles_completed
+            }, source='consciousness_engine')
+        except Exception as e:
+            print(f"⚠️ Hook trigger failed: {e}")
 
         # Announce transition and discoveries via communicator
         if self.communicator:
@@ -290,6 +339,23 @@ class ConsciousnessEngine:
         self.cycle_start_time = datetime.utcnow()
         self.sleep_cycles_completed += 1
 
+        # Broadcast wake and dreams to channels
+        if hasattr(self, 'channel_gateway') and self.channel_gateway:
+            try:
+                # Create dream summary
+                discoveries_count = sum(len(d.insights) for d in self.sleep_dreams if hasattr(d, 'insights') and d.insights)
+                dream_summary = f"Explored {len(self.sleep_dreams)} topics and made {discoveries_count} discoveries."
+
+                # Get dream highlights
+                highlights = []
+                for dream in self.sleep_dreams[-3:]:
+                    if hasattr(dream, 'insights') and dream.insights:
+                        highlights.extend(dream.insights[:1])
+
+                await self.channel_gateway.broadcast_dream(dream_summary, highlights)
+            except Exception as e:
+                print(f"⚠️ Dream broadcast failed: {e}")
+
         # Celebrate milestones
         if self.communicator and self.sleep_cycles_completed % 10 == 0:
             await self.communicator.celebrate_achievement(
@@ -309,6 +375,16 @@ class ConsciousnessEngine:
         # Keep last 50 dreams for frontend access (don't clear completely)
         if len(self.sleep_dreams) > 50:
             self.sleep_dreams = self.sleep_dreams[-50:]
+
+        # Trigger after_wake hooks
+        try:
+            from consciousness.hooks import trigger_hook, HookEvent
+            await trigger_hook(HookEvent.AFTER_WAKE, {
+                'sleep_cycles_completed': self.sleep_cycles_completed,
+                'dreams_count': len(self.sleep_dreams)
+            }, source='consciousness_engine')
+        except Exception as e:
+            print(f"⚠️ Hook trigger failed: {e}")
 
     # ========================================
     # WAKE MODE - Active Development
