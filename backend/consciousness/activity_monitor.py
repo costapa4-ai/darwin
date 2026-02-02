@@ -18,6 +18,7 @@ Provides:
 
 import json
 import asyncio
+import re
 from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Dict, List, Any, Optional
@@ -340,7 +341,6 @@ class ActivityMonitor:
         if "read" in action:
             # Try to extract posts_read count from output
             # Format: "{'success': True, 'posts_read': 5, ...}"
-            import re
             match = re.search(r"'posts_read':\s*(\d+)", output_str)
             if match:
                 self.moltbook_stats.posts_read += int(match.group(1))
