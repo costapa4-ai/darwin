@@ -672,18 +672,20 @@ Based on context:
 
 ---
 
-#### FLAW #11: Mood-Action Decoupling
+#### FLAW #11: Mood-Action Decoupling ✅ RESOLVED
 **Location:** `mood_system.py`, `proactive_engine.py`
 
 **Problem:** Mood changes don't directly affect action selection. A FRUSTRATED mood should increase problem-solving priority, but currently doesn't.
 
-**Recommendation:** Feed mood state into action scoring:
-```python
-if mood == FRUSTRATED:
-    score += 15 for problem_solving actions
-elif mood == CURIOUS:
-    score += 10 for exploration actions
-```
+**Fix Applied:**
+- Added `MOOD_ACTION_BONUSES` mapping to `ProactiveEngine`
+- `_score_action()` now applies mood-based bonuses (up to ±22 points)
+- `_gather_context()` includes current mood state
+- Mood intensity affects bonus magnitude (0.5x-1.5x multiplier)
+- Example: FRUSTRATED mood now adds +15 to maintenance, +10 to optimization
+- Connected via `init_proactive_engine_with_mood()` at startup
+
+**Files Modified:** `backend/consciousness/proactive_engine.py`, `backend/initialization/consciousness.py`
 
 ---
 
@@ -1039,10 +1041,25 @@ Monitor shows: comments_made: 23  (INCORRECT - should be 0)
 
 ### Priority 3: Behavior
 
-11. **Mood-Action Integration**
-    - Feed mood into action scoring
-    - Mood-specific action weights
-    - Emotional context in decisions
+11. **Mood-Action Integration** ✅ RESOLVED
+    - ~~Feed mood into action scoring~~
+    - ~~Mood-specific action weights~~
+    - ~~Emotional context in decisions~~
+    - **Mood-to-Action Bonuses Implemented:**
+      - CURIOUS → Exploration +15, Learning +10
+      - FRUSTRATED → Maintenance +15, Optimization +10
+      - EXCITED → Communication +15, Creativity +10
+      - FOCUSED → Optimization +15, Learning +10
+      - TIRED → All non-maintenance -10
+      - PLAYFUL → Creativity +15, Communication +10
+      - CONTEMPLATIVE → Learning +15
+      - DETERMINED → Optimization +15, Maintenance +10
+      - CONFUSED → Learning +15, Exploration +10
+      - PROUD → Communication +15
+    - **Intensity Multipliers:** low=0.5x, medium=1x, high=1.5x
+    - **Context Integration:** `_gather_context()` includes mood state
+    - **Initialization:** `init_proactive_engine_with_mood()` connects systems
+    - **Files Modified:** `backend/consciousness/proactive_engine.py`, `backend/initialization/consciousness.py`
 
 12. **Priority Guarantees**
     - Reserved slots for CRITICAL actions
