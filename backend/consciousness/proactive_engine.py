@@ -1152,6 +1152,7 @@ class ProactiveEngine:
         logger.info(f"🔍 Explored {len(projects)} projects, created {findings_created} findings")
 
         return {
+            "success": True,
             "projects_found": len(projects),
             "findings_created": findings_created,
             "summary": summary
@@ -1410,6 +1411,7 @@ class ProactiveEngine:
         insight = analyzer.generate_system_insight(status)
 
         return {
+            "success": True,
             "status": status,
             "health": {
                 "cpu_status": health.cpu_status,
@@ -1515,6 +1517,7 @@ class ProactiveEngine:
         logger.info(f"📊 Analyzed {len(analyses)} projects, created {findings_created} insights")
 
         return {
+            "success": True,
             "projects_analyzed": len(analyses),
             "analyses": analyses,
             "findings_created": findings_created
@@ -1597,6 +1600,7 @@ class ProactiveEngine:
         )
 
         return {
+            "success": True,
             "question": question,
             "context_driven": question in contextual_questions,
             "generated_at": datetime.now().isoformat()
@@ -1694,6 +1698,7 @@ class ProactiveEngine:
         )
 
         return {
+            "success": True,
             "insight": insight,
             "category": category,
             "shared_at": datetime.now().isoformat()
@@ -1774,6 +1779,7 @@ class ProactiveEngine:
             )
 
         return {
+            "success": True,
             "total_executions": total_executions,
             "action_stats": action_stats,
             "category_usage": category_usage,
@@ -1792,7 +1798,7 @@ class ProactiveEngine:
         discoveries = explorer.discoveries[-10:] if explorer.discoveries else []
 
         if not discoveries:
-            return {"patterns_found": [], "message": "No discoveries to analyze yet"}
+            return {"success": True, "patterns_found": [], "message": "No discoveries to analyze yet"}
 
         patterns_found = []
 
@@ -1877,6 +1883,7 @@ class ProactiveEngine:
         logger.info(f"📚 Learned {len(patterns_found)} patterns from {len(discoveries)} projects")
 
         return {
+            "success": True,
             "patterns_found": patterns_found,
             "projects_analyzed": len(discoveries),
             "language_distribution": language_counts,
@@ -1977,6 +1984,7 @@ class ProactiveEngine:
         )
 
         return {
+            "success": True,
             "total_actions_executed": total_actions,
             "most_used_action": most_used.name if most_used else None,
             "least_used_action": least_used.name if least_used else None,
@@ -2134,6 +2142,7 @@ class ProactiveEngine:
         logger.info(f"🎓 Learning session complete: {len(learned_items)} topics researched, {findings_created} findings created")
 
         return {
+            "success": True,
             "topics_researched": len(learned_items),
             "findings_created": findings_created,
             "learned_items": learned_items,
