@@ -1031,30 +1031,38 @@ Monitor shows: comments_made: 23  (INCORRECT - should be 0)
 
 > ⚠️ **CRITICAL**: These security issues were identified by Gemini CLI analysis and should be addressed before production deployment.
 
-15. **Sandbox Security Hardening** 🔴 HIGH
+15. **Sandbox Security Hardening** ✅ RESOLVED
     - Location: `backend/core/executor.py` (`SafeExecutor`)
     - Problem: Uses `exec` with restricted globals, but sandbox can be bypassed
-    - The restricted `safe_globals` can be escaped via techniques like:
-      - `().__class__.__bases__[0].__subclasses__()` to access arbitrary classes
-      - Attribute access chains to reach dangerous functions
-    - Recommendations:
-      - Consider using `RestrictedPython` library
-      - Implement process-level isolation (containers, seccomp)
-      - Use AST-based code transformation before execution
-      - Add resource limits at OS level (cgroups, rlimit)
+    - **Fix Applied:**
+      - Implemented defense-in-depth security with 6 layers:
+        1. **Whitelist-based AST validation** - Only allowed node types pass
+        2. **Restricted builtins** - No eval, exec, open, getattr, etc.
+        3. **SafeType wrappers** - Prevent `__class__` attribute escapes
+        4. **Process isolation** - Execution in separate process
+        5. **Resource limits** - Memory (rlimit), CPU (rlimit), file ops
+        6. **Dual timeout** - Signal-based (SIGALRM) + process-level timeout
+      - Dangerous pattern detection via regex (critical: `__class__`, `__subclasses__`, etc.)
+      - Output sanitization to prevent data exfiltration
+    - **Files Modified:** `backend/core/executor.py`, `backend/utils/security.py`
 
-16. **Code Validation Whitelist** 🔴 HIGH
+16. **Code Validation Whitelist** ✅ RESOLVED
     - Location: `backend/utils/security.py` (`CodeValidator`)
     - Problem: Uses blacklist approach (`DANGEROUS_IMPORTS`, `DANGEROUS_CALLS`)
-    - Blacklists are inherently incomplete - attackers find new bypasses
-    - Examples of potential bypasses:
-      - `getattr(__builtins__, 'ev'+'al')` - string concatenation
-      - `__import__('o'+'s')` - dynamic import
-      - Attribute chains to reach builtins
-    - Recommendations:
-      - Switch to whitelist approach (only allow explicitly approved patterns)
-      - Use AST validation to ensure only safe node types
-      - Validate at multiple levels (pre-parse, post-parse, runtime)
+    - **Fix Applied:**
+      - **Switched to whitelist approach** - Only explicitly allowed patterns pass
+      - **AST-based validation:**
+        - `ALLOWED_NODE_TYPES`: Only safe AST nodes (BinOp, Compare, If, For, etc.)
+        - `FORBIDDEN_NODE_TYPES`: Import, ImportFrom, Global, ClassDef, Exec, etc.
+        - `ALLOWED_BUILTINS`: print, str, int, float, bool, list, dict, range, len, etc.
+        - `FORBIDDEN_BUILTINS`: eval, exec, compile, __import__, open, getattr, etc.
+      - **Multi-level validation:**
+        1. Pre-parse: Dangerous pattern regex detection
+        2. AST-level: Node type whitelist enforcement
+        3. Runtime: SafeType wrappers block attribute escapes
+      - **Detailed security reports** with severity levels (critical/high/medium)
+      - String concatenation bypasses blocked by AST validation
+    - **Files Modified:** `backend/utils/security.py`
 
 17. **Vector-based Similarity Search**
     - Location: `backend/core/memory.py` (`MemoryStore`)
