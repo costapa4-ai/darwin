@@ -1027,6 +1027,54 @@ Monitor shows: comments_made: 23  (INCORRECT - should be 0)
     - Validate all transitions
     - Add transition logging
 
+### Priority 0: Security (NEW - from Gemini Analysis)
+
+> ⚠️ **CRITICAL**: These security issues were identified by Gemini CLI analysis and should be addressed before production deployment.
+
+15. **Sandbox Security Hardening** 🔴 HIGH
+    - Location: `backend/core/executor.py` (`SafeExecutor`)
+    - Problem: Uses `exec` with restricted globals, but sandbox can be bypassed
+    - The restricted `safe_globals` can be escaped via techniques like:
+      - `().__class__.__bases__[0].__subclasses__()` to access arbitrary classes
+      - Attribute access chains to reach dangerous functions
+    - Recommendations:
+      - Consider using `RestrictedPython` library
+      - Implement process-level isolation (containers, seccomp)
+      - Use AST-based code transformation before execution
+      - Add resource limits at OS level (cgroups, rlimit)
+
+16. **Code Validation Whitelist** 🔴 HIGH
+    - Location: `backend/utils/security.py` (`CodeValidator`)
+    - Problem: Uses blacklist approach (`DANGEROUS_IMPORTS`, `DANGEROUS_CALLS`)
+    - Blacklists are inherently incomplete - attackers find new bypasses
+    - Examples of potential bypasses:
+      - `getattr(__builtins__, 'ev'+'al')` - string concatenation
+      - `__import__('o'+'s')` - dynamic import
+      - Attribute chains to reach builtins
+    - Recommendations:
+      - Switch to whitelist approach (only allow explicitly approved patterns)
+      - Use AST validation to ensure only safe node types
+      - Validate at multiple levels (pre-parse, post-parse, runtime)
+
+17. **Vector-based Similarity Search**
+    - Location: `backend/core/memory.py` (`MemoryStore`)
+    - Problem: Uses simple keyword matching for similarity
+    - Current: `keywords = set(task_description.lower().split())`
+    - This is O(n) scan and misses semantic similarities
+    - Recommendations:
+      - Integrate with `semantic_memory.py` which already uses ChromaDB
+      - Use embedding-based similarity (already have `all-MiniLM-L6-v2`)
+      - Add approximate nearest neighbor indices
+
+18. **Testing Strategy for Emergent Behaviors**
+    - Problem: No formal testing for consciousness/evolution components
+    - The complex interactions can produce unexpected behaviors
+    - Recommendations:
+      - Property-based testing for state machines
+      - Chaos testing for error handling
+      - Behavioral regression tests
+      - Monitoring for anomalous patterns
+
 ---
 
 ## 12. Key Files Reference
