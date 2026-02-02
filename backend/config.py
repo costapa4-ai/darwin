@@ -8,6 +8,7 @@ class Settings(BaseSettings):
 
     # AI Configuration
     claude_api_key: str = ""
+    anthropic_api_key: str = ""  # Used by proactive engine (set ANTHROPIC_API_KEY in .env)
     gemini_api_key: str = ""
     openai_api_key: str = ""  # Phase 2: Optional OpenAI support
     ai_provider: str = "claude"
