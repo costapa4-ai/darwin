@@ -312,6 +312,7 @@ class ProactiveEngine:
         # Moltbook deduplication tracking
         self._moltbook_read_posts: set = set()      # Post IDs we've read
         self._moltbook_commented_posts: set = set() # Post IDs we've commented on
+        self._moltbook_voted_posts: set = set()     # Post IDs we've voted on
         self._load_moltbook_history()
 
         self._register_default_actions()
@@ -2264,6 +2265,12 @@ class ProactiveEngine:
                 # Track as read to prevent re-reading
                 self._moltbook_read_posts.add(post.id)
 
+                # Vote based on Darwin's sentiment about the post
+                if post.id not in self._moltbook_voted_posts and thought:
+                    vote_result = await self._vote_on_moltbook_post(client, post, thought)
+                    if vote_result:
+                        self._moltbook_voted_posts.add(post.id)
+
                 analyzed.append({
                     "title": post.title,
                     "author": post.author,
@@ -2532,6 +2539,47 @@ Just write the comment text, nothing else."""
         except Exception as e:
             logger.error(f"🦞 Comment generation error: {type(e).__name__}: {e}")
             return None
+
+    async def _vote_on_moltbook_post(self, client, post, thought: str) -> bool:
+        """
+        Vote on a Moltbook post based on Darwin's sentiment about it.
+
+        Analyzes Darwin's thought/reaction to determine if the post deserves
+        an upvote (positive reaction) or downvote (negative reaction).
+
+        Returns True if a vote was cast, False otherwise.
+        """
+        try:
+            from services.language_evolution import TextAnalyzer
+
+            # Analyze sentiment of Darwin's thought about the post
+            sentiment = TextAnalyzer.compute_sentiment(thought)
+
+            # Also consider the post content itself
+            post_content = f"{post.title} {post.content or ''}"
+            post_sentiment = TextAnalyzer.compute_sentiment(post_content)
+
+            # Combined sentiment (weighted towards Darwin's reaction)
+            combined_sentiment = (sentiment * 0.7) + (post_sentiment * 0.3)
+
+            if combined_sentiment > 0.2:
+                # Positive sentiment - upvote
+                await client.upvote_post(post.id)
+                logger.info(f"🦞 ⬆️ Upvoted post: {post.title[:40]}... (sentiment={combined_sentiment:.2f})")
+                return True
+            elif combined_sentiment < -0.3:
+                # Strongly negative sentiment - downvote
+                await client.downvote_post(post.id)
+                logger.info(f"🦞 ⬇️ Downvoted post: {post.title[:40]}... (sentiment={combined_sentiment:.2f})")
+                return True
+            else:
+                # Neutral - no vote
+                logger.debug(f"🦞 No vote for: {post.title[:40]}... (sentiment={combined_sentiment:.2f})")
+                return False
+
+        except Exception as e:
+            logger.debug(f"Could not vote on post: {e}")
+            return False
 
     def stop(self):
         """Stop the proactive loop."""
