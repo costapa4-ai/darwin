@@ -160,6 +160,22 @@ async def init_consciousness_engine(
         )
         logger.info("Curiosity Expeditions Engine initialized")
 
+        # Feedback Loop Manager - connects curiosity systems to expedition queue
+        from consciousness.feedback_loops import init_feedback_manager
+        from consciousness.hooks import get_hooks_manager
+        from consciousness.activity_monitor import get_activity_monitor
+        from consciousness.findings_inbox import get_findings_inbox
+
+        services['feedback_manager'] = init_feedback_manager(
+            expedition_engine=services['expedition_engine'],
+            findings_inbox=get_findings_inbox(),
+            meta_learner=phase4.get('enhanced_meta_learner'),
+            hooks_manager=get_hooks_manager(),
+            activity_monitor=get_activity_monitor()
+        )
+        await services['feedback_manager'].initialize()
+        logger.info("Feedback Loop Manager initialized")
+
         # Financial Consciousness
         from consciousness.financial_consciousness import FinancialConsciousness
         services['financial_consciousness'] = FinancialConsciousness(

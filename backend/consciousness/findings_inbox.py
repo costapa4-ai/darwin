@@ -208,6 +208,32 @@ class FindingsInbox:
             except Exception as e:
                 logger.debug(f"Could not broadcast to channels: {e}")
 
+        # Trigger ON_FINDING hook for feedback loops (HIGH/URGENT findings)
+        if priority in [FindingPriority.HIGH, FindingPriority.URGENT]:
+            try:
+                import asyncio
+                from consciousness.hooks import trigger_hook, HookEvent
+                loop = asyncio.get_event_loop()
+                if loop.is_running():
+                    asyncio.create_task(
+                        trigger_hook(
+                            HookEvent.ON_FINDING,
+                            data={
+                                "finding": {
+                                    "id": finding_id,
+                                    "type": type.value,
+                                    "title": title,
+                                    "description": description,
+                                    "priority": priority.value,
+                                    "source": source
+                                }
+                            },
+                            source="findings_inbox"
+                        )
+                    )
+            except Exception as e:
+                logger.debug(f"Could not trigger ON_FINDING hook: {e}")
+
         return finding_id
 
     def get_unread(self, limit: int = 20) -> List[Dict[str, Any]]:

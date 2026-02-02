@@ -2277,6 +2277,24 @@ class ProactiveEngine:
                     "thought": thought
                 })
 
+                # Feed interesting posts to the feedback loop manager for expedition queue
+                if thought:
+                    try:
+                        from consciousness.feedback_loops import get_feedback_manager
+                        feedback_manager = get_feedback_manager()
+                        if feedback_manager:
+                            await feedback_manager.process_moltbook_post(
+                                post={
+                                    "id": post.id,
+                                    "title": post.title,
+                                    "content": post.content,
+                                    "tags": getattr(post, 'tags', [])
+                                },
+                                analysis=thought
+                            )
+                    except Exception as e:
+                        logger.debug(f"Could not process Moltbook post for feedback: {e}")
+
                 # Add interesting posts as discovered curiosities
                 if post.score > 5 and thought:  # Only high-quality posts
                     try:

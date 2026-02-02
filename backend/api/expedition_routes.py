@@ -163,6 +163,25 @@ async def get_recent_expeditions(limit: int = 10):
     }
 
 
+@router.get("/feedback/statistics")
+async def get_feedback_statistics():
+    """Get statistics about the feedback loop system"""
+    from consciousness.feedback_loops import get_feedback_manager
+
+    feedback_manager = get_feedback_manager()
+    if not feedback_manager:
+        return {
+            'success': False,
+            'message': 'Feedback loop manager not initialized',
+            'statistics': None
+        }
+
+    return {
+        'success': True,
+        'statistics': feedback_manager.get_statistics()
+    }
+
+
 @router.get("/{expedition_id}")
 async def get_expedition(expedition_id: str):
     """Get full expedition details by ID"""

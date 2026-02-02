@@ -399,6 +399,25 @@ class CuriosityExpeditions:
                 except Exception as e:
                     logger.error(f"Failed to track learning session: {e}")
 
+            # Trigger ON_EXPEDITION_COMPLETE hook for feedback loops
+            try:
+                from consciousness.hooks import trigger_hook, HookEvent
+                await trigger_hook(
+                    HookEvent.ON_EXPEDITION_COMPLETE,
+                    data={
+                        "expedition": {
+                            "id": expedition.id,
+                            "topic": expedition.topic,
+                            "success": expedition.success,
+                            "related_topics": self._generate_related_topics(expedition.topic)[:3],
+                            "discoveries_count": len(expedition.discoveries)
+                        }
+                    },
+                    source="curiosity_expeditions"
+                )
+            except Exception as e:
+                logger.debug(f"Could not trigger expedition complete hook: {e}")
+
             # Broadcast discovery to channels (only if we found something interesting)
             if self.channel_gateway and expedition.success and expedition.discoveries:
                 try:
