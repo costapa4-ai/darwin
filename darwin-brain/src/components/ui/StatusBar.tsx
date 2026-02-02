@@ -34,6 +34,7 @@ export function StatusBar() {
   const toggleChat = useDarwinStore((state) => state.toggleChat);
   const toggleFindings = useDarwinStore((state) => state.toggleFindings);
   const toggleSettings = useDarwinStore((state) => state.toggleSettings);
+  const toggleMonitor = useDarwinStore((state) => state.toggleMonitor);
   const isSpeaking = useDarwinStore((state) => state.isSpeaking);
 
   return (
@@ -155,6 +156,15 @@ export function StatusBar() {
                 title="Chat with Darwin"
               >
                 <span className="text-lg">💬</span>
+              </button>
+
+              {/* Monitor */}
+              <button
+                onClick={toggleMonitor}
+                className="p-2 rounded-lg hover:bg-gray-800 transition-colors"
+                title="Activity Monitor"
+              >
+                <span className="text-lg">📊</span>
               </button>
 
               {/* Settings */}

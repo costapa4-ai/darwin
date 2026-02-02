@@ -365,6 +365,27 @@ class ProactiveEngine:
         """
         logger.info(f"🚀 Executing proactive action: {action.name}")
 
+        # Log to activity monitor
+        from consciousness.activity_monitor import get_activity_monitor, ActivityCategory as MonitorCategory, ActivityStatus
+        monitor = get_activity_monitor()
+
+        # Map action category to monitor category
+        category_map = {
+            ActionCategory.EXPLORATION: MonitorCategory.INTERNET,
+            ActionCategory.LEARNING: MonitorCategory.THINKING,
+            ActionCategory.CREATIVITY: MonitorCategory.CREATING,
+            ActionCategory.COMMUNICATION: MonitorCategory.MOLTBOOK if "moltbook" in action.id.lower() else MonitorCategory.SYSTEM,
+            ActionCategory.MAINTENANCE: MonitorCategory.SYSTEM,
+            ActionCategory.OPTIMIZATION: MonitorCategory.EXECUTING,
+        }
+        monitor_category = category_map.get(action.category, MonitorCategory.SYSTEM)
+
+        activity_id = monitor.start_activity(
+            category=monitor_category,
+            action=action.id,
+            description=f"{action.name}: {action.description[:100]}"
+        )
+
         start_time = datetime.now()
 
         try:
@@ -408,12 +429,27 @@ class ProactiveEngine:
             result["duration_seconds"] = (datetime.now() - start_time).total_seconds()
             self.action_history.append(result)
 
+            # Complete activity in monitor
+            monitor.complete_activity(
+                activity_id,
+                status=ActivityStatus.SUCCESS,
+                details={"output_summary": str(result.get("output", ""))[:200]}
+            )
+
             logger.info(f"✅ Completed: {action.name} in {result['duration_seconds']:.2f}s")
 
             return result
 
         except Exception as e:
             logger.error(f"❌ Action failed: {action.name} - {e}")
+
+            # Log error to monitor
+            monitor.complete_activity(
+                activity_id,
+                status=ActivityStatus.FAILED,
+                error=str(e)
+            )
+
             return {
                 "action_id": action.id,
                 "action_name": action.name,

@@ -67,6 +67,8 @@ interface DarwinStore {
   toggleChat: () => void;
   showFindings: boolean;
   toggleFindings: () => void;
+  showMonitor: boolean;
+  toggleMonitor: () => void;
   showSettings: boolean;
   toggleSettings: () => void;
   cameraTarget: [number, number, number];
@@ -174,6 +176,8 @@ export const useDarwinStore = create<DarwinStore>((set) => ({
   toggleChat: () => set((state) => ({ showChat: !state.showChat })),
   showFindings: false,
   toggleFindings: () => set((state) => ({ showFindings: !state.showFindings })),
+  showMonitor: false,
+  toggleMonitor: () => set((state) => ({ showMonitor: !state.showMonitor })),
   showSettings: false,
   toggleSettings: () => set((state) => ({ showSettings: !state.showSettings })),
   cameraTarget: [0, 0, 0],

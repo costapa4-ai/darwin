@@ -5,6 +5,7 @@ import { ChatPanel } from './components/ui/ChatPanel';
 import { ActivityFeed } from './components/ui/ActivityFeed';
 import { FindingsPanel } from './components/ui/FindingsPanel';
 import { SettingsPanel } from './components/ui/SettingsPanel';
+import { MonitorPanel } from './components/ui/MonitorPanel';
 import { useWebSocket } from './hooks/useWebSocket';
 import { useDarwinStore } from './store/darwinStore';
 import { darwinApi } from './utils/api';
@@ -167,6 +168,7 @@ function App() {
       <ActivityFeed />
       <FindingsPanel />
       <SettingsPanel />
+      <MonitorPanel />
 
       {/* Welcome Message (shown once) */}
       <WelcomeOverlay />
