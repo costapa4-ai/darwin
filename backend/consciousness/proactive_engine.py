@@ -370,11 +370,14 @@ class ProactiveEngine:
         monitor = get_activity_monitor()
 
         # Map action category to monitor category
+        # Special handling: any action with "moltbook" in ID goes to MOLTBOOK category
+        is_moltbook_action = "moltbook" in action.id.lower()
+
         category_map = {
-            ActionCategory.EXPLORATION: MonitorCategory.INTERNET,
+            ActionCategory.EXPLORATION: MonitorCategory.MOLTBOOK if is_moltbook_action else MonitorCategory.INTERNET,
             ActionCategory.LEARNING: MonitorCategory.THINKING,
             ActionCategory.CREATIVITY: MonitorCategory.CREATING,
-            ActionCategory.COMMUNICATION: MonitorCategory.MOLTBOOK if "moltbook" in action.id.lower() else MonitorCategory.SYSTEM,
+            ActionCategory.COMMUNICATION: MonitorCategory.MOLTBOOK if is_moltbook_action else MonitorCategory.SYSTEM,
             ActionCategory.MAINTENANCE: MonitorCategory.SYSTEM,
             ActionCategory.OPTIMIZATION: MonitorCategory.EXECUTING,
         }
@@ -429,11 +432,18 @@ class ProactiveEngine:
             result["duration_seconds"] = (datetime.now() - start_time).total_seconds()
             self.action_history.append(result)
 
-            # Complete activity in monitor
+            # Complete activity in monitor - check actual success from result
+            output = result.get("output", {})
+            # Check if the action actually succeeded (look for success field in output)
+            actual_success = True
+            if isinstance(output, dict):
+                actual_success = output.get("success", True)
+
             monitor.complete_activity(
                 activity_id,
-                status=ActivityStatus.SUCCESS,
-                details={"output_summary": str(result.get("output", ""))[:200]}
+                status=ActivityStatus.SUCCESS if actual_success else ActivityStatus.FAILED,
+                details={"output_summary": str(output)[:200]},
+                error=None if actual_success else output.get("error") or output.get("reason")
             )
 
             logger.info(f"✅ Completed: {action.name} in {result['duration_seconds']:.2f}s")
@@ -1729,7 +1739,7 @@ class ProactiveEngine:
 
             # Get recent discoveries to share
             inbox = get_findings_inbox()
-            recent_findings = inbox.get_findings(limit=5)
+            recent_findings = inbox.get_all_active(limit=5)
 
             for finding in recent_findings:
                 if finding.get("type") == "discovery" and not finding.get("shared_to_moltbook"):

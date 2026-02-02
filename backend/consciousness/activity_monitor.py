@@ -324,20 +324,50 @@ class ActivityMonitor:
         )
 
     def _update_moltbook_stats(self, log: ActivityLog):
-        """Update Moltbook-specific statistics"""
+        """Update Moltbook-specific statistics based on actual results"""
         self.moltbook_stats.last_activity = log.timestamp
 
+        # Only count successful actions
+        if log.status != ActivityStatus.SUCCESS:
+            return
+
         action = log.action.lower()
+        details = log.details or {}
+
+        # Try to parse actual counts from output_summary
+        output_str = str(details.get("output_summary", ""))
+
         if "read" in action:
-            self.moltbook_stats.posts_read += 1
-        elif "post" in action or "create_post" in action:
-            self.moltbook_stats.posts_created += 1
+            # Try to extract posts_read count from output
+            # Format: "{'success': True, 'posts_read': 5, ...}"
+            import re
+            match = re.search(r"'posts_read':\s*(\d+)", output_str)
+            if match:
+                self.moltbook_stats.posts_read += int(match.group(1))
+            else:
+                self.moltbook_stats.posts_read += 1
+
+        elif "share" in action or "post" in action or "create_post" in action:
+            # Check if post was actually created
+            if "'success': True" in output_str or '"success": true' in output_str.lower():
+                self.moltbook_stats.posts_created += 1
+
         elif "comment" in action:
-            self.moltbook_stats.comments_made += 1
+            # Check if comment was actually made
+            if "'success': True" in output_str or '"success": true' in output_str.lower():
+                match = re.search(r"'comments_made':\s*(\d+)", output_str)
+                if match:
+                    self.moltbook_stats.comments_made += int(match.group(1))
+                else:
+                    self.moltbook_stats.comments_made += 1
+
         elif "upvote" in action:
-            self.moltbook_stats.upvotes_given += 1
+            if "'success': True" in output_str or '"success": true' in output_str.lower():
+                self.moltbook_stats.upvotes_given += 1
+
         elif "downvote" in action:
-            self.moltbook_stats.downvotes_given += 1
+            if "'success': True" in output_str or '"success": true' in output_str.lower():
+                self.moltbook_stats.downvotes_given += 1
 
     def _broadcast_log(self, log: ActivityLog):
         """Broadcast log to WebSocket clients"""
