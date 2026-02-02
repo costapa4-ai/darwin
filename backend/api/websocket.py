@@ -1,14 +1,19 @@
 """WebSocket manager for real-time updates"""
 import asyncio
-from typing import Set, Dict, Any
+from datetime import datetime
+from typing import Set, Dict, Any, Optional
 from fastapi import WebSocket
 from utils.logger import setup_logger
 
 logger = setup_logger(__name__)
 
+# Heartbeat configuration
+HEARTBEAT_INTERVAL_SECONDS = 30  # Send ping every 30 seconds
+HEARTBEAT_TIMEOUT_SECONDS = 90   # Consider connection stale after 90 seconds
+
 
 class ConnectionManager:
-    """Manages WebSocket connections"""
+    """Manages WebSocket connections with heartbeat support"""
 
     def __init__(self):
         self.active_connections: Set[WebSocket] = set()
@@ -17,19 +22,28 @@ class ConnectionManager:
             "findings": set(),  # Subscribers to findings updates
             "consciousness": set(),  # Subscribers to consciousness updates
         }
+        # Heartbeat tracking
+        self.last_pong: Dict[WebSocket, datetime] = {}
+        self._heartbeat_task: Optional[asyncio.Task] = None
 
     async def connect(self, websocket: WebSocket):
         """Accept new WebSocket connection"""
         await websocket.accept()
         self.active_connections.add(websocket)
+        self.last_pong[websocket] = datetime.now()
         logger.info(f"WebSocket connected. Total: {len(self.active_connections)}")
 
     def disconnect(self, websocket: WebSocket):
         """Remove WebSocket connection"""
         self.active_connections.discard(websocket)
+        self.last_pong.pop(websocket, None)
 
         # Remove from task subscriptions
         for subscribers in self.task_subscribers.values():
+            subscribers.discard(websocket)
+
+        # Remove from channel subscriptions
+        for subscribers in self.channel_subscribers.values():
             subscribers.discard(websocket)
 
         logger.info(f"WebSocket disconnected. Total: {len(self.active_connections)}")
@@ -128,6 +142,70 @@ class ConnectionManager:
             "finding_id": finding_id,
             "action": action
         })
+
+    def handle_pong(self, websocket: WebSocket):
+        """Record pong response from client"""
+        self.last_pong[websocket] = datetime.now()
+
+    async def start_heartbeat(self):
+        """Start the heartbeat background task"""
+        if self._heartbeat_task is None or self._heartbeat_task.done():
+            self._heartbeat_task = asyncio.create_task(self._heartbeat_loop())
+            logger.info("WebSocket heartbeat started")
+
+    async def stop_heartbeat(self):
+        """Stop the heartbeat background task"""
+        if self._heartbeat_task and not self._heartbeat_task.done():
+            self._heartbeat_task.cancel()
+            try:
+                await self._heartbeat_task
+            except asyncio.CancelledError:
+                pass
+            logger.info("WebSocket heartbeat stopped")
+
+    async def _heartbeat_loop(self):
+        """Background loop that sends pings and removes stale connections"""
+        while True:
+            try:
+                await asyncio.sleep(HEARTBEAT_INTERVAL_SECONDS)
+
+                now = datetime.now()
+                stale_connections = set()
+
+                # Check for stale connections and send pings
+                for websocket in list(self.active_connections):
+                    last_activity = self.last_pong.get(websocket)
+
+                    if last_activity:
+                        seconds_since_pong = (now - last_activity).total_seconds()
+                        if seconds_since_pong > HEARTBEAT_TIMEOUT_SECONDS:
+                            stale_connections.add(websocket)
+                            logger.warning(f"WebSocket stale (no pong for {seconds_since_pong:.0f}s)")
+                            continue
+
+                    # Send ping to active connections
+                    try:
+                        await websocket.send_json({"type": "ping"})
+                    except Exception as e:
+                        logger.debug(f"Failed to send ping: {e}")
+                        stale_connections.add(websocket)
+
+                # Clean up stale connections
+                for websocket in stale_connections:
+                    self.disconnect(websocket)
+                    try:
+                        await websocket.close()
+                    except Exception:
+                        pass
+
+                if stale_connections:
+                    logger.info(f"Removed {len(stale_connections)} stale WebSocket connection(s)")
+
+            except asyncio.CancelledError:
+                break
+            except Exception as e:
+                logger.error(f"Error in heartbeat loop: {e}")
+                await asyncio.sleep(HEARTBEAT_INTERVAL_SECONDS)
 
 
 manager = ConnectionManager()

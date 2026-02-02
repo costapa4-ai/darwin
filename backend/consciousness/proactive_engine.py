@@ -933,9 +933,18 @@ class ProactiveEngine:
             # Complete activity in monitor - check actual success from result
             output = result.get("output", {})
             # Check if the action actually succeeded (look for success field in output)
-            actual_success = True
-            if isinstance(output, dict):
-                actual_success = output.get("success", True)
+            # Import here to avoid circular imports
+            from consciousness.action_result import ActionResult
+
+            if isinstance(output, ActionResult):
+                actual_success = output.success
+            elif isinstance(output, dict):
+                actual_success = output.get("success", False)  # STRICT: default False
+                if "success" not in output:
+                    logger.warning(f"Action {action.name} returned dict without 'success' key - treating as failure")
+            else:
+                actual_success = False
+                logger.warning(f"Action {action.name} returned unexpected type {type(output).__name__} - treating as failure")
 
             # Track success/failure for error escalation
             if actual_success:

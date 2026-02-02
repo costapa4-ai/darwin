@@ -12,7 +12,8 @@ Tracks and analyzes Darwin's language patterns over time, including:
 import os
 import json
 import re
-from datetime import datetime, date
+import shutil
+from datetime import datetime, date, timedelta
 from typing import Optional, List, Dict, Any, Set
 from pathlib import Path
 from collections import Counter
@@ -26,7 +27,14 @@ logger = logging.getLogger(__name__)
 DATA_DIR = Path(__file__).parent.parent / "data" / "language_evolution"
 DAILY_DIR = DATA_DIR / "daily"
 CONTENT_DIR = DATA_DIR / "content"
+ARCHIVE_DIR = DATA_DIR / "archive"
 HISTORY_FILE = DATA_DIR / "language_history.json"
+
+# Retention policy constants
+CONTENT_RETENTION_DAYS = 90    # Keep content files for 90 days
+DAILY_RETENTION_DAYS = 365     # Keep daily metrics for 1 year
+ARCHIVE_OLD_CONTENT = True     # Archive old content instead of deleting
+AUTO_CLEANUP_INTERVAL_HOURS = 24  # Run auto-cleanup at most once per 24 hours
 
 
 class TextAnalyzer:
@@ -235,12 +243,14 @@ class LanguageEvolutionService:
         self._ensure_directories()
         self._history = self._load_history()
         self._content_counter = 0
+        self._last_cleanup: Optional[datetime] = None
 
     def _ensure_directories(self):
         """Create necessary directories"""
         DATA_DIR.mkdir(parents=True, exist_ok=True)
         DAILY_DIR.mkdir(parents=True, exist_ok=True)
         CONTENT_DIR.mkdir(parents=True, exist_ok=True)
+        ARCHIVE_DIR.mkdir(parents=True, exist_ok=True)
 
     def _load_history(self) -> Dict[str, Any]:
         """Load language history from file"""
@@ -359,6 +369,9 @@ class LanguageEvolutionService:
         self._save_history()
 
         logger.info(f"Added language content: {content_id} (type={content_type}, words={analysis['vocabulary']['total_words']})")
+
+        # Trigger auto-cleanup if needed (at most once per 24 hours)
+        self._maybe_auto_cleanup()
 
         return content_item
 
@@ -598,6 +611,106 @@ class LanguageEvolutionService:
             'top_topics': top_topics,
             'sample_vocabulary': vocab[-20:] if vocab else []  # Most recent words
         }
+
+    def _maybe_auto_cleanup(self):
+        """Run cleanup if it hasn't been run in the last 24 hours"""
+        now = datetime.now()
+
+        if self._last_cleanup is not None:
+            hours_since_cleanup = (now - self._last_cleanup).total_seconds() / 3600
+            if hours_since_cleanup < AUTO_CLEANUP_INTERVAL_HOURS:
+                return  # Too soon to run cleanup again
+
+        # Run cleanup
+        try:
+            stats = self.cleanup_old_data(dry_run=False)
+            self._last_cleanup = now
+            if stats['content_archived'] > 0 or stats['daily_deleted'] > 0:
+                logger.info(f"Auto-cleanup completed: {stats}")
+        except Exception as e:
+            logger.error(f"Auto-cleanup failed: {e}")
+
+    def cleanup_old_data(self, dry_run: bool = True) -> Dict[str, Any]:
+        """
+        Clean up old content and daily metric files according to retention policy.
+
+        Args:
+            dry_run: If True, only report what would be cleaned up without actually doing it
+
+        Returns:
+            Statistics about what was (or would be) cleaned up
+        """
+        today = date.today()
+        content_cutoff = today - timedelta(days=CONTENT_RETENTION_DAYS)
+        daily_cutoff = today - timedelta(days=DAILY_RETENTION_DAYS)
+
+        stats = {
+            'content_archived': 0,
+            'content_deleted': 0,
+            'daily_deleted': 0,
+            'content_files_checked': 0,
+            'daily_files_checked': 0,
+            'errors': [],
+            'dry_run': dry_run
+        }
+
+        # Process content files
+        for filepath in CONTENT_DIR.glob("*.json"):
+            stats['content_files_checked'] += 1
+
+            try:
+                # Parse date from filename: content_YYYYMMDD_HHMMSS_###.json
+                filename = filepath.stem  # content_20250101_120000_001
+                parts = filename.split('_')
+                if len(parts) >= 2:
+                    date_str = parts[1]  # YYYYMMDD
+                    file_date = datetime.strptime(date_str, "%Y%m%d").date()
+
+                    if file_date < content_cutoff:
+                        if dry_run:
+                            stats['content_archived'] += 1
+                        elif ARCHIVE_OLD_CONTENT:
+                            # Archive the file
+                            archive_path = ARCHIVE_DIR / filepath.name
+                            shutil.move(str(filepath), str(archive_path))
+                            stats['content_archived'] += 1
+                            logger.debug(f"Archived old content: {filepath.name}")
+                        else:
+                            # Delete the file
+                            filepath.unlink()
+                            stats['content_deleted'] += 1
+                            logger.debug(f"Deleted old content: {filepath.name}")
+
+            except Exception as e:
+                stats['errors'].append(f"Error processing {filepath.name}: {e}")
+
+        # Process daily metric files
+        for filepath in DAILY_DIR.glob("*.json"):
+            stats['daily_files_checked'] += 1
+
+            try:
+                # Parse date from filename: YYYY-MM-DD.json
+                date_str = filepath.stem
+                file_date = datetime.strptime(date_str, "%Y-%m-%d").date()
+
+                if file_date < daily_cutoff:
+                    if dry_run:
+                        stats['daily_deleted'] += 1
+                    else:
+                        filepath.unlink()
+                        stats['daily_deleted'] += 1
+                        logger.debug(f"Deleted old daily metrics: {filepath.name}")
+
+            except Exception as e:
+                stats['errors'].append(f"Error processing {filepath.name}: {e}")
+
+        if not dry_run and (stats['content_archived'] > 0 or stats['content_deleted'] > 0 or stats['daily_deleted'] > 0):
+            logger.info(
+                f"Language evolution cleanup: archived={stats['content_archived']}, "
+                f"deleted_content={stats['content_deleted']}, deleted_daily={stats['daily_deleted']}"
+            )
+
+        return stats
 
 
 # Singleton instance

@@ -256,6 +256,11 @@ async def lifespan(app: FastAPI):
         if financial_consciousness:
             financial_consciousness.channel_gateway = channel_gateway
 
+    # Start WebSocket heartbeat
+    from api.websocket import manager as ws_manager
+    await ws_manager.start_heartbeat()
+    logger.info("WebSocket heartbeat started")
+
     # Log startup summary
     phase2_features = {k: v is not None for k, v in phase2.items()}
     phase3_features = {k: v is not None for k, v in phase3.items()}
@@ -274,6 +279,10 @@ async def lifespan(app: FastAPI):
     # Shutdown
     logger.info("Darwin System shutting down...")
     health_tracker.record_shutdown()
+
+    # Stop WebSocket heartbeat
+    from api.websocket import manager as ws_manager
+    await ws_manager.stop_heartbeat()
 
     consciousness_engine = _services.get('consciousness_engine')
     if consciousness_engine and consciousness_engine.is_running:

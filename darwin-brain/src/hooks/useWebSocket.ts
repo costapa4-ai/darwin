@@ -20,6 +20,12 @@ export function useWebSocket() {
     try {
       const data: WebSocketMessage = JSON.parse(event.data);
 
+      // Handle ping/pong heartbeat
+      if (data.type === 'ping') {
+        wsRef.current?.send(JSON.stringify({ type: 'pong' }));
+        return;
+      }
+
       switch (data.type) {
         case 'status_update':
           setStatus(data.payload as Record<string, unknown>);

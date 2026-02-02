@@ -528,8 +528,10 @@ Respond with ONLY the number."""
             # Execute tool
             result = await tool.execute(**kwargs)
 
-            # Track success
-            success = result.get('success', True)
+            # Track success - default to False to be strict about missing 'success' keys
+            success = result.get('success', False)
+            if 'success' not in result:
+                logger.warning(f"Tool {tool.name} returned result without 'success' key - treating as failure")
             tool.update_success_rate(success)
 
             execution_time = (datetime.utcnow() - start_time).total_seconds()

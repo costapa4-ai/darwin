@@ -119,12 +119,21 @@ def register_all_routes(app: FastAPI):
     @app.websocket("/ws")
     async def websocket_endpoint(websocket: WebSocket):
         """WebSocket endpoint for real-time updates"""
+        import json
         await manager.connect(websocket)
 
         try:
             while True:
                 data = await websocket.receive_text()
-                logger.info(f"WebSocket message received: {data}")
+                try:
+                    message = json.loads(data)
+                    # Handle pong response from client
+                    if message.get('type') == 'pong':
+                        manager.handle_pong(websocket)
+                    else:
+                        logger.info(f"WebSocket message received: {data}")
+                except json.JSONDecodeError:
+                    logger.info(f"WebSocket message received: {data}")
         except WebSocketDisconnect:
             manager.disconnect(websocket)
         except Exception as e:

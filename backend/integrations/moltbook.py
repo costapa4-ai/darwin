@@ -205,10 +205,11 @@ class MoltbookClient:
         method: str,
         endpoint: str,
         action: str = "request",
+        max_retries: int = 5,
         **kwargs
     ) -> Dict[str, Any]:
         """
-        Make authenticated request to Moltbook API.
+        Make authenticated request to Moltbook API with exponential backoff.
 
         SECURITY: Only sends API key to www.moltbook.com
         """
@@ -233,25 +234,40 @@ class MoltbookClient:
         }
 
         session = await self._get_session()
+        last_exception = None
 
-        try:
-            async with session.request(method, url, headers=headers, **kwargs) as response:
-                self._update_rate_limit(action)
+        for attempt in range(max_retries):
+            try:
+                async with session.request(method, url, headers=headers, **kwargs) as response:
+                    self._update_rate_limit(action)
 
-                if response.status == 429:
-                    raise Exception("Rate limited by Moltbook API")
+                    if response.status == 429:
+                        # Rate limited - apply exponential backoff
+                        delay = min(2 ** attempt, 30)
+                        logger.warning(f"Moltbook rate limited (429). Retrying in {delay}s (attempt {attempt + 1}/{max_retries})")
+                        await asyncio.sleep(delay)
+                        continue
 
-                data = await response.json()
+                    data = await response.json()
 
-                if response.status >= 400:
-                    error_msg = data.get('error', data.get('message', 'Unknown error'))
-                    raise Exception(f"Moltbook API error ({response.status}): {error_msg}")
+                    if response.status >= 400:
+                        error_msg = data.get('error', data.get('message', 'Unknown error'))
+                        raise Exception(f"Moltbook API error ({response.status}): {error_msg}")
 
-                return data
+                    return data
 
-        except aiohttp.ClientError as e:
-            logger.error(f"Moltbook request failed: {e}")
-            raise
+            except aiohttp.ClientError as e:
+                last_exception = e
+                delay = min(2 ** attempt, 30)
+                logger.warning(f"Moltbook request failed: {e}. Retrying in {delay}s (attempt {attempt + 1}/{max_retries})")
+                await asyncio.sleep(delay)
+                continue
+
+        # All retries exhausted
+        if last_exception:
+            logger.error(f"Moltbook request failed after {max_retries} retries: {last_exception}")
+            raise last_exception
+        raise Exception(f"Moltbook API rate limited after {max_retries} retries")
 
     # ==================== Registration ====================
 
