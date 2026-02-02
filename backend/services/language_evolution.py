@@ -280,6 +280,7 @@ class LanguageEvolutionService:
         original_content: Optional[str] = None,
         source_post_id: Optional[str] = None,
         source_post_title: Optional[str] = None,
+        source_post_url: Optional[str] = None,
         metadata: Optional[Dict[str, Any]] = None
     ) -> Dict[str, Any]:
         """
@@ -291,6 +292,7 @@ class LanguageEvolutionService:
             original_content: Original post content (for 'read' type)
             source_post_id: ID of the source post
             source_post_title: Title of the source post
+            source_post_url: URL of the source post (for linking)
             metadata: Additional metadata
 
         Returns:
@@ -331,6 +333,7 @@ class LanguageEvolutionService:
             'darwin_content': darwin_content,
             'source_post_id': source_post_id,
             'source_post_title': source_post_title,
+            'source_post_url': source_post_url,
             'metrics': {
                 'word_count': analysis['vocabulary']['total_words'],
                 'sentiment': analysis['sentiment'],

@@ -391,6 +391,7 @@ class MoltbookClient:
                 darwin_content=full_content,
                 source_post_id=data.get('id', ''),
                 source_post_title=title,
+                source_post_url=url,
                 metadata={
                     'submolt': submolt,
                     'url': url,
@@ -508,10 +509,13 @@ class MoltbookClient:
         try:
             from services.language_evolution import get_language_evolution_service
             lang_service = get_language_evolution_service()
+            # Construct URL - use posts endpoint (submolt not available here)
+            comment_url = f"https://www.moltbook.com/posts/{post_id}"
             lang_service.add_content(
                 content_type='comment',
                 darwin_content=content,
                 source_post_id=post_id,
+                source_post_url=comment_url,
                 metadata={
                     'parent_id': parent_id,
                     'comment_id': data.get('id', '')
