@@ -77,6 +77,13 @@ class Settings(BaseSettings):
     error_disable_minutes: int = 30     # How long to disable after threshold reached
     total_error_threshold: int = 10     # Alert after N total errors
 
+    # Memory Management
+    max_wake_activities: int = 100      # Max activities to keep in memory
+    max_sleep_dreams: int = 50          # Max dreams to keep in memory
+    max_curiosity_moments: int = 100    # Max curiosity moments to keep
+    max_action_history: int = 200       # Max action history entries
+    memory_cleanup_interval: int = 300  # Cleanup interval in seconds (5 min)
+
     # Security
     execution_timeout: int = 30
     max_memory_mb: int = 256

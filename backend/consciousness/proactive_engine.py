@@ -182,9 +182,20 @@ class ProactiveEngine:
         self._recent_action_ids: List[str] = []
         self._max_recent_tracking = 5  # Track last 5 actions
 
+        # Memory limits
+        self._max_action_history = self._get_max_action_history()
+
         self._register_default_actions()
 
         logger.info("ProactiveEngine initialized with diversity tracking")
+
+    def _get_max_action_history(self) -> int:
+        """Get max action history from config or use default."""
+        try:
+            from config import get_settings
+            return get_settings().max_action_history
+        except Exception:
+            return 200  # Default
 
     def _register_default_actions(self):
         """Register Darwin's default proactive behaviors."""
@@ -564,10 +575,14 @@ class ProactiveEngine:
 
             logger.info(f"✅ Action {action.name} completed. Recent categories: {[c.value for c in self._recent_categories]}")
 
-            # Record in history
+            # Record in history (with memory limit)
             result["completed_at"] = datetime.now().isoformat()
             result["duration_seconds"] = (datetime.now() - start_time).total_seconds()
             self.action_history.append(result)
+
+            # Trim history if exceeds limit
+            if len(self.action_history) > self._max_action_history:
+                self.action_history = self.action_history[-self._max_action_history:]
 
             # Complete activity in monitor - check actual success from result
             output = result.get("output", {})
@@ -2162,6 +2177,11 @@ Just write the comment text, nothing else."""
             "disabled_count": sum(1 for a in self.actions.values() if a.disabled_until and datetime.now() < a.disabled_until),
             "recent_history": self.action_history[-10:],
             "error_stats": self.get_error_stats(),
+            "memory_stats": {
+                "action_history_count": len(self.action_history),
+                "action_history_max": self._max_action_history,
+                "action_history_usage_pct": round(len(self.action_history) / self._max_action_history * 100, 1)
+            },
             "actions": {
                 a.id: {
                     "name": a.name,

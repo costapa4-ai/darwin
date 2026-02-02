@@ -987,10 +987,16 @@ Monitor shows: comments_made: 23  (INCORRECT - should be 0)
 
 ### Priority 2: Performance
 
-9. **Memory Management**
-   - Implement explicit memory limits
-   - Periodic garbage collection
-   - Memory usage monitoring
+9. **Memory Management** ✅ RESOLVED
+   - ~~Implement explicit memory limits~~
+   - ~~Periodic garbage collection~~
+   - ~~Memory usage monitoring~~
+   - Added configurable limits: max_wake_activities (100), max_sleep_dreams (50), max_curiosity_moments (100), max_action_history (200)
+   - Implemented `_cleanup_memory()` with periodic cleanup (every 5 minutes)
+   - Added `get_memory_stats()` for monitoring usage percentages
+   - Added API endpoints: `/debug/memory` and `/debug/cleanup-memory`
+   - Collections auto-trim when exceeding limits
+   - Integrated dedup store cleanup (30 days old entries)
 
 10. **Query Optimization**
     - Add indices to semantic memory

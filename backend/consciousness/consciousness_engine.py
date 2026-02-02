@@ -144,6 +144,9 @@ class ConsciousnessEngine:
         self.discovered_curiosities: List[Dict] = []
         self.max_discovered_curiosities = 100  # Keep last 100 discoveries
 
+        # Memory limits (configurable via .env)
+        self._init_memory_limits()
+
         # Statistics
         self.wake_cycles_completed = 0
         self.sleep_cycles_completed = 0
@@ -175,6 +178,129 @@ class ConsciousnessEngine:
     def _clear_submitted_insights(self, category: str = None) -> int:
         """Clear submitted insights (for debugging). Returns count cleared."""
         return self._dedup_store.clear(category)
+
+    # ==================== Memory Management Methods ====================
+
+    def _init_memory_limits(self):
+        """Initialize memory limits from config."""
+        try:
+            from config import get_settings
+            settings = get_settings()
+            self._max_wake_activities = settings.max_wake_activities
+            self._max_sleep_dreams = settings.max_sleep_dreams
+            self._max_curiosity_moments = settings.max_curiosity_moments
+            self._memory_cleanup_interval = settings.memory_cleanup_interval
+        except Exception:
+            # Defaults if config fails
+            self._max_wake_activities = 100
+            self._max_sleep_dreams = 50
+            self._max_curiosity_moments = 100
+            self._memory_cleanup_interval = 300
+
+        self._last_memory_cleanup = datetime.utcnow()
+
+    def _trim_collection(self, collection: list, max_size: int, name: str) -> int:
+        """
+        Trim a collection to max_size, keeping most recent items.
+        Returns number of items removed.
+        """
+        if len(collection) <= max_size:
+            return 0
+
+        removed = len(collection) - max_size
+        del collection[:-max_size]
+        return removed
+
+    def _cleanup_memory(self, force: bool = False) -> Dict[str, int]:
+        """
+        Perform memory cleanup on all in-memory collections.
+
+        Args:
+            force: If True, cleanup even if interval hasn't passed
+
+        Returns:
+            Dict with counts of items removed from each collection
+        """
+        now = datetime.utcnow()
+        elapsed = (now - self._last_memory_cleanup).total_seconds()
+
+        # Check if cleanup is needed (unless forced)
+        if not force and elapsed < self._memory_cleanup_interval:
+            return {}
+
+        self._last_memory_cleanup = now
+        cleanup_stats = {}
+
+        # Trim wake activities
+        removed = self._trim_collection(
+            self.wake_activities,
+            self._max_wake_activities,
+            "wake_activities"
+        )
+        if removed > 0:
+            cleanup_stats["wake_activities"] = removed
+
+        # Trim sleep dreams
+        removed = self._trim_collection(
+            self.sleep_dreams,
+            self._max_sleep_dreams,
+            "sleep_dreams"
+        )
+        if removed > 0:
+            cleanup_stats["sleep_dreams"] = removed
+
+        # Trim curiosity moments
+        removed = self._trim_collection(
+            self.curiosity_moments,
+            self._max_curiosity_moments,
+            "curiosity_moments"
+        )
+        if removed > 0:
+            cleanup_stats["curiosity_moments"] = removed
+
+        # Clean old deduplication entries (older than 30 days)
+        dedup_cleaned = self._dedup_store.cleanup_old(days=30)
+        if dedup_cleaned > 0:
+            cleanup_stats["dedup_old_entries"] = dedup_cleaned
+
+        if cleanup_stats:
+            total = sum(cleanup_stats.values())
+            print(f"🧹 Memory cleanup: removed {total} items - {cleanup_stats}")
+
+        return cleanup_stats
+
+    def get_memory_stats(self) -> Dict[str, Any]:
+        """Get current memory usage statistics."""
+        import sys
+
+        # Get sizes of main collections
+        stats = {
+            "wake_activities": {
+                "count": len(self.wake_activities),
+                "max": self._max_wake_activities,
+                "usage_pct": round(len(self.wake_activities) / self._max_wake_activities * 100, 1)
+            },
+            "sleep_dreams": {
+                "count": len(self.sleep_dreams),
+                "max": self._max_sleep_dreams,
+                "usage_pct": round(len(self.sleep_dreams) / self._max_sleep_dreams * 100, 1)
+            },
+            "curiosity_moments": {
+                "count": len(self.curiosity_moments),
+                "max": self._max_curiosity_moments,
+                "usage_pct": round(len(self.curiosity_moments) / self._max_curiosity_moments * 100, 1)
+            },
+            "discovered_curiosities": {
+                "count": len(self.discovered_curiosities),
+                "max": self.max_discovered_curiosities,
+                "usage_pct": round(len(self.discovered_curiosities) / self.max_discovered_curiosities * 100, 1)
+            },
+            "dedup_store": self._dedup_store.get_stats(),
+            "last_cleanup": self._last_memory_cleanup.isoformat(),
+            "cleanup_interval_seconds": self._memory_cleanup_interval
+        }
+
+        return stats
 
     @property
     def submitted_insights(self) -> set:
@@ -247,6 +373,9 @@ class ConsciousnessEngine:
 
                 # Auto-save state every 5 minutes
                 await self._auto_save_state()
+
+                # Periodic memory cleanup
+                self._cleanup_memory()
 
                 # Small delay between checks
                 await asyncio.sleep(10)

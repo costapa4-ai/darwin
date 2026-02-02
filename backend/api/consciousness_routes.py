@@ -847,6 +847,42 @@ async def debug_clear_dreams():
     }
 
 
+@router.get("/debug/memory")
+async def debug_memory_stats():
+    """DEBUG: Get memory usage statistics"""
+    if not consciousness_engine:
+        raise HTTPException(status_code=503, detail="Consciousness engine not available")
+
+    memory_stats = consciousness_engine.get_memory_stats()
+
+    # Add proactive engine stats if available
+    try:
+        from consciousness.proactive_engine import get_proactive_engine
+        proactive = get_proactive_engine()
+        proactive_status = proactive.get_status()
+        memory_stats["proactive_engine"] = proactive_status.get("memory_stats", {})
+    except Exception:
+        pass
+
+    return memory_stats
+
+
+@router.post("/debug/cleanup-memory")
+async def debug_cleanup_memory():
+    """DEBUG: Force memory cleanup"""
+    if not consciousness_engine:
+        raise HTTPException(status_code=503, detail="Consciousness engine not available")
+
+    cleanup_stats = consciousness_engine._cleanup_memory(force=True)
+
+    return {
+        "status": "cleaned",
+        "removed": cleanup_stats,
+        "total_removed": sum(cleanup_stats.values()) if cleanup_stats else 0,
+        "current_stats": consciousness_engine.get_memory_stats()
+    }
+
+
 @router.get("/debug/health")
 async def debug_health_status():
     """DEBUG: Get health tracker status"""
