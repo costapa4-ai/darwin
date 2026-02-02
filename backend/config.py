@@ -72,6 +72,11 @@ class Settings(BaseSettings):
     # Activity Timeouts
     action_timeout_seconds: int = 300  # Default 5 minutes for proactive actions
 
+    # Error Escalation
+    max_consecutive_failures: int = 3   # Disable action after N consecutive failures
+    error_disable_minutes: int = 30     # How long to disable after threshold reached
+    total_error_threshold: int = 10     # Alert after N total errors
+
     # Security
     execution_timeout: int = 30
     max_memory_mb: int = 256

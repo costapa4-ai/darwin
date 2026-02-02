@@ -55,6 +55,27 @@ def get_default_timeout() -> int:
 DEFAULT_ACTION_TIMEOUT_SECONDS = 300  # Fallback constant
 
 
+# Error escalation thresholds (can be overridden via config)
+def get_error_escalation_settings() -> tuple:
+    """Get error escalation settings from config or use defaults."""
+    try:
+        from config import get_settings
+        settings = get_settings()
+        return (
+            settings.max_consecutive_failures,
+            settings.error_disable_minutes,
+            settings.total_error_threshold
+        )
+    except Exception:
+        return (3, 30, 10)  # Defaults
+
+
+# Fallback constants
+MAX_CONSECUTIVE_FAILURES = 3  # Disable after N consecutive failures
+ERROR_DISABLE_MINUTES = 30    # Disable duration after threshold reached
+TOTAL_ERROR_THRESHOLD = 10    # Alert after N total errors
+
+
 @dataclass
 class ProactiveAction:
     """A proactive action Darwin can take."""
@@ -71,6 +92,73 @@ class ProactiveAction:
     enabled: bool = True
     timeout_seconds: int = DEFAULT_ACTION_TIMEOUT_SECONDS  # Per-action timeout
     metadata: Dict[str, Any] = field(default_factory=dict)
+
+    # Error tracking fields
+    error_count: int = 0                          # Total error count
+    consecutive_failures: int = 0                 # Consecutive failures (reset on success)
+    last_error: Optional[str] = None              # Last error message
+    last_error_time: Optional[datetime] = None    # When last error occurred
+    disabled_until: Optional[datetime] = None     # Auto-disabled until this time
+    disable_reason: Optional[str] = None          # Why action was disabled
+
+    def is_available(self) -> bool:
+        """Check if action is available (enabled and not temporarily disabled)."""
+        if not self.enabled:
+            return False
+        if self.disabled_until and datetime.now() < self.disabled_until:
+            return False
+        return True
+
+    def record_success(self):
+        """Record a successful execution - resets consecutive failure count."""
+        self.consecutive_failures = 0
+        self.disabled_until = None
+        self.disable_reason = None
+
+    def record_failure(self, error: str, max_failures: int = None, disable_minutes: int = None) -> bool:
+        """
+        Record a failed execution. Returns True if action was auto-disabled.
+
+        Args:
+            error: Error message
+            max_failures: Override for max consecutive failures threshold
+            disable_minutes: Override for disable duration
+
+        Returns:
+            True if action was auto-disabled
+        """
+        self.error_count += 1
+        self.consecutive_failures += 1
+        self.last_error = error
+        self.last_error_time = datetime.now()
+
+        # Get thresholds from config or use provided/default values
+        try:
+            max_fail, disable_min, _ = get_error_escalation_settings()
+        except Exception:
+            max_fail, disable_min = MAX_CONSECUTIVE_FAILURES, ERROR_DISABLE_MINUTES
+
+        max_failures = max_failures or max_fail
+        disable_minutes = disable_minutes or disable_min
+
+        # Check if we should auto-disable
+        if self.consecutive_failures >= max_failures:
+            self.disabled_until = datetime.now() + timedelta(minutes=disable_minutes)
+            self.disable_reason = f"Auto-disabled after {self.consecutive_failures} consecutive failures"
+            return True
+
+        return False
+
+    def get_error_stats(self) -> Dict[str, Any]:
+        """Get error statistics for this action."""
+        return {
+            "total_errors": self.error_count,
+            "consecutive_failures": self.consecutive_failures,
+            "last_error": self.last_error,
+            "last_error_time": self.last_error_time.isoformat() if self.last_error_time else None,
+            "disabled_until": self.disabled_until.isoformat() if self.disabled_until else None,
+            "disable_reason": self.disable_reason
+        }
 
 
 class ProactiveEngine:
@@ -244,7 +332,7 @@ class ProactiveEngine:
         min_priority: ActionPriority = ActionPriority.LOW
     ) -> List[ProactiveAction]:
         """
-        Get actions that are available to execute (not on cooldown).
+        Get actions that are available to execute (not on cooldown, not disabled).
 
         Args:
             category: Filter by category
@@ -257,7 +345,8 @@ class ProactiveEngine:
         available = []
 
         for action in self.actions.values():
-            if not action.enabled:
+            # Check if action is available (enabled and not temporarily disabled)
+            if not action.is_available():
                 continue
 
             if action.priority.value < min_priority.value:
@@ -273,6 +362,11 @@ class ProactiveEngine:
                     continue
 
             available.append(action)
+
+        # Log if any actions are temporarily disabled
+        disabled = [a for a in self.actions.values() if a.disabled_until and now < a.disabled_until]
+        if disabled:
+            logger.debug(f"⏸️ {len(disabled)} action(s) temporarily disabled: {[a.id for a in disabled]}")
 
         return available
 
@@ -482,6 +576,16 @@ class ProactiveEngine:
             if isinstance(output, dict):
                 actual_success = output.get("success", True)
 
+            # Track success/failure for error escalation
+            if actual_success:
+                action.record_success()
+            else:
+                error_msg = output.get("error") or output.get("reason") or "Unknown failure"
+                was_disabled = action.record_failure(str(error_msg))
+                if was_disabled:
+                    logger.warning(f"🚫 ACTION DISABLED: {action.name} - {action.disable_reason}")
+                    self._alert_action_disabled(action)
+
             monitor.complete_activity(
                 activity_id,
                 status=ActivityStatus.SUCCESS if actual_success else ActivityStatus.FAILED,
@@ -498,13 +602,20 @@ class ProactiveEngine:
             duration = (datetime.now() - start_time).total_seconds()
             logger.error(f"⏱️ Action TIMEOUT: {action.name} after {duration:.1f}s - {e}")
 
+            # Track failure for error escalation
+            was_disabled = action.record_failure(f"TIMEOUT: {e}")
+            if was_disabled:
+                logger.warning(f"🚫 ACTION DISABLED: {action.name} - {action.disable_reason}")
+                self._alert_action_disabled(action)
+
             # Log timeout to monitor with specific details
             monitor.complete_activity(
                 activity_id,
                 status=ActivityStatus.FAILED,
                 details={
                     "timeout_seconds": action.timeout_seconds,
-                    "actual_duration": duration
+                    "actual_duration": duration,
+                    "consecutive_failures": action.consecutive_failures
                 },
                 error=f"TIMEOUT: {e}"
             )
@@ -515,16 +626,24 @@ class ProactiveEngine:
                 "success": False,
                 "error": str(e),
                 "timeout": True,
-                "duration_seconds": duration
+                "duration_seconds": duration,
+                "consecutive_failures": action.consecutive_failures
             }
 
         except Exception as e:
             logger.error(f"❌ Action failed: {action.name} - {e}")
 
+            # Track failure for error escalation
+            was_disabled = action.record_failure(str(e))
+            if was_disabled:
+                logger.warning(f"🚫 ACTION DISABLED: {action.name} - {action.disable_reason}")
+                self._alert_action_disabled(action)
+
             # Log error to monitor
             monitor.complete_activity(
                 activity_id,
                 status=ActivityStatus.FAILED,
+                details={"consecutive_failures": action.consecutive_failures},
                 error=str(e)
             )
 
@@ -532,7 +651,8 @@ class ProactiveEngine:
                 "action_id": action.id,
                 "action_name": action.name,
                 "success": False,
-                "error": str(e)
+                "error": str(e),
+                "consecutive_failures": action.consecutive_failures
             }
 
     async def _default_execution(
@@ -1950,14 +2070,98 @@ Just write the comment text, nothing else."""
         self.running = False
         logger.info("Proactive loop stopped")
 
+    def _alert_action_disabled(self, action: ProactiveAction):
+        """
+        Alert when an action is auto-disabled due to repeated failures.
+        Logs to activity monitor and can be extended for notifications.
+        """
+        from consciousness.activity_monitor import get_activity_monitor, ActivityCategory, ActivityStatus
+        monitor = get_activity_monitor()
+
+        # Log a system activity for the alert
+        monitor.log_activity(
+            category=ActivityCategory.SYSTEM,
+            action="error_escalation",
+            description=f"Action '{action.name}' auto-disabled: {action.disable_reason}",
+            status=ActivityStatus.FAILED,
+            details={
+                "action_id": action.id,
+                "action_name": action.name,
+                "consecutive_failures": action.consecutive_failures,
+                "total_errors": action.error_count,
+                "last_error": action.last_error,
+                "disabled_until": action.disabled_until.isoformat() if action.disabled_until else None
+            },
+            error=f"Auto-disabled after {action.consecutive_failures} consecutive failures"
+        )
+
+        # Check for total error threshold alert
+        try:
+            _, _, total_threshold = get_error_escalation_settings()
+        except Exception:
+            total_threshold = TOTAL_ERROR_THRESHOLD
+
+        if action.error_count >= total_threshold and action.error_count % total_threshold == 0:
+            logger.error(f"⚠️ HIGH ERROR COUNT: {action.name} has {action.error_count} total errors!")
+
+    def re_enable_action(self, action_id: str) -> bool:
+        """
+        Manually re-enable a disabled action.
+        Returns True if action was found and re-enabled.
+        """
+        action = self.actions.get(action_id)
+        if not action:
+            logger.warning(f"Action not found: {action_id}")
+            return False
+
+        action.enabled = True
+        action.disabled_until = None
+        action.disable_reason = None
+        action.consecutive_failures = 0
+        logger.info(f"✅ Action re-enabled: {action.name}")
+        return True
+
+    def get_error_stats(self) -> Dict[str, Any]:
+        """Get error statistics for all actions."""
+        disabled_actions = []
+        high_error_actions = []
+
+        for action in self.actions.values():
+            if action.disabled_until and datetime.now() < action.disabled_until:
+                disabled_actions.append({
+                    "id": action.id,
+                    "name": action.name,
+                    "reason": action.disable_reason,
+                    "disabled_until": action.disabled_until.isoformat(),
+                    "consecutive_failures": action.consecutive_failures
+                })
+            if action.error_count >= TOTAL_ERROR_THRESHOLD:
+                high_error_actions.append({
+                    "id": action.id,
+                    "name": action.name,
+                    "error_count": action.error_count,
+                    "last_error": action.last_error
+                })
+
+        return {
+            "disabled_actions": disabled_actions,
+            "high_error_actions": high_error_actions,
+            "total_errors": sum(a.error_count for a in self.actions.values()),
+            "actions_with_errors": sum(1 for a in self.actions.values() if a.error_count > 0)
+        }
+
     def get_status(self) -> Dict[str, Any]:
         """Get engine status and statistics."""
         return {
             "running": self.running,
             "total_actions": len(self.actions),
             "enabled_actions": sum(1 for a in self.actions.values() if a.enabled),
+            "available_actions": sum(1 for a in self.actions.values() if a.is_available()),
             "total_executions": sum(a.execution_count for a in self.actions.values()),
+            "total_errors": sum(a.error_count for a in self.actions.values()),
+            "disabled_count": sum(1 for a in self.actions.values() if a.disabled_until and datetime.now() < a.disabled_until),
             "recent_history": self.action_history[-10:],
+            "error_stats": self.get_error_stats(),
             "actions": {
                 a.id: {
                     "name": a.name,
@@ -1965,7 +2169,11 @@ Just write the comment text, nothing else."""
                     "priority": a.priority.value,
                     "execution_count": a.execution_count,
                     "last_executed": a.last_executed.isoformat() if a.last_executed else None,
-                    "enabled": a.enabled
+                    "enabled": a.enabled,
+                    "available": a.is_available(),
+                    "error_count": a.error_count,
+                    "consecutive_failures": a.consecutive_failures,
+                    "disabled_until": a.disabled_until.isoformat() if a.disabled_until else None
                 }
                 for a in self.actions.values()
             }

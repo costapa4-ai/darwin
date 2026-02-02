@@ -935,10 +935,17 @@ Monitor shows: comments_made: 23  (INCORRECT - should be 0)
    - Per-action timeouts: System health (60s), Moltbook (90-120s), Web learning (180s), Default (300s)
    - Timeout errors logged to ActivityMonitor with detailed info
 
-2. **Implement Error Escalation**
-   - Track error counts per action/tool
-   - Disable consistently failing actions
-   - Alert on critical failure patterns
+2. **Implement Error Escalation** ✅ RESOLVED
+   - ~~Track error counts per action/tool~~
+   - ~~Disable consistently failing actions~~
+   - ~~Alert on critical failure patterns~~
+   - Added error tracking fields to ProactiveAction: error_count, consecutive_failures, last_error, disabled_until
+   - Actions auto-disable after 3 consecutive failures (configurable via MAX_CONSECUTIVE_FAILURES)
+   - Disabled actions automatically re-enable after 30 minutes (configurable via ERROR_DISABLE_MINUTES)
+   - Alerts logged to ActivityMonitor when action is disabled
+   - High error count warnings at every 10 total errors (configurable via TOTAL_ERROR_THRESHOLD)
+   - Added `re_enable_action()` method for manual re-enabling
+   - Added `get_error_stats()` method for monitoring
 
 3. **Database-backed Deduplication**
    - Move submitted_insights to SQLite
