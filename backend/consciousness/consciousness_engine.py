@@ -17,6 +17,8 @@ from typing import Dict, List, Optional, Any
 from dataclasses import dataclass, field, asdict
 import random
 
+from core.deduplication import get_deduplication_store, DeduplicationStore
+
 
 class ConsciousnessState(Enum):
     """Darwin's consciousness states"""
@@ -129,7 +131,13 @@ class ConsciousnessEngine:
         self.sleep_dreams: List[Dream] = []  # Fixed: Now uses Dream dataclass
         self.curiosity_moments: List[CuriosityMoment] = []
         self.shared_curiosity_topics: set = set()  # Track shared topics to avoid repetition
-        self.submitted_insights: set = set()  # Track submitted insights to avoid duplicates
+
+        # Database-backed deduplication store (replaces in-memory set)
+        self._dedup_store: DeduplicationStore = get_deduplication_store()
+
+        # Legacy in-memory set for backwards compatibility during transition
+        # Will be migrated to database on first run
+        self._submitted_insights_legacy: set = set()
 
         # Dynamic curiosity discovery pool - populated from exploration activities
         # This replaces hardcoded curiosities with things Darwin actually discovered
@@ -150,25 +158,56 @@ class ConsciousnessEngine:
         self.last_save_time = datetime.utcnow()
         self.save_interval_seconds = 300  # 5 minutes
 
+    # ==================== Deduplication Methods ====================
+
+    def _is_insight_submitted(self, key: str) -> bool:
+        """Check if an insight has already been submitted (database-backed)."""
+        return self._dedup_store.is_submitted(key)
+
+    def _mark_insight_submitted(self, key: str, source: str = None) -> bool:
+        """
+        Atomically check and mark an insight as submitted.
+
+        Returns True if the insight is new (was marked), False if duplicate.
+        """
+        return self._dedup_store.check_and_mark(key, source=source)
+
+    def _clear_submitted_insights(self, category: str = None) -> int:
+        """Clear submitted insights (for debugging). Returns count cleared."""
+        return self._dedup_store.clear(category)
+
+    @property
+    def submitted_insights(self) -> set:
+        """
+        Backwards-compatible property that returns all submitted insight keys.
+        Note: For checking/adding, use _is_insight_submitted() and _mark_insight_submitted()
+        """
+        return self._dedup_store.get_all_keys()
+
+    # ==================== Lifecycle Methods ====================
+
     async def start(self):
         """Start the consciousness engine"""
         # Try to restore previous state
         await self._restore_state()
 
-        # Populate submitted_insights from pending approvals to avoid duplicates
+        # Populate deduplication store from pending approvals to avoid duplicates
         if self.approval_queue:
             pending = self.approval_queue.get_pending()
+            marked_count = 0
             for change in pending:
                 title = change['generated_code'].get('insight_title', '')
                 if title:
                     # Extract the type from existing insights
                     if 'Multi-stage' in title or 'Docker' in title:
-                        self.submitted_insights.add(f"optimization:{title}")
+                        self._dedup_store.mark_submitted(f"optimization:{title}", source="pending_approval")
+                        marked_count += 1
                     elif title.startswith('Create '):
                         tool_name = title.replace('Create ', '')
-                        self.submitted_insights.add(f"tool:{tool_name}")
+                        self._dedup_store.mark_submitted(f"tool:{tool_name}", source="pending_approval")
+                        marked_count += 1
             if pending:
-                print(f"🔍 Loaded {len(pending)} pending approvals into deduplication tracker")
+                print(f"🔍 Loaded {marked_count} pending approvals into deduplication store")
 
         self.is_running = True
 
@@ -627,10 +666,10 @@ class ConsciousnessEngine:
                 optimization_insights = [i for i in insights if i.get('type') == 'optimization']
 
                 if optimization_insights:
-                    # Filter out already submitted optimizations
+                    # Filter out already submitted optimizations (database-backed check)
                     available_optimizations = [
                         opt for opt in optimization_insights
-                        if f"optimization:{opt.get('title')}" not in self.submitted_insights
+                        if not self._is_insight_submitted(f"optimization:{opt.get('title')}")
                     ]
 
                     # If all optimizations already submitted, do different activity
@@ -686,9 +725,9 @@ class ConsciousnessEngine:
                                 if self.approval_queue:
                                     approval_result = self.approval_queue.add(code_result, validation_result)
 
-                                    # Mark as submitted ONLY after successful submission
+                                    # Mark as submitted ONLY after successful submission (database-backed)
                                     if approval_result and approval_result.get('status') in ['auto_approved', 'pending']:
-                                        self.submitted_insights.add(insight_key)
+                                        self._dedup_store.mark_submitted(insight_key, source="optimization")
                                         print(f"   ✅ Marked as submitted: {insight_key}")
 
                                     if approval_result.get('status') == 'auto_approved':
@@ -898,7 +937,7 @@ Just output the tool name, nothing else."""
 
             available_tools = [
                 tool for tool in tool_ideas
-                if (f"tool:{tool}" not in self.submitted_insights and
+                if (not self._is_insight_submitted(f"tool:{tool}") and
                     tool not in existing_tools and
                     tool not in pending_tools)
             ]
@@ -960,9 +999,9 @@ Just output the tool name, nothing else."""
                     if self.approval_queue:
                         approval_result = self.approval_queue.add(code_result, validation_result)
 
-                        # Mark as submitted ONLY after successful submission
+                        # Mark as submitted ONLY after successful submission (database-backed)
                         if approval_result and approval_result.get('status') in ['auto_approved', 'pending']:
-                            self.submitted_insights.add(insight_key)
+                            self._dedup_store.mark_submitted(insight_key, source="tool_creation")
                             print(f"   ✅ Marked as submitted: {insight_key}")
 
                         if approval_result.get('status') == 'auto_approved':
@@ -1084,9 +1123,9 @@ Just output the tool name, nothing else."""
                         insight_text = insight_text[len(prefix):].strip()
                         break
 
-                # Check if this dream idea was already implemented
+                # Check if this dream idea was already implemented (database-backed)
                 insight_key = f"dream:{dream.description[:50]}"
-                if insight_key in self.submitted_insights:
+                if self._is_insight_submitted(insight_key):
                     print(f"   ⏭️ Dream '{dream.description[:40]}' already implemented, skipping")
                     continue
 
@@ -1135,8 +1174,8 @@ Just output the tool name, nothing else."""
 
                             # Submit to approval queue
                             result = self.approval_queue.add(generated_code, validation)
-                            # Mark as submitted to avoid duplicates
-                            self.submitted_insights.add(insight_key)
+                            # Mark as submitted to avoid duplicates (database-backed)
+                            self._dedup_store.mark_submitted(insight_key, source="dream")
                         else:
                             print(f"   ⚠️ Code generation returned empty result")
                             activity.insights.append("⚠️ Code generation returned empty result")
@@ -1694,9 +1733,9 @@ Just output the tool name, nothing else."""
                 print(f"   ℹ️  No actionable insight generated from {tool_name}")
                 return
 
-            # Generate unique key for deduplication
+            # Generate unique key for deduplication (database-backed)
             insight_key = f"dynamic_tool:{tool_name}:{insight.title}"
-            if insight_key in self.submitted_insights:
+            if self._is_insight_submitted(insight_key):
                 print(f"   ⏭️ Insight already submitted, skipping")
                 return
 
@@ -1754,9 +1793,9 @@ Just output the tool name, nothing else."""
             # Submit to approval queue
             approval_result = self.approval_queue.add(code_result, validation_result)
 
-            # Mark as submitted ONLY after successful submission
+            # Mark as submitted ONLY after successful submission (database-backed)
             if approval_result and approval_result.get('status') in ['auto_approved', 'pending']:
-                self.submitted_insights.add(insight_key)
+                self._dedup_store.mark_submitted(insight_key, source="dynamic_tool")
                 print(f"   ✅ Marked as submitted: {insight_key}")
 
                 activity.insights.append(f"Generated code from {tool_name}: {insight.title}")
@@ -2539,9 +2578,11 @@ Just output the tool name, nothing else."""
                     for c in self.curiosity_moments[-20:]
                 ],
 
-                # Deduplication tracking
-                'submitted_insights': list(self.submitted_insights),
+                # Deduplication tracking (submitted_insights now stored in database)
+                # Keep for backwards compatibility during migration, but will be removed
+                'submitted_insights': [],  # No longer saved here - database-backed
                 'shared_curiosity_topics': list(self.shared_curiosity_topics),
+                'dedup_stats': self._dedup_store.get_stats(),  # For debugging
 
                 # Metadata
                 'saved_at': datetime.utcnow().isoformat(),
@@ -2621,10 +2662,17 @@ Just output the tool name, nothing else."""
             ]
 
             # Restore deduplication tracking
-            self.submitted_insights = set(state.get('submitted_insights', []))
+            # Migrate legacy submitted_insights from JSON to database (one-time migration)
+            legacy_insights = state.get('submitted_insights', [])
+            if legacy_insights:
+                migrated = self._dedup_store.migrate_from_set(set(legacy_insights), source="json_migration")
+                print(f"📦 Migrated {migrated} insights from JSON to database")
+
             self.shared_curiosity_topics = set(state.get('shared_curiosity_topics', []))
 
-            print(f"📚 Restored deduplication tracking: {len(self.submitted_insights)} insights, {len(self.shared_curiosity_topics)} curiosity topics")
+            # Get current dedup stats from database
+            dedup_stats = self._dedup_store.get_stats()
+            print(f"📚 Deduplication database: {dedup_stats['total_entries']} insights, {len(self.shared_curiosity_topics)} curiosity topics")
 
             # Check if cycle should have already transitioned
             elapsed = (datetime.utcnow() - self.cycle_start_time).total_seconds() / 60

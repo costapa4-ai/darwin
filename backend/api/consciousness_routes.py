@@ -837,13 +837,13 @@ async def debug_clear_dreams():
     old_cache = len(consciousness_engine.submitted_insights)
 
     consciousness_engine.sleep_dreams.clear()
-    consciousness_engine.submitted_insights.clear()
+    cache_cleared = consciousness_engine._clear_submitted_insights()  # Database-backed clear
 
     return {
         "status": "cleared",
         "dreams_cleared": old_dreams,
-        "cache_cleared": old_cache,
-        "message": f"✅ Cleared {old_dreams} dreams and {old_cache} cached insights"
+        "cache_cleared": cache_cleared,
+        "message": f"✅ Cleared {old_dreams} dreams and {cache_cleared} cached insights (database)"
     }
 
 
@@ -945,11 +945,10 @@ async def recycle_failed_changes():
 
     # Clear submitted_insights cache for recycled dreams to allow re-processing
     if recycled_count > 0:
-        # Clear the submitted insights cache so recycled dreams can be re-processed
-        if hasattr(consciousness_engine, 'submitted_insights'):
-            original_count = len(consciousness_engine.submitted_insights)
-            consciousness_engine.submitted_insights.clear()
-            print(f"   🧹 Cleared {original_count} cached submitted insights to allow re-processing")
+        # Clear the submitted insights cache so recycled dreams can be re-processed (database-backed)
+        if hasattr(consciousness_engine, '_clear_submitted_insights'):
+            cleared_count = consciousness_engine._clear_submitted_insights(category="dream")
+            print(f"   🧹 Cleared {cleared_count} cached dream insights from database to allow re-processing")
 
     return {
         'success': True,

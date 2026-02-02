@@ -947,10 +947,17 @@ Monitor shows: comments_made: 23  (INCORRECT - should be 0)
    - Added `re_enable_action()` method for manual re-enabling
    - Added `get_error_stats()` method for monitoring
 
-3. **Database-backed Deduplication**
-   - Move submitted_insights to SQLite
-   - Transaction-based marking
-   - Crash-safe state
+3. **Database-backed Deduplication** ✅ RESOLVED
+   - ~~Move submitted_insights to SQLite~~
+   - ~~Transaction-based marking~~
+   - ~~Crash-safe state~~
+   - Created `core/deduplication.py` with `DeduplicationStore` class
+   - SQLite table `submitted_insights` with atomic INSERT OR IGNORE
+   - Auto-migration from legacy JSON state on first run
+   - Methods: `check_and_mark()`, `is_submitted()`, `mark_submitted()`, `clear()`, `cleanup_old()`
+   - Automatic cleanup of entries older than 30 days
+   - Full statistics via `get_stats()`
+   - Updated all usages in consciousness_engine.py and consciousness_routes.py
 
 ### Priority 1B: Monitor System Fixes (URGENT)
 
