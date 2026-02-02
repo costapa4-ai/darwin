@@ -7,6 +7,7 @@ This module enables Darwin to take proactive actions based on:
 - Resource availability
 - Time-based triggers
 - Curiosity-driven exploration
+- Current mood state (mood-action integration)
 
 Makes Darwin feel more "alive" by acting without being asked.
 """
@@ -14,11 +15,14 @@ Makes Darwin feel more "alive" by acting without being asked.
 import asyncio
 import random
 from datetime import datetime, timedelta
-from typing import Dict, Any, List, Optional, Callable
+from typing import Dict, Any, List, Optional, Callable, TYPE_CHECKING
 from enum import Enum
 from dataclasses import dataclass, field
 
 from utils.logger import get_logger
+
+if TYPE_CHECKING:
+    from personality.mood_system import MoodSystem, MoodState
 
 logger = get_logger(__name__)
 
@@ -170,12 +174,74 @@ class ProactiveEngine:
     2. Prioritizing actions based on context
     3. Executing actions with appropriate cooldowns
     4. Learning from action outcomes
+    5. Adapting action selection based on current mood
     """
 
-    def __init__(self):
+    # Mood-to-action category bonuses
+    # Maps each mood to categories that should be boosted and by how much
+    MOOD_ACTION_BONUSES: Dict[str, Dict[str, int]] = {
+        "curious": {
+            ActionCategory.EXPLORATION.value: 15,
+            ActionCategory.LEARNING.value: 10,
+        },
+        "excited": {
+            ActionCategory.COMMUNICATION.value: 15,
+            ActionCategory.CREATIVITY.value: 10,
+            ActionCategory.EXPLORATION.value: 5,
+        },
+        "focused": {
+            ActionCategory.OPTIMIZATION.value: 15,
+            ActionCategory.LEARNING.value: 10,
+            ActionCategory.MAINTENANCE.value: 5,
+        },
+        "satisfied": {
+            ActionCategory.COMMUNICATION.value: 10,  # Share accomplishments
+            ActionCategory.CREATIVITY.value: 5,
+        },
+        "frustrated": {
+            ActionCategory.MAINTENANCE.value: 15,  # Fix issues
+            ActionCategory.OPTIMIZATION.value: 10,
+            ActionCategory.LEARNING.value: 5,  # Learn to overcome
+        },
+        "tired": {
+            ActionCategory.MAINTENANCE.value: 5,  # Light tasks only
+            # All other categories get negative adjustment (handled separately)
+        },
+        "playful": {
+            ActionCategory.CREATIVITY.value: 15,
+            ActionCategory.COMMUNICATION.value: 10,
+            ActionCategory.EXPLORATION.value: 5,
+        },
+        "contemplative": {
+            ActionCategory.LEARNING.value: 15,
+            ActionCategory.OPTIMIZATION.value: 10,
+        },
+        "determined": {
+            ActionCategory.OPTIMIZATION.value: 15,
+            ActionCategory.MAINTENANCE.value: 10,
+            ActionCategory.LEARNING.value: 5,
+        },
+        "surprised": {
+            ActionCategory.EXPLORATION.value: 15,
+            ActionCategory.LEARNING.value: 10,
+        },
+        "confused": {
+            ActionCategory.LEARNING.value: 15,
+            ActionCategory.EXPLORATION.value: 10,
+        },
+        "proud": {
+            ActionCategory.COMMUNICATION.value: 15,  # Share achievements
+            ActionCategory.CREATIVITY.value: 10,
+        },
+    }
+
+    def __init__(self, mood_system: Optional["MoodSystem"] = None):
         self.actions: Dict[str, ProactiveAction] = {}
         self.action_history: List[Dict[str, Any]] = []
         self.running = False
+
+        # Mood system integration
+        self._mood_system = mood_system
 
         # Diversity tracking - prevent same category domination
         self._recent_categories: List[ActionCategory] = []
@@ -187,7 +253,7 @@ class ProactiveEngine:
 
         self._register_default_actions()
 
-        logger.info("ProactiveEngine initialized with diversity tracking")
+        logger.info("ProactiveEngine initialized with diversity tracking and mood integration")
 
     def _get_max_action_history(self) -> int:
         """Get max action history from config or use default."""
@@ -196,6 +262,91 @@ class ProactiveEngine:
             return get_settings().max_action_history
         except Exception:
             return 200  # Default
+
+    def _get_mood_system(self) -> Optional["MoodSystem"]:
+        """Get the mood system, either injected or from singleton."""
+        if self._mood_system is not None:
+            return self._mood_system
+
+        # Try to get from singleton
+        try:
+            from personality.mood_system import MoodSystem
+            # Check if there's a global instance we can use
+            # This allows integration without constructor changes
+            return None  # Will be set via set_mood_system() or constructor
+        except ImportError:
+            return None
+
+    def set_mood_system(self, mood_system: "MoodSystem") -> None:
+        """Set the mood system for mood-action integration."""
+        self._mood_system = mood_system
+        logger.info("MoodSystem integrated into ProactiveEngine")
+
+    def _get_current_mood(self) -> Optional[str]:
+        """Get current mood state as string."""
+        mood_system = self._get_mood_system()
+        if mood_system is None:
+            return None
+
+        try:
+            mood_info = mood_system.get_current_mood()
+            return mood_info.get("mood")
+        except Exception as e:
+            logger.debug(f"Could not get current mood: {e}")
+            return None
+
+    def _get_mood_intensity(self) -> Optional[str]:
+        """Get current mood intensity."""
+        mood_system = self._get_mood_system()
+        if mood_system is None:
+            return None
+
+        try:
+            mood_info = mood_system.get_current_mood()
+            return mood_info.get("intensity")
+        except Exception:
+            return None
+
+    def _calculate_mood_bonus(self, action: "ProactiveAction", mood: str, intensity: str = "medium") -> float:
+        """
+        Calculate score bonus/penalty based on current mood and action category.
+
+        Args:
+            action: The action being scored
+            mood: Current mood state (e.g., "curious", "frustrated")
+            intensity: Mood intensity ("low", "medium", "high")
+
+        Returns:
+            Score adjustment (positive for bonus, negative for penalty)
+        """
+        bonus = 0.0
+
+        # Get mood-specific bonuses for this action's category
+        mood_bonuses = self.MOOD_ACTION_BONUSES.get(mood, {})
+        category_bonus = mood_bonuses.get(action.category.value, 0)
+
+        if category_bonus > 0:
+            bonus = category_bonus
+
+        # Apply intensity multiplier
+        intensity_multipliers = {
+            "low": 0.5,
+            "medium": 1.0,
+            "high": 1.5
+        }
+        multiplier = intensity_multipliers.get(intensity, 1.0)
+        bonus *= multiplier
+
+        # Special case: TIRED mood reduces all non-maintenance actions
+        if mood == "tired" and action.category != ActionCategory.MAINTENANCE:
+            bonus -= 10 * multiplier  # Penalty for non-light tasks when tired
+
+        # Special case: CONFUSED mood slightly reduces optimization
+        if mood == "confused" and action.category == ActionCategory.OPTIMIZATION:
+            bonus -= 5  # Hard to optimize when confused
+
+        logger.debug(f"Mood bonus for {action.id}: {bonus} (mood={mood}, intensity={intensity})")
+        return bonus
 
     def _register_default_actions(self):
         """Register Darwin's default proactive behaviors."""
@@ -437,7 +588,17 @@ class ProactiveEngine:
         action: ProactiveAction,
         context: Dict[str, Any]
     ) -> float:
-        """Score an action based on current context and diversity."""
+        """
+        Score an action based on current context, diversity, and mood.
+
+        Scoring factors:
+        1. Base priority (10-40 points)
+        2. Recency bonus (0-20 points)
+        3. Diversity penalty (-15 per category repeat, -25 for same action)
+        4. Context bonuses (CPU, discoveries, idle)
+        5. MOOD BONUS/PENALTY (up to ±22 points based on mood alignment)
+        6. Random exploration factor (0-5 points)
+        """
         score = action.priority.value * 10
 
         # Bonus for actions not executed recently
@@ -468,6 +629,20 @@ class ProactiveEngine:
 
         if context.get("is_idle") and action.category == ActionCategory.EXPLORATION:
             score += 10
+
+        # MOOD-BASED SCORING: Adjust score based on current emotional state
+        current_mood = context.get("mood")
+        mood_intensity = context.get("mood_intensity", "medium")
+
+        if current_mood:
+            mood_bonus = self._calculate_mood_bonus(action, current_mood, mood_intensity)
+            score += mood_bonus
+
+            if mood_bonus != 0:
+                logger.debug(
+                    f"Action {action.id}: {'+' if mood_bonus > 0 else ''}{mood_bonus:.1f} "
+                    f"mood bonus (mood={current_mood}, intensity={mood_intensity})"
+                )
 
         # Random factor (0-5)
         score += random.random() * 5
@@ -1799,22 +1974,40 @@ class ProactiveEngine:
                 await asyncio.sleep(interval_seconds)
 
     async def _gather_context(self) -> Dict[str, Any]:
-        """Gather current context for action selection."""
+        """Gather current context for action selection, including mood state."""
+        context = {}
+
+        # System status context
         try:
             from tools.local_explorer import LocalExplorer
             explorer = LocalExplorer()
             status = explorer.get_system_status()
 
-            return {
+            context.update({
                 "cpu_high": status.get("cpu", {}).get("percent", 0) > 70,
                 "memory_high": status.get("memory", {}).get("percent_used", 0) > 80,
                 "is_idle": status.get("cpu", {}).get("percent", 0) < 20,
                 "time_of_day": datetime.now().hour,
                 "is_working_hours": 9 <= datetime.now().hour <= 18,
                 "new_discoveries": len(explorer.discoveries) > 0
-            }
-        except:
-            return {}
+            })
+        except Exception as e:
+            logger.debug(f"Could not gather system context: {e}")
+
+        # Mood context - integrate emotional state into action selection
+        try:
+            current_mood = self._get_current_mood()
+            mood_intensity = self._get_mood_intensity()
+
+            if current_mood:
+                context["mood"] = current_mood
+                context["mood_intensity"] = mood_intensity or "medium"
+
+                logger.debug(f"Mood context: {current_mood} ({mood_intensity})")
+        except Exception as e:
+            logger.debug(f"Could not gather mood context: {e}")
+
+        return context
 
     # ==================== Moltbook Actions ====================
 
@@ -2204,9 +2397,37 @@ Just write the comment text, nothing else."""
 _proactive_engine: Optional[ProactiveEngine] = None
 
 
-def get_proactive_engine() -> ProactiveEngine:
-    """Get or create the proactive engine instance."""
+def get_proactive_engine(mood_system: Optional["MoodSystem"] = None) -> ProactiveEngine:
+    """
+    Get or create the proactive engine instance.
+
+    Args:
+        mood_system: Optional MoodSystem to integrate. If provided and engine
+                     already exists, will set the mood system on it.
+
+    Returns:
+        ProactiveEngine singleton instance
+    """
     global _proactive_engine
     if _proactive_engine is None:
-        _proactive_engine = ProactiveEngine()
+        _proactive_engine = ProactiveEngine(mood_system=mood_system)
+    elif mood_system is not None and _proactive_engine._mood_system is None:
+        _proactive_engine.set_mood_system(mood_system)
     return _proactive_engine
+
+
+def init_proactive_engine_with_mood(mood_system: "MoodSystem") -> ProactiveEngine:
+    """
+    Initialize or update the proactive engine with mood system integration.
+
+    This should be called during system startup after mood system is created.
+
+    Args:
+        mood_system: MoodSystem instance for mood-action integration
+
+    Returns:
+        ProactiveEngine with mood integration enabled
+    """
+    engine = get_proactive_engine(mood_system)
+    logger.info("ProactiveEngine mood integration initialized")
+    return engine

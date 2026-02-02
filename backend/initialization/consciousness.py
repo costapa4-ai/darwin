@@ -236,14 +236,15 @@ async def init_consciousness_engine(
         logger.info("Consciousness Engine started (Wake: 2h, Sleep: 30min)")
 
         # Start Proactive Engine for autonomous actions (Moltbook, exploration, etc.)
-        from consciousness.proactive_engine import get_proactive_engine
-        proactive_engine = get_proactive_engine()
+        # Integrate with mood system for mood-aware action selection
+        from consciousness.proactive_engine import get_proactive_engine, init_proactive_engine_with_mood
+        proactive_engine = init_proactive_engine_with_mood(services['mood_system'])
         services['proactive_engine'] = proactive_engine
         asyncio.create_task(proactive_engine.run_proactive_loop(
             interval_seconds=120,  # Check every 2 minutes
             max_actions_per_hour=20  # Allow more actions for Moltbook engagement
         ))
-        logger.info("Proactive Engine started (interval: 2min, Moltbook integration active)")
+        logger.info("Proactive Engine started (interval: 2min, mood-action integration active)")
 
     except Exception as e:
         logger.error(f"Failed to start Consciousness Engine: {e}")
