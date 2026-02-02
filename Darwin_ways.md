@@ -887,9 +887,9 @@ Monitor shows: comments_made: 23  (INCORRECT - should be 0)
 
 ---
 
-#### FLAW #21: Inflated Success Metrics
+#### FLAW #21: Inflated Success Metrics ✅ RESOLVED
 
-**Summary of Counter Discrepancies:**
+**Original Issue (before fixes):**
 
 | Metric | Monitor Shows | Actual Reality |
 |--------|---------------|----------------|
@@ -901,10 +901,17 @@ Monitor shows: comments_made: 23  (INCORRECT - should be 0)
 | Posts Created | 0 | 0 (correct - all failed) |
 | Comments Made | 23 | 0 (all returned `success: False`) |
 
-**Impact:** The monitoring system gives a false sense of health. Darwin appears to be functioning perfectly when in reality:
-- No posts have ever been created on Moltbook
-- No comments have ever been successfully made
-- Feed reading stats are completely missing
+**Fix Applied:** All underlying FLAWs (#16-#20) have been resolved:
+- Success/Failure detection now checks actual result data
+- Moltbook actions are correctly categorized
+- Counters parse actual counts from output
+- API calls use correct method names
+- Comment generation has `generate()` method available
+
+**New Behavior:** Monitor now accurately reflects:
+- Actual success/failure status based on result data
+- Correct categorization of all Moltbook actions
+- Accurate counts parsed from action outputs
 
 ---
 
@@ -913,11 +920,17 @@ Monitor shows: comments_made: 23  (INCORRECT - should be 0)
 | Aspect | Score | Notes |
 |--------|-------|-------|
 | Activity Logging | 8/10 | Logs all activities correctly |
-| Success/Failure Detection | 2/10 | Doesn't check result data |
-| Moltbook Stats Accuracy | 1/10 | Multiple counting bugs |
-| Category Classification | 5/10 | Some actions miscategorized |
-| Error Tracking | 3/10 | Only catches Python exceptions |
-| Overall Reliability | 3/10 | Stats cannot be trusted |
+| Success/Failure Detection | 9/10 | ✅ Now checks result.success field |
+| Moltbook Stats Accuracy | 8/10 | ✅ Parses actual counts from output |
+| Category Classification | 9/10 | ✅ Special handling for moltbook actions |
+| Error Tracking | 8/10 | ✅ Tracks actual failures + error escalation |
+| Overall Reliability | 8/10 | ✅ Stats are now trustworthy |
+
+**Fixes Applied (2026-02-02):**
+- FLAW #16: Success status now checks `output.get("success", True)`
+- FLAW #17: Moltbook actions detected by ID and routed correctly
+- FLAW #18: Counters parse actual values from output via regex
+- FLAW #19: Uses `get_all_active()` instead of non-existent `get_findings()`
 
 ---
 
@@ -959,24 +972,29 @@ Monitor shows: comments_made: 23  (INCORRECT - should be 0)
    - Full statistics via `get_stats()`
    - Updated all usages in consciousness_engine.py and consciousness_routes.py
 
-### Priority 1B: Monitor System Fixes (URGENT)
+### Priority 1B: Monitor System Fixes ✅ ALL RESOLVED
 
-4. **Fix Success Status Detection** (FLAW #16)
-   - Check `result.get("success", True)` before marking status
-   - Parse output_summary for success indicators
-   - Only mark SUCCESS if action actually succeeded
+4. **Fix Success Status Detection** (FLAW #16) ✅ RESOLVED
+   - Fixed in `proactive_engine.py` lines 588-608
+   - Checks `output.get("success", True)` before marking status
+   - Uses `actual_success` to determine `ActivityStatus.SUCCESS` vs `FAILED`
+   - Error messages extracted from `output.get("error")` or `output.get("reason")`
 
-5. **Fix FindingsInbox API Call** (FLAW #19)
-   - Change `get_findings()` to `get_all_active()` in `_share_on_moltbook()`
-   - This is a one-line fix that will enable Moltbook posting
+5. **Fix FindingsInbox API Call** (FLAW #19) ✅ RESOLVED
+   - Fixed in `proactive_engine.py` line 1965
+   - Changed `get_findings()` to `get_all_active(limit=5)`
+   - Moltbook posting now uses correct API method
 
-6. **Fix Moltbook Category Classification** (FLAW #17)
-   - Change `read_moltbook_feed` to `ActionCategory.COMMUNICATION`
-   - Or update category mapping to detect "moltbook" in action ID
+6. **Fix Moltbook Category Classification** (FLAW #17) ✅ RESOLVED
+   - Fixed in `proactive_engine.py` lines 499-510
+   - Added special handling: `is_moltbook_action = "moltbook" in action.id.lower()`
+   - All moltbook actions now map to `MonitorCategory.MOLTBOOK`
 
-7. **Fix Counter Increment Logic** (FLAW #18)
-   - Parse actual counts from result data
-   - `posts_read` should increment by number of posts, not 1
+7. **Fix Counter Increment Logic** (FLAW #18) ✅ RESOLVED
+   - Fixed in `activity_monitor.py` `_update_moltbook_stats()` method
+   - Now parses actual counts from output_summary using regex
+   - Extracts `posts_read`, `comments_made` counts from result data
+   - Only increments on actual success (`"'success': True"` in output)
 
 8. **Debug Comment Selection** (FLAW #20) ✅ RESOLVED
    - ~~Investigate why no posts are "suitable" for commenting~~
@@ -1118,14 +1136,23 @@ Darwin is a sophisticated autonomous AI system with:
 - Social integration (Moltbook)
 - Self-reflection capabilities
 
-**Weaknesses:**
-- Reliability gaps (timeouts, error handling)
+**Weaknesses (Remaining):**
+- ~~Reliability gaps (timeouts, error handling)~~ ✅ Fixed
 - Monolithic architecture (single point of failure)
 - Mood-action decoupling (emotions don't affect decisions)
-- Memory management concerns (unbounded growth)
+- ~~Memory management concerns (unbounded growth)~~ ✅ Fixed
 - No formal state machine (fragile transitions)
+- ~~Security sandbox vulnerabilities~~ ✅ Fixed
 
-**Key Insight:** Darwin's architecture successfully creates autonomous, goal-directed behavior, but production reliability requires addressing the 15 identified flaws, particularly around error handling, timeouts, and memory management.
+**Key Insight:** Darwin's architecture successfully creates autonomous, goal-directed behavior. As of 2026-02-02, production reliability has been significantly improved:
+- ✅ Activity timeouts implemented (per-action configurable)
+- ✅ Error escalation with auto-disable for failing actions
+- ✅ Database-backed deduplication for crash safety
+- ✅ Memory management with configurable limits
+- ✅ Monitor system accuracy fixed (FLAWs #16-#21)
+- ✅ Security sandbox hardened (defense-in-depth)
+
+**Remaining work:** Module decomposition, formal state machine, mood-action integration.
 
 ---
 
