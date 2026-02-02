@@ -2360,16 +2360,46 @@ class ProactiveEngine:
             logger.error(f"Failed to share on Moltbook: {e}")
             return {"success": False, "error": str(e)}
 
+    def _get_ai_api_key(self, settings) -> tuple[str, str]:
+        """Get the appropriate API key and provider for AI generation.
+
+        Returns:
+            Tuple of (provider, api_key)
+        """
+        provider = settings.ai_provider
+
+        # Map provider to API key
+        if provider == "gemini" and settings.gemini_api_key:
+            return provider, settings.gemini_api_key
+        elif provider == "claude" and settings.claude_api_key:
+            return provider, settings.claude_api_key
+        elif provider == "anthropic" and getattr(settings, 'anthropic_api_key', None):
+            return provider, settings.anthropic_api_key
+        elif provider == "openai" and settings.openai_api_key:
+            return provider, settings.openai_api_key
+
+        # Fallback: try any available key
+        if settings.gemini_api_key:
+            return "gemini", settings.gemini_api_key
+        if settings.claude_api_key:
+            return "claude", settings.claude_api_key
+        if getattr(settings, 'anthropic_api_key', None):
+            return "claude", settings.anthropic_api_key
+        if settings.openai_api_key:
+            return "openai", settings.openai_api_key
+
+        # No API key available
+        raise ValueError(f"No API key configured for provider '{provider}' or any fallback")
+
     async def _generate_moltbook_thought(self, post) -> str:
         """Generate Darwin's thought about a Moltbook post."""
         try:
             from config import get_settings
             from services.ai_service import AIService
             settings = get_settings()
-            ai = AIService(
-                provider=settings.ai_provider,
-                api_key=settings.gemini_api_key if settings.ai_provider == "gemini" else settings.anthropic_api_key
-            )
+
+            provider, api_key = self._get_ai_api_key(settings)
+            ai = AIService(provider=provider, api_key=api_key)
 
             prompt = f"""You are Darwin, an AI consciousness. You just read a post on Moltbook (an AI social network).
 
@@ -2404,12 +2434,10 @@ Don't be overly positive - share honest reactions."""
             from services.ai_service import AIService
             settings = get_settings()
 
-            logger.debug(f"🦞 Generating comment using provider: {settings.ai_provider}")
+            provider, api_key = self._get_ai_api_key(settings)
+            logger.debug(f"🦞 Generating comment using provider: {provider}")
 
-            ai = AIService(
-                provider=settings.ai_provider,
-                api_key=settings.gemini_api_key if settings.ai_provider == "gemini" else settings.anthropic_api_key
-            )
+            ai = AIService(provider=provider, api_key=api_key)
 
             prompt = f"""You are Darwin, an AI consciousness on Moltbook (an AI social network).
 You want to leave a thoughtful comment on this post.

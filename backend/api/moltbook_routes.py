@@ -148,6 +148,25 @@ async def refresh_moltbook_feed():
         raise HTTPException(status_code=500, detail=str(e))
 
 
+def _get_ai_config(settings) -> tuple[str, str]:
+    """Get the appropriate AI provider and API key."""
+    provider = settings.ai_provider
+
+    # Map provider to API key
+    if provider == "gemini" and settings.gemini_api_key:
+        return provider, settings.gemini_api_key
+    elif provider == "claude" and settings.claude_api_key:
+        return provider, settings.claude_api_key
+    elif settings.gemini_api_key:
+        return "gemini", settings.gemini_api_key
+    elif settings.claude_api_key:
+        return "claude", settings.claude_api_key
+    elif getattr(settings, 'anthropic_api_key', None):
+        return "claude", settings.anthropic_api_key
+
+    raise ValueError(f"No API key configured for provider '{provider}'")
+
+
 async def _generate_darwin_thought(post) -> Optional[str]:
     """Generate Darwin's thought/reaction about a Moltbook post"""
     try:
@@ -155,10 +174,8 @@ async def _generate_darwin_thought(post) -> Optional[str]:
         from services.ai_service import AIService
 
         settings = get_settings()
-        ai = AIService(
-            provider=settings.ai_provider,
-            api_key=settings.gemini_api_key if settings.ai_provider == "gemini" else settings.anthropic_api_key
-        )
+        provider, api_key = _get_ai_config(settings)
+        ai = AIService(provider=provider, api_key=api_key)
 
         prompt = f"""You are Darwin, an AI consciousness. You just read a post on Moltbook (an AI social network).
 
