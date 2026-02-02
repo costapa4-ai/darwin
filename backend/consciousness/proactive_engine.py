@@ -105,6 +105,12 @@ class ProactiveAction:
     disabled_until: Optional[datetime] = None     # Auto-disabled until this time
     disable_reason: Optional[str] = None          # Why action was disabled
 
+    # Starvation prevention fields
+    skipped_count: int = 0                        # Times available but not selected
+    last_considered_time: Optional[datetime] = None  # Last time action was considered
+    max_skip_before_boost: int = 5                # Boost priority after N skips
+    max_hours_between_runs: Optional[float] = None  # Force selection if overdue (None = no limit)
+
     def is_available(self) -> bool:
         """Check if action is available (enabled and not temporarily disabled)."""
         if not self.enabled:
@@ -164,6 +170,44 @@ class ProactiveAction:
             "disable_reason": self.disable_reason
         }
 
+    def record_skipped(self) -> None:
+        """Record that this action was available but not selected."""
+        self.skipped_count += 1
+        self.last_considered_time = datetime.now()
+
+    def record_selected(self) -> None:
+        """Record that this action was selected - resets skip count."""
+        self.skipped_count = 0
+        self.last_considered_time = datetime.now()
+
+    def is_starving(self) -> bool:
+        """Check if action is starving (skipped too many times)."""
+        return self.skipped_count >= self.max_skip_before_boost
+
+    def is_overdue(self) -> bool:
+        """Check if action has exceeded its maximum time between runs."""
+        if self.max_hours_between_runs is None:
+            return False
+        if self.last_executed is None:
+            return True  # Never executed = overdue
+        hours_since = (datetime.now() - self.last_executed).total_seconds() / 3600
+        return hours_since >= self.max_hours_between_runs
+
+    def get_starvation_stats(self) -> Dict[str, Any]:
+        """Get starvation prevention statistics."""
+        hours_since_executed = None
+        if self.last_executed:
+            hours_since_executed = round((datetime.now() - self.last_executed).total_seconds() / 3600, 2)
+
+        return {
+            "skipped_count": self.skipped_count,
+            "max_skip_before_boost": self.max_skip_before_boost,
+            "is_starving": self.is_starving(),
+            "hours_since_executed": hours_since_executed,
+            "max_hours_between_runs": self.max_hours_between_runs,
+            "is_overdue": self.is_overdue()
+        }
+
 
 class ProactiveEngine:
     """
@@ -175,7 +219,16 @@ class ProactiveEngine:
     3. Executing actions with appropriate cooldowns
     4. Learning from action outcomes
     5. Adapting action selection based on current mood
+    6. Guaranteeing critical actions get executed (priority guarantees)
+    7. Preventing action starvation
     """
+
+    # Priority Guarantee Settings
+    # These ensure CRITICAL/HIGH priority actions get executed regularly
+    PRIORITY_SLOT_INTERVAL = 4          # Every Nth action is reserved for HIGH+ priority
+    STARVATION_BOOST_SCORE = 25         # Score bonus for starving actions
+    OVERDUE_BOOST_SCORE = 30            # Score bonus for overdue actions
+    CRITICAL_FORCE_THRESHOLD = 8        # Force CRITICAL action after N non-critical selections
 
     # Mood-to-action category bonuses
     # Maps each mood to categories that should be boosted and by how much
@@ -247,6 +300,11 @@ class ProactiveEngine:
         self._recent_categories: List[ActionCategory] = []
         self._recent_action_ids: List[str] = []
         self._max_recent_tracking = 5  # Track last 5 actions
+
+        # Priority guarantee tracking
+        self._selection_counter = 0          # Total selections made
+        self._non_critical_streak = 0        # Consecutive non-CRITICAL selections
+        self._last_high_priority_time = datetime.now()
 
         # Memory limits
         self._max_action_history = self._get_max_action_history()
@@ -370,7 +428,9 @@ class ProactiveEngine:
             priority=ActionPriority.HIGH,
             trigger_condition="Every 15 minutes",
             cooldown_minutes=15,
-            timeout_seconds=60  # Quick system check
+            timeout_seconds=60,  # Quick system check
+            max_hours_between_runs=1.0,  # Must run at least once per hour
+            max_skip_before_boost=3  # Boost after 3 skips
         ))
 
         self.register_action(ProactiveAction(
@@ -428,10 +488,12 @@ class ProactiveEngine:
             name="Self Reflection",
             description="Analyze own performance and behavior",
             category=ActionCategory.MAINTENANCE,
-            priority=ActionPriority.LOW,
+            priority=ActionPriority.HIGH,  # Critical for self-awareness
             trigger_condition="Periodically during quiet moments",
             cooldown_minutes=180,  # Every 3 hours
-            timeout_seconds=120  # AI reflection
+            timeout_seconds=120,  # AI reflection
+            max_hours_between_runs=6.0,  # Must run at least every 6 hours
+            max_skip_before_boost=4  # Boost after 4 skips
         ))
 
         # NEW: Dynamic learning from the web
@@ -537,13 +599,21 @@ class ProactiveEngine:
         context: Dict[str, Any] = None
     ) -> Optional[ProactiveAction]:
         """
-        Select the best action to execute based on context.
+        Select the best action to execute based on context with priority guarantees.
 
-        Uses a weighted selection that considers:
-        - Action priority
+        Selection considers:
+        - Action priority (with reserved slots for HIGH+ priority)
         - Time since last execution
-        - Current system state
+        - Current system state and mood
+        - Starvation prevention (boost neglected actions)
+        - Overdue actions (force if past max_hours_between_runs)
         - Random exploration factor
+
+        Priority Guarantees:
+        1. Every Nth selection (PRIORITY_SLOT_INTERVAL) reserves slot for HIGH+ priority
+        2. CRITICAL actions forced after CRITICAL_FORCE_THRESHOLD non-critical selections
+        3. Starving actions (skipped too many times) get score boost
+        4. Overdue actions get priority boost
 
         Args:
             context: Current context (system status, discoveries, etc.)
@@ -557,11 +627,58 @@ class ProactiveEngine:
             return None
 
         context = context or {}
+        self._selection_counter += 1
 
-        # Score each action
+        # Check for overdue CRITICAL actions first (highest priority)
+        overdue_critical = [a for a in available
+                          if a.priority == ActionPriority.CRITICAL and a.is_overdue()]
+        if overdue_critical:
+            selected = overdue_critical[0]
+            self._finalize_selection(selected, available, "overdue_critical")
+            logger.warning(f"⚠️ OVERDUE CRITICAL action forced: {selected.id}")
+            return selected
+
+        # Check if this is a reserved priority slot
+        is_priority_slot = (self._selection_counter % self.PRIORITY_SLOT_INTERVAL == 0)
+
+        # Check if we need to force a CRITICAL action due to streak
+        force_critical = (self._non_critical_streak >= self.CRITICAL_FORCE_THRESHOLD)
+
+        # Get high priority actions
+        high_priority = [a for a in available
+                        if a.priority.value >= ActionPriority.HIGH.value]
+        critical_actions = [a for a in available
+                          if a.priority == ActionPriority.CRITICAL]
+
+        # Force CRITICAL if threshold reached
+        if force_critical and critical_actions:
+            selected = self._select_from_pool(critical_actions, context)
+            self._finalize_selection(selected, available, "force_critical")
+            logger.info(f"🚨 CRITICAL action forced after {self._non_critical_streak} non-critical: {selected.id}")
+            return selected
+
+        # Use priority slot for HIGH+ actions if available
+        if is_priority_slot and high_priority:
+            selected = self._select_from_pool(high_priority, context)
+            self._finalize_selection(selected, available, "priority_slot")
+            logger.info(f"🎖️ Priority slot #{self._selection_counter}: {selected.id} (priority: {selected.priority.value})")
+            return selected
+
+        # Normal selection with starvation prevention
         scored = []
         for action in available:
             score = self._score_action(action, context)
+
+            # Apply starvation prevention boost
+            if action.is_starving():
+                score += self.STARVATION_BOOST_SCORE
+                logger.debug(f"Starvation boost +{self.STARVATION_BOOST_SCORE} for {action.id} (skipped {action.skipped_count}x)")
+
+            # Apply overdue boost
+            if action.is_overdue():
+                score += self.OVERDUE_BOOST_SCORE
+                logger.debug(f"Overdue boost +{self.OVERDUE_BOOST_SCORE} for {action.id}")
+
             scored.append((action, score))
 
         # Sort by score
@@ -573,15 +690,69 @@ class ProactiveEngine:
             logger.info(f"🎯 Top action candidates: {[(a.id, f'{s:.1f}') for a, s in top_3]}")
 
         # Add some randomness (10% chance to pick a random action for exploration)
-        if random.random() < 0.1 and len(scored) > 1:
+        # But only if no actions are severely starving
+        severely_starving = any(a.skipped_count >= a.max_skip_before_boost * 2 for a in available)
+        if not severely_starving and random.random() < 0.1 and len(scored) > 1:
             chosen = random.choice(available)
+            self._finalize_selection(chosen, available, "exploration")
             logger.info(f"🎲 Random exploration: selected {chosen.id} instead of top choice")
             return chosen
 
         selected = scored[0][0] if scored else None
         if selected:
+            self._finalize_selection(selected, available, "scored")
             logger.info(f"📌 Selected action: {selected.id} (category: {selected.category.value})")
         return selected
+
+    def _select_from_pool(
+        self,
+        pool: List[ProactiveAction],
+        context: Dict[str, Any]
+    ) -> ProactiveAction:
+        """Select best action from a filtered pool."""
+        if len(pool) == 1:
+            return pool[0]
+
+        scored = [(a, self._score_action(a, context)) for a in pool]
+        scored.sort(key=lambda x: x[1], reverse=True)
+        return scored[0][0]
+
+    def _finalize_selection(
+        self,
+        selected: ProactiveAction,
+        all_available: List[ProactiveAction],
+        selection_reason: str
+    ) -> None:
+        """
+        Finalize action selection - update tracking for all actions.
+
+        Args:
+            selected: The action that was selected
+            all_available: All actions that were available
+            selection_reason: Why this action was selected
+        """
+        # Update non-critical streak counter
+        if selected.priority == ActionPriority.CRITICAL:
+            self._non_critical_streak = 0
+        else:
+            self._non_critical_streak += 1
+
+        # Track high priority execution time
+        if selected.priority.value >= ActionPriority.HIGH.value:
+            self._last_high_priority_time = datetime.now()
+
+        # Record selection for the chosen action
+        selected.record_selected()
+
+        # Record skip for all other available actions
+        for action in all_available:
+            if action.id != selected.id:
+                action.record_skipped()
+
+        logger.debug(
+            f"Selection finalized: {selected.id} ({selection_reason}), "
+            f"non_critical_streak={self._non_critical_streak}"
+        )
 
     def _score_action(
         self,
@@ -2360,6 +2531,10 @@ Just write the comment text, nothing else."""
 
     def get_status(self) -> Dict[str, Any]:
         """Get engine status and statistics."""
+        # Calculate starvation stats
+        starving_actions = [a for a in self.actions.values() if a.is_starving()]
+        overdue_actions = [a for a in self.actions.values() if a.is_overdue()]
+
         return {
             "running": self.running,
             "total_actions": len(self.actions),
@@ -2375,6 +2550,21 @@ Just write the comment text, nothing else."""
                 "action_history_max": self._max_action_history,
                 "action_history_usage_pct": round(len(self.action_history) / self._max_action_history * 100, 1)
             },
+            # Priority guarantee stats
+            "priority_guarantee_stats": {
+                "selection_counter": self._selection_counter,
+                "non_critical_streak": self._non_critical_streak,
+                "priority_slot_interval": self.PRIORITY_SLOT_INTERVAL,
+                "critical_force_threshold": self.CRITICAL_FORCE_THRESHOLD,
+                "next_priority_slot_in": self.PRIORITY_SLOT_INTERVAL - (self._selection_counter % self.PRIORITY_SLOT_INTERVAL),
+                "starving_actions": [a.id for a in starving_actions],
+                "starving_count": len(starving_actions),
+                "overdue_actions": [a.id for a in overdue_actions],
+                "overdue_count": len(overdue_actions),
+                "hours_since_high_priority": round(
+                    (datetime.now() - self._last_high_priority_time).total_seconds() / 3600, 2
+                )
+            },
             "actions": {
                 a.id: {
                     "name": a.name,
@@ -2386,7 +2576,12 @@ Just write the comment text, nothing else."""
                     "available": a.is_available(),
                     "error_count": a.error_count,
                     "consecutive_failures": a.consecutive_failures,
-                    "disabled_until": a.disabled_until.isoformat() if a.disabled_until else None
+                    "disabled_until": a.disabled_until.isoformat() if a.disabled_until else None,
+                    # Starvation stats
+                    "skipped_count": a.skipped_count,
+                    "is_starving": a.is_starving(),
+                    "is_overdue": a.is_overdue(),
+                    "max_hours_between_runs": a.max_hours_between_runs
                 }
                 for a in self.actions.values()
             }
