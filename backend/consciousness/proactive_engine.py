@@ -309,6 +309,11 @@ class ProactiveEngine:
         # Memory limits
         self._max_action_history = self._get_max_action_history()
 
+        # Moltbook deduplication tracking
+        self._moltbook_read_posts: set = set()      # Post IDs we've read
+        self._moltbook_commented_posts: set = set() # Post IDs we've commented on
+        self._load_moltbook_history()
+
         self._register_default_actions()
 
         logger.info("ProactiveEngine initialized with diversity tracking and mood integration")
@@ -320,6 +325,34 @@ class ProactiveEngine:
             return get_settings().max_action_history
         except Exception:
             return 200  # Default
+
+    def _load_moltbook_history(self):
+        """Load Moltbook interaction history from language evolution to prevent duplicates."""
+        try:
+            from services.language_evolution import get_language_evolution_service
+            lang_service = get_language_evolution_service()
+
+            # Get recent content to populate tracking sets
+            content_data = lang_service.get_content_archive(limit=200)
+            items = content_data.get('items', [])
+
+            for item in items:
+                post_id = item.get('source_post_id')
+                if not post_id:
+                    continue
+
+                content_type = item.get('type')
+                if content_type == 'read':
+                    self._moltbook_read_posts.add(post_id)
+                elif content_type == 'comment':
+                    self._moltbook_commented_posts.add(post_id)
+
+            logger.info(
+                f"Loaded Moltbook history: {len(self._moltbook_read_posts)} read posts, "
+                f"{len(self._moltbook_commented_posts)} commented posts"
+            )
+        except Exception as e:
+            logger.warning(f"Could not load Moltbook history: {e}")
 
     def _get_mood_system(self) -> Optional["MoodSystem"]:
         """Get the mood system, either injected or from singleton."""
@@ -2205,8 +2238,15 @@ class ProactiveEngine:
             # Get hot posts from feed
             posts = await client.get_feed(sort=PostSort.HOT, limit=10)
 
+            # Filter out posts we've already read
+            unread_posts = [p for p in posts if p.id not in self._moltbook_read_posts]
+            if not unread_posts:
+                await client.close()
+                logger.info("🦞 No new posts to read on Moltbook")
+                return {"success": True, "posts_read": 0, "reason": "All posts already read"}
+
             analyzed = []
-            for post in posts[:5]:
+            for post in unread_posts[:5]:
                 # Generate thought about the post
                 thought = await self._generate_moltbook_thought(post)
 
@@ -2220,6 +2260,9 @@ class ProactiveEngine:
                     "score": post.score,
                     "comment_count": post.comment_count
                 }, thought)
+
+                # Track as read to prevent re-reading
+                self._moltbook_read_posts.add(post.id)
 
                 analyzed.append({
                     "title": post.title,
@@ -2281,19 +2324,26 @@ class ProactiveEngine:
                 await client.close()
                 return {"success": False, "reason": "No posts available in feed"}
 
+            # Filter out posts we've already commented on
+            uncommented_posts = [p for p in posts if p.id not in self._moltbook_commented_posts]
+            if not uncommented_posts:
+                await client.close()
+                logger.info("🦞 Already commented on all available posts")
+                return {"success": True, "reason": "Already commented on all available posts"}
+
             # Log post stats for debugging
-            logger.info(f"🦞 Checking {len(posts)} posts for commenting...")
-            for i, p in enumerate(posts[:5]):
+            logger.info(f"🦞 Checking {len(uncommented_posts)} uncommented posts...")
+            for i, p in enumerate(uncommented_posts[:5]):
                 logger.debug(f"  Post {i+1}: score={p.score}, comments={p.comment_count}, title='{p.title[:40]}...'")
 
             # Find a post worth commenting on
             # Relaxed criteria: any post with some engagement OR recent posts (score >= 0)
-            suitable_posts = [p for p in posts if p.comment_count >= 1 or p.score >= 3]
+            suitable_posts = [p for p in uncommented_posts if p.comment_count >= 1 or p.score >= 3]
 
             if not suitable_posts:
                 # If no posts meet criteria, try commenting on the most popular one anyway
-                suitable_posts = sorted(posts, key=lambda p: p.score + p.comment_count, reverse=True)[:3]
-                logger.info(f"🦞 No high-engagement posts, trying top {len(suitable_posts)} posts")
+                suitable_posts = sorted(uncommented_posts, key=lambda p: p.score + p.comment_count, reverse=True)[:3]
+                logger.info(f"🦞 No high-engagement posts, trying top {len(suitable_posts)} uncommented posts")
 
             for post in suitable_posts:
                 # Generate a thoughtful comment
@@ -2301,6 +2351,8 @@ class ProactiveEngine:
                 if comment:
                     try:
                         result = await client.create_comment(post.id, comment)
+                        # Track as commented to prevent duplicate comments
+                        self._moltbook_commented_posts.add(post.id)
                         await client.close()
                         logger.info(f"🦞 Commented on: {post.title[:50]}... (score={post.score}, comments={post.comment_count})")
                         return {
