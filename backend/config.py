@@ -69,6 +69,9 @@ class Settings(BaseSettings):
     max_requests_per_day: int = 100
     max_api_calls_per_hour: int = 50
 
+    # Activity Timeouts
+    action_timeout_seconds: int = 300  # Default 5 minutes for proactive actions
+
     # Security
     execution_timeout: int = 30
     max_memory_mb: int = 256

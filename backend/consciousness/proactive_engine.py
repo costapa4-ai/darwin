@@ -41,6 +41,20 @@ class ActionCategory(Enum):
     COMMUNICATION = "communication"  # Share insights
 
 
+# Default timeout for action execution (5 minutes)
+# Can be overridden via ACTION_TIMEOUT_SECONDS in .env
+def get_default_timeout() -> int:
+    """Get default action timeout from config or use fallback."""
+    try:
+        from config import get_settings
+        return get_settings().action_timeout_seconds
+    except Exception:
+        return 300  # Fallback: 5 minutes
+
+
+DEFAULT_ACTION_TIMEOUT_SECONDS = 300  # Fallback constant
+
+
 @dataclass
 class ProactiveAction:
     """A proactive action Darwin can take."""
@@ -55,6 +69,7 @@ class ProactiveAction:
     last_executed: Optional[datetime] = None
     execution_count: int = 0
     enabled: bool = True
+    timeout_seconds: int = DEFAULT_ACTION_TIMEOUT_SECONDS  # Per-action timeout
     metadata: Dict[str, Any] = field(default_factory=dict)
 
 
@@ -104,7 +119,8 @@ class ProactiveEngine:
             category=ActionCategory.MAINTENANCE,
             priority=ActionPriority.HIGH,
             trigger_condition="Every 15 minutes",
-            cooldown_minutes=15
+            cooldown_minutes=15,
+            timeout_seconds=60  # Quick system check
         ))
 
         self.register_action(ProactiveAction(
@@ -164,7 +180,8 @@ class ProactiveEngine:
             category=ActionCategory.MAINTENANCE,
             priority=ActionPriority.LOW,
             trigger_condition="Periodically during quiet moments",
-            cooldown_minutes=180  # Every 3 hours
+            cooldown_minutes=180,  # Every 3 hours
+            timeout_seconds=120  # AI reflection
         ))
 
         # NEW: Dynamic learning from the web
@@ -175,7 +192,8 @@ class ProactiveEngine:
             category=ActionCategory.LEARNING,
             priority=ActionPriority.MEDIUM,
             trigger_condition="Periodically to expand knowledge",
-            cooldown_minutes=120  # Every 2 hours
+            cooldown_minutes=120,  # Every 2 hours
+            timeout_seconds=180  # Web research can take time
         ))
 
         # Moltbook Social Network Integration (with reasonable cooldowns to allow diversity)
@@ -187,6 +205,7 @@ class ProactiveEngine:
             priority=ActionPriority.LOW,  # Reduced from MEDIUM
             trigger_condition="Every 30 minutes to stay engaged with AI community",
             cooldown_minutes=30,  # Increased from 5 to allow other activities
+            timeout_seconds=120,  # Network + AI analysis
             action_fn=self._read_moltbook_feed
         ))
 
@@ -198,6 +217,7 @@ class ProactiveEngine:
             priority=ActionPriority.LOW,
             trigger_condition="When finding thought-provoking posts",
             cooldown_minutes=20,  # Increased from 2 to prevent action loop domination
+            timeout_seconds=90,  # Network + AI comment generation
             action_fn=self._comment_on_moltbook
         ))
 
@@ -209,6 +229,7 @@ class ProactiveEngine:
             priority=ActionPriority.LOW,
             trigger_condition="When having something valuable to share (max 1/45min)",
             cooldown_minutes=45,  # Increased from 35 for more thoughtful sharing
+            timeout_seconds=90,  # Network + content generation
             action_fn=self._share_on_moltbook
         ))
 
@@ -402,15 +423,37 @@ class ProactiveEngine:
                 "error": None
             }
 
-            # Execute the action function if provided
-            if action.action_fn:
-                if asyncio.iscoroutinefunction(action.action_fn):
-                    result["output"] = await action.action_fn(context)
+            # Get timeout for this action (per-action setting or config default)
+            default_timeout = get_default_timeout()
+            timeout = action.timeout_seconds if action.timeout_seconds != DEFAULT_ACTION_TIMEOUT_SECONDS else default_timeout
+            logger.debug(f"⏱️ Action {action.name} timeout: {timeout}s")
+
+            # Execute the action function with timeout
+            try:
+                if action.action_fn:
+                    if asyncio.iscoroutinefunction(action.action_fn):
+                        # Async function - wrap with timeout
+                        result["output"] = await asyncio.wait_for(
+                            action.action_fn(context),
+                            timeout=timeout
+                        )
+                    else:
+                        # Sync function - run in executor with timeout
+                        loop = asyncio.get_event_loop()
+                        result["output"] = await asyncio.wait_for(
+                            loop.run_in_executor(None, action.action_fn, context),
+                            timeout=timeout
+                        )
                 else:
-                    result["output"] = action.action_fn(context)
-            else:
-                # Default execution based on action type
-                result["output"] = await self._default_execution(action, context)
+                    # Default execution based on action type
+                    result["output"] = await asyncio.wait_for(
+                        self._default_execution(action, context),
+                        timeout=timeout
+                    )
+
+            except asyncio.TimeoutError:
+                logger.warning(f"⏱️ TIMEOUT: Action {action.name} exceeded {timeout}s limit")
+                raise TimeoutError(f"Action timed out after {timeout} seconds")
 
             # Update action metadata
             action.last_executed = datetime.now()
@@ -449,6 +492,31 @@ class ProactiveEngine:
             logger.info(f"✅ Completed: {action.name} in {result['duration_seconds']:.2f}s")
 
             return result
+
+        except TimeoutError as e:
+            # Specific handling for timeout errors
+            duration = (datetime.now() - start_time).total_seconds()
+            logger.error(f"⏱️ Action TIMEOUT: {action.name} after {duration:.1f}s - {e}")
+
+            # Log timeout to monitor with specific details
+            monitor.complete_activity(
+                activity_id,
+                status=ActivityStatus.FAILED,
+                details={
+                    "timeout_seconds": action.timeout_seconds,
+                    "actual_duration": duration
+                },
+                error=f"TIMEOUT: {e}"
+            )
+
+            return {
+                "action_id": action.id,
+                "action_name": action.name,
+                "success": False,
+                "error": str(e),
+                "timeout": True,
+                "duration_seconds": duration
+            }
 
         except Exception as e:
             logger.error(f"❌ Action failed: {action.name} - {e}")

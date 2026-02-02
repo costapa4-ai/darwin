@@ -925,10 +925,15 @@ Monitor shows: comments_made: 23  (INCORRECT - should be 0)
 
 ### Priority 1: Reliability
 
-1. **Add Activity Timeouts**
-   - Wrap all tool executions with asyncio.wait_for()
-   - Default timeout: 5 minutes
-   - Critical tools: 10 minutes
+1. **Add Activity Timeouts** ✅ RESOLVED
+   - ~~Wrap all tool executions with asyncio.wait_for()~~
+   - ~~Default timeout: 5 minutes~~
+   - ~~Critical tools: 10 minutes~~
+   - Added `timeout_seconds` field to ProactiveAction dataclass
+   - Wrapped all action executions with `asyncio.wait_for()`
+   - Added `ACTION_TIMEOUT_SECONDS` config setting
+   - Per-action timeouts: System health (60s), Moltbook (90-120s), Web learning (180s), Default (300s)
+   - Timeout errors logged to ActivityMonitor with detailed info
 
 2. **Implement Error Escalation**
    - Track error counts per action/tool
