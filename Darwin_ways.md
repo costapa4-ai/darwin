@@ -566,16 +566,19 @@ Based on context:
 
 ### 10.1 Critical Issues
 
-#### FLAW #1: Action Loop Dominance
+#### FLAW #1: Action Loop Dominance ✅ RESOLVED
 **Location:** `proactive_engine.py` lines 181-213
 
 **Problem:** Certain action categories (previously Moltbook) can dominate execution, starving other important actions.
 
-**Current Mitigation:** Diversity penalties (-15 per category repeat)
+**Fix Applied:**
+- **Reserved Priority Slots:** Every 4th selection reserved for HIGH+ actions
+- **Critical Force Threshold:** CRITICAL actions forced after 8 non-critical selections
+- **Starvation Prevention:** Actions skipped 5+ times get +25 score boost
+- **Overdue Actions:** Actions with `max_hours_between_runs` get +30 boost when overdue
+- **Tracking:** skipped_count, non_critical_streak counters prevent neglect
 
-**Remaining Risk:** No guarantee that CRITICAL priority actions get executed during high activity periods.
-
-**Recommendation:** Implement reserved execution slots for HIGH+ priority actions.
+**Files Modified:** `backend/consciousness/proactive_engine.py`
 
 ---
 
@@ -1061,10 +1064,25 @@ Monitor shows: comments_made: 23  (INCORRECT - should be 0)
     - **Initialization:** `init_proactive_engine_with_mood()` connects systems
     - **Files Modified:** `backend/consciousness/proactive_engine.py`, `backend/initialization/consciousness.py`
 
-12. **Priority Guarantees**
-    - Reserved slots for CRITICAL actions
-    - Minimum execution frequency guarantees
-    - Starvation prevention
+12. **Priority Guarantees** ✅ RESOLVED
+    - ~~Reserved slots for CRITICAL actions~~
+    - ~~Minimum execution frequency guarantees~~
+    - ~~Starvation prevention~~
+    - **Reserved Priority Slots:**
+      - Every 4th selection reserved for HIGH+ priority actions
+      - CRITICAL actions forced after 8 consecutive non-critical selections
+      - Overdue CRITICAL actions take immediate precedence
+    - **Starvation Prevention:**
+      - `skipped_count` tracking per action
+      - Actions skipped 5+ times get +25 score boost (STARVATION_BOOST_SCORE)
+      - Severely starving actions prevent random exploration
+    - **Overdue Action Handling:**
+      - `max_hours_between_runs` field for guaranteed execution frequency
+      - Overdue actions get +30 score boost (OVERDUE_BOOST_SCORE)
+      - monitor_system_health: must run every 1 hour
+      - self_reflect: must run every 6 hours (upgraded to HIGH priority)
+    - **Tracking Stats:** selection_counter, non_critical_streak, starving/overdue counts
+    - **Files Modified:** `backend/consciousness/proactive_engine.py`
 
 ### Priority 4: Architecture
 
