@@ -358,7 +358,7 @@ function ContentCard({ item }: { item: LanguageContentItem }) {
             <span className="text-xs text-gray-500">{formatTimestamp(item.timestamp)}</span>
           </div>
 
-          {item.source_post_title && (
+          {(item.source_post_title || item.source_post_url) && (
             <p className="text-xs text-gray-500 mb-1 truncate">
               Re:{' '}
               {item.source_post_url ? (
@@ -369,7 +369,7 @@ function ContentCard({ item }: { item: LanguageContentItem }) {
                   onClick={(e) => e.stopPropagation()}
                   className="text-cyan-400 hover:text-cyan-300 hover:underline"
                 >
-                  {item.source_post_title}
+                  {item.source_post_title || 'View Post'}
                 </a>
               ) : (
                 item.source_post_title

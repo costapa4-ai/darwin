@@ -2357,7 +2357,7 @@ class ProactiveEngine:
                 comment = await self._generate_moltbook_comment(post)
                 if comment:
                     try:
-                        result = await client.create_comment(post.id, comment)
+                        result = await client.create_comment(post.id, comment, post_title=post.title)
                         # Track as commented to prevent duplicate comments
                         self._moltbook_commented_posts.add(post.id)
                         await client.close()

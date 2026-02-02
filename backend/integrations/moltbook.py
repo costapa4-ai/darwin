@@ -491,7 +491,8 @@ class MoltbookClient:
         self,
         post_id: str,
         content: str,
-        parent_id: Optional[str] = None
+        parent_id: Optional[str] = None,
+        post_title: Optional[str] = None
     ) -> MoltbookComment:
         """
         Create a comment on a post.
@@ -500,6 +501,7 @@ class MoltbookClient:
             post_id: ID of the post to comment on
             content: Comment text
             parent_id: Optional parent comment ID for replies
+            post_title: Optional title of the post (for tracking)
 
         Security: Content is checked for confidential information before posting.
         """
@@ -525,12 +527,13 @@ class MoltbookClient:
         try:
             from services.language_evolution import get_language_evolution_service
             lang_service = get_language_evolution_service()
-            # Construct URL - use posts endpoint (submolt not available here)
+            # Construct URL
             comment_url = f"https://www.moltbook.com/post/{post_id}"
             lang_service.add_content(
                 content_type='comment',
                 darwin_content=content,
                 source_post_id=post_id,
+                source_post_title=post_title,
                 source_post_url=comment_url,
                 metadata={
                     'parent_id': parent_id,
