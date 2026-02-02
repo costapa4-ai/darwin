@@ -99,7 +99,7 @@ function App() {
               type: f.type,
               priority: f.priority,
               read: f.read,
-              timestamp: new Date(f.timestamp),
+              timestamp: new Date(f.created_at),
               actions: f.recommended_actions,
             }))
           );

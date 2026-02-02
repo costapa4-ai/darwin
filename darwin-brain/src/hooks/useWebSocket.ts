@@ -1,7 +1,7 @@
 import { useEffect, useRef, useCallback } from 'react';
 import { useDarwinStore } from '../store/darwinStore';
 import { WS_URL } from '../utils/api';
-import type { WebSocketMessage, Activity, Dream, Discovery, Finding } from '../types/darwin';
+import type { WebSocketMessage, Activity, Dream, Discovery } from '../types/darwin';
 
 export function useWebSocket() {
   const wsRef = useRef<WebSocket | null>(null);
@@ -131,13 +131,13 @@ export function useWebSocket() {
 
         case 'finding': {
           // Handle new finding notification
-          const finding = data.payload as Finding;
+          const finding = data.payload as any;
           addThought({
             id: finding.id,
             type: 'finding',
             content: finding.description,
             title: finding.title,
-            timestamp: new Date(finding.timestamp),
+            timestamp: new Date(finding.created_at || finding.timestamp),
             position: [
               (Math.random() - 0.5) * 10,
               (Math.random() - 0.5) * 10,
