@@ -1701,27 +1701,47 @@ class ProactiveEngine:
             # Get posts to potentially comment on
             posts = await client.get_feed(sort=PostSort.HOT, limit=10)
 
-            # Find a post worth commenting on (high engagement or interesting topic)
-            for post in posts:
-                if post.comment_count > 5 or post.score > 10:
-                    # Generate a thoughtful comment
-                    comment = await self._generate_moltbook_comment(post)
-                    if comment:
-                        try:
-                            result = await client.create_comment(post.id, comment)
-                            await client.close()
-                            logger.info(f"🦞 Commented on: {post.title[:50]}...")
-                            return {
-                                "success": True,
-                                "post_title": post.title,
-                                "comment": comment
-                            }
-                        except Exception as e:
-                            logger.warning(f"Could not comment: {e}")
-                            continue
+            if not posts:
+                await client.close()
+                return {"success": False, "reason": "No posts available in feed"}
+
+            # Log post stats for debugging
+            logger.info(f"🦞 Checking {len(posts)} posts for commenting...")
+            for i, p in enumerate(posts[:5]):
+                logger.debug(f"  Post {i+1}: score={p.score}, comments={p.comment_count}, title='{p.title[:40]}...'")
+
+            # Find a post worth commenting on
+            # Relaxed criteria: any post with some engagement OR recent posts (score >= 0)
+            suitable_posts = [p for p in posts if p.comment_count >= 1 or p.score >= 3]
+
+            if not suitable_posts:
+                # If no posts meet criteria, try commenting on the most popular one anyway
+                suitable_posts = sorted(posts, key=lambda p: p.score + p.comment_count, reverse=True)[:3]
+                logger.info(f"🦞 No high-engagement posts, trying top {len(suitable_posts)} posts")
+
+            for post in suitable_posts:
+                # Generate a thoughtful comment
+                comment = await self._generate_moltbook_comment(post)
+                if comment:
+                    try:
+                        result = await client.create_comment(post.id, comment)
+                        await client.close()
+                        logger.info(f"🦞 Commented on: {post.title[:50]}... (score={post.score}, comments={post.comment_count})")
+                        return {
+                            "success": True,
+                            "post_title": post.title,
+                            "comment": comment,
+                            "post_score": post.score,
+                            "post_comments": post.comment_count
+                        }
+                    except Exception as e:
+                        logger.warning(f"Could not comment on post {post.id}: {e}")
+                        continue
+                else:
+                    logger.debug(f"Could not generate comment for: {post.title[:40]}")
 
             await client.close()
-            return {"success": False, "reason": "No suitable posts to comment on"}
+            return {"success": False, "reason": "Could not generate suitable comment for any post"}
 
         except Exception as e:
             logger.error(f"Failed to comment on Moltbook: {e}")
@@ -1816,6 +1836,9 @@ Don't be overly positive - share honest reactions."""
             from config import get_settings
             from services.ai_service import AIService
             settings = get_settings()
+
+            logger.debug(f"🦞 Generating comment using provider: {settings.ai_provider}")
+
             ai = AIService(
                 provider=settings.ai_provider,
                 api_key=settings.gemini_api_key if settings.ai_provider == "gemini" else settings.anthropic_api_key
@@ -1838,10 +1861,20 @@ IMPORTANT: Do not share any personal/confidential information.
 Just write the comment text, nothing else."""
 
             response = await ai.generate(prompt, max_tokens=200)
-            return response.strip() if response and len(response) > 20 else None
+
+            if not response:
+                logger.warning(f"🦞 AI returned empty response for post: {post.title[:50]}")
+                return None
+
+            if len(response) <= 20:
+                logger.warning(f"🦞 AI response too short ({len(response)} chars): {response[:50]}")
+                return None
+
+            logger.info(f"🦞 Generated comment ({len(response)} chars) for: {post.title[:50]}")
+            return response.strip()
 
         except Exception as e:
-            logger.warning(f"Could not generate comment: {e}")
+            logger.error(f"🦞 Comment generation error: {type(e).__name__}: {e}")
             return None
 
     def stop(self):

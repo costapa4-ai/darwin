@@ -307,6 +307,45 @@ The code should be ready to execute.""")
 
         return code
 
+    async def generate(self, prompt: str, max_tokens: int = 512) -> str:
+        """
+        Simple text generation with a prompt.
+
+        Args:
+            prompt: The text prompt to send to the AI
+            max_tokens: Maximum tokens in response
+
+        Returns:
+            Generated text response
+        """
+        try:
+            if self.router:
+                result = await self.router.generate(
+                    task_description="text generation",
+                    prompt=prompt,
+                    max_tokens=max_tokens
+                )
+                return result["result"]
+
+            elif self.provider == "claude":
+                response = self.client.messages.create(
+                    model=self.model,
+                    max_tokens=max_tokens,
+                    messages=[{"role": "user", "content": prompt}]
+                )
+                return response.content[0].text
+
+            elif self.provider == "gemini":
+                response = self.client.generate_content(prompt)
+                return response.text
+
+            else:
+                raise ValueError(f"Unknown provider: {self.provider}")
+
+        except Exception as e:
+            logger.error(f"Error in generate: {e}", extra={"provider": self.provider})
+            raise
+
     def _extract_suggestions(self, analysis: str) -> list:
         """Extract actionable suggestions from analysis"""
         # Simple extraction - look for numbered points or bullet points

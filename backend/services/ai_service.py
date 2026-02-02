@@ -116,6 +116,28 @@ class AIService:
             logger.error(f"AI evolution error: {e}")
             raise
 
+    async def generate(self, prompt: str, max_tokens: int = 512) -> Optional[str]:
+        """
+        Simple text generation with a prompt.
+
+        Args:
+            prompt: The text prompt to send to the AI
+            max_tokens: Maximum tokens in response
+
+        Returns:
+            Generated text response or None on error
+        """
+        self.rate_limiter.check_and_wait()
+
+        try:
+            self.call_count += 1
+            result = await self.nucleus.generate(prompt, max_tokens)
+            return result
+        except Exception as e:
+            self.error_count += 1
+            logger.error(f"AI generate error: {e}")
+            return None
+
     def get_stats(self) -> Dict:
         """Get service statistics"""
         return {
