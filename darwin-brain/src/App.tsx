@@ -6,6 +6,7 @@ import { ActivityFeed } from './components/ui/ActivityFeed';
 import { FindingsPanel } from './components/ui/FindingsPanel';
 import { SettingsPanel } from './components/ui/SettingsPanel';
 import { MonitorPanel } from './components/ui/MonitorPanel';
+import { LanguageEvolutionPanel } from './components/ui/LanguageEvolutionPanel';
 import { useWebSocket } from './hooks/useWebSocket';
 import { useDarwinStore } from './store/darwinStore';
 import { darwinApi } from './utils/api';
@@ -169,6 +170,7 @@ function App() {
       <FindingsPanel />
       <SettingsPanel />
       <MonitorPanel />
+      <LanguageEvolutionPanel />
 
       {/* Welcome Message (shown once) */}
       <WelcomeOverlay />

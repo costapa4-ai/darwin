@@ -2,6 +2,8 @@ import { useState, useEffect } from 'react';
 import ApprovalsPanel from './ApprovalsPanel';
 import DarwinMessages from './DarwinMessages';
 import FindingsInbox from './FindingsInbox';
+import LanguageEvolutionPanel from './LanguageEvolutionPanel';
+import MonitorPanel from './MonitorPanel';
 import { API_BASE } from '../utils/config';
 
 export default function NewDashboard() {
@@ -21,6 +23,8 @@ export default function NewDashboard() {
   const [costData, setCostData] = useState(null);
   const [showFindings, setShowFindings] = useState(false);
   const [findingsCount, setFindingsCount] = useState(0);
+  const [showLanguageEvolution, setShowLanguageEvolution] = useState(false);
+  const [showMonitor, setShowMonitor] = useState(false);
 
   useEffect(() => {
     fetchData();
@@ -229,12 +233,26 @@ export default function NewDashboard() {
       <div className="w-80 bg-slate-900 border-r border-slate-700 flex flex-col h-screen">
         {/* Header - Ultra Compacto */}
         <div className="bg-gradient-to-r from-blue-600 to-purple-600 p-2">
-          <div className="flex items-center gap-2">
-            <span className="text-2xl">🧬</span>
-            <div>
-              <h1 className="text-lg font-bold text-white">Darwin</h1>
-              <p className="text-blue-100 text-xs">v4.0</p>
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <span className="text-2xl">🧬</span>
+              <div>
+                <h1 className="text-lg font-bold text-white">Darwin</h1>
+                <p className="text-blue-100 text-xs">v4.0</p>
+              </div>
             </div>
+            {/* Switch to 3D Brain View */}
+            <button
+              onClick={() => {
+                const currentHost = window.location.hostname;
+                window.location.href = `http://${currentHost}:3051`;
+              }}
+              className="px-2 py-1 rounded-lg bg-white/20 hover:bg-white/30 transition-colors text-xs font-medium text-white flex items-center gap-1"
+              title="Switch to 3D Brain View"
+            >
+              <span>🧠</span>
+              3D
+            </button>
           </div>
         </div>
 
@@ -284,6 +302,36 @@ export default function NewDashboard() {
           >
             <div className="text-xl font-bold text-green-400">💰</div>
             <div className="text-xs text-slate-400">Custos</div>
+          </div>
+        </div>
+
+        {/* Activity Monitor */}
+        <div
+          className="mx-2 my-1 bg-green-900/30 border border-green-500/50 rounded-lg p-1.5 cursor-pointer hover:bg-green-900/40 transition-colors"
+          onClick={() => setShowMonitor(true)}
+          title="Activity Monitor - Live system activity"
+        >
+          <div className="flex items-center gap-1.5">
+            <span className="text-xl">📊</span>
+            <div className="flex-1">
+              <div className="font-bold text-green-300 text-xs">Monitor</div>
+            </div>
+            <span className="text-base text-green-300">▶</span>
+          </div>
+        </div>
+
+        {/* Language Evolution Indicator */}
+        <div
+          className="mx-2 my-1 bg-cyan-900/30 border border-cyan-500/50 rounded-lg p-1.5 cursor-pointer hover:bg-cyan-900/40 transition-colors"
+          onClick={() => setShowLanguageEvolution(true)}
+          title="Language Evolution - Darwin's writing patterns"
+        >
+          <div className="flex items-center gap-1.5">
+            <span className="text-xl">📈</span>
+            <div className="flex-1">
+              <div className="font-bold text-cyan-300 text-xs">Language Evolution</div>
+            </div>
+            <span className="text-base text-cyan-300">▶</span>
           </div>
         </div>
 
@@ -589,6 +637,18 @@ export default function NewDashboard() {
           setShowFindings(false);
           fetchData(); // Refresh to update findings count
         }}
+      />
+
+      {/* Language Evolution Panel (Modal) */}
+      <LanguageEvolutionPanel
+        isOpen={showLanguageEvolution}
+        onClose={() => setShowLanguageEvolution(false)}
+      />
+
+      {/* Monitor Panel */}
+      <MonitorPanel
+        isOpen={showMonitor}
+        onClose={() => setShowMonitor(false)}
       />
 
       {/* Discoveries Modal */}

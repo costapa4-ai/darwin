@@ -71,6 +71,8 @@ interface DarwinStore {
   toggleMonitor: () => void;
   showSettings: boolean;
   toggleSettings: () => void;
+  showLanguageEvolution: boolean;
+  toggleLanguageEvolution: () => void;
   cameraTarget: [number, number, number];
   setCameraTarget: (target: [number, number, number]) => void;
 
@@ -190,6 +192,8 @@ export const useDarwinStore = create<DarwinStore>((set) => ({
   toggleMonitor: () => set((state) => ({ showMonitor: !state.showMonitor })),
   showSettings: false,
   toggleSettings: () => set((state) => ({ showSettings: !state.showSettings })),
+  showLanguageEvolution: false,
+  toggleLanguageEvolution: () => set((state) => ({ showLanguageEvolution: !state.showLanguageEvolution })),
   cameraTarget: [0, 0, 0],
   setCameraTarget: (target) => set({ cameraTarget: target }),
 

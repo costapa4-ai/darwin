@@ -179,6 +179,44 @@ export const darwinApi = {
     const { data } = await api.get('/api/v1/moltbook/status');
     return data;
   },
+
+  // Language Evolution
+  async getLanguageEvolutionSummary() {
+    const { data } = await api.get('/api/v1/language-evolution/summary');
+    return data;
+  },
+
+  async getLanguageMetricsHistory(days = 30) {
+    const { data } = await api.get(`/api/v1/language-evolution/metrics/history?days=${days}`);
+    return data;
+  },
+
+  async getLanguageMetricsToday() {
+    const { data } = await api.get('/api/v1/language-evolution/metrics/today');
+    return data;
+  },
+
+  async getLanguageContent(limit = 50, offset = 0, type?: string) {
+    const params = new URLSearchParams({ limit: String(limit), offset: String(offset) });
+    if (type) params.append('type', type);
+    const { data } = await api.get(`/api/v1/language-evolution/content?${params}`);
+    return data;
+  },
+
+  async getVocabularyGrowth(days = 30) {
+    const { data } = await api.get(`/api/v1/language-evolution/vocabulary/growth?days=${days}`);
+    return data;
+  },
+
+  async getTopicTrends(days = 30) {
+    const { data } = await api.get(`/api/v1/language-evolution/topics/trends?days=${days}`);
+    return data;
+  },
+
+  async getRecentVocabulary(limit = 50) {
+    const { data } = await api.get(`/api/v1/language-evolution/vocabulary/recent?limit=${limit}`);
+    return data;
+  },
 };
 
 export default darwinApi;

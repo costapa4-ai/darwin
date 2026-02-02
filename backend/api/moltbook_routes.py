@@ -70,6 +70,27 @@ def add_reading_activity(post: dict, darwin_thought: Optional[str] = None):
     # Keep only last 100 entries
     if len(_reading_history) > 100:
         _reading_history.pop()
+
+    # Track Darwin's thought in language evolution
+    if darwin_thought:
+        try:
+            from services.language_evolution import get_language_evolution_service
+            lang_service = get_language_evolution_service()
+            lang_service.add_content(
+                content_type='read',
+                darwin_content=darwin_thought,
+                original_content=post.get("content") or post.get("title", ""),
+                source_post_id=post.get("id", ""),
+                source_post_title=post.get("title", ""),
+                metadata={
+                    'author': author,
+                    'submolt': submolt,
+                    'score': post.get("score", 0)
+                }
+            )
+        except Exception as e:
+            logger.warning(f"Failed to track language evolution: {e}")
+
     return activity
 
 

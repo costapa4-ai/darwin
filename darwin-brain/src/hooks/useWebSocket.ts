@@ -149,6 +149,14 @@ export function useWebSocket() {
           break;
         }
 
+        case 'language_content': {
+          // Handle new language evolution content
+          // This is informational - the Language Evolution panel will refresh to show it
+          const langContent = data.payload as any;
+          console.log('New language content recorded:', langContent.type, langContent.id);
+          break;
+        }
+
         default:
           console.log('Unknown WebSocket message type:', data.type);
       }

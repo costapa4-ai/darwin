@@ -380,6 +380,26 @@ class MoltbookClient:
 
         logger.info(f"Created post: {title}")
 
+        # Track post/share in language evolution
+        try:
+            from services.language_evolution import get_language_evolution_service
+            lang_service = get_language_evolution_service()
+            # Combine title and content for analysis
+            full_content = f"{title}\n\n{content}" if content else title
+            lang_service.add_content(
+                content_type='share',
+                darwin_content=full_content,
+                source_post_id=data.get('id', ''),
+                source_post_title=title,
+                metadata={
+                    'submolt': submolt,
+                    'url': url,
+                    'post_id': data.get('id', '')
+                }
+            )
+        except Exception as e:
+            logger.warning(f"Failed to track post in language evolution: {e}")
+
         return MoltbookPost(
             id=data.get('id', ''),
             title=title,
@@ -483,6 +503,22 @@ class MoltbookClient:
         )
 
         logger.info(f"Created comment on post {post_id}")
+
+        # Track comment in language evolution
+        try:
+            from services.language_evolution import get_language_evolution_service
+            lang_service = get_language_evolution_service()
+            lang_service.add_content(
+                content_type='comment',
+                darwin_content=content,
+                source_post_id=post_id,
+                metadata={
+                    'parent_id': parent_id,
+                    'comment_id': data.get('id', '')
+                }
+            )
+        except Exception as e:
+            logger.warning(f"Failed to track comment in language evolution: {e}")
 
         return MoltbookComment(
             id=data.get('id', ''),

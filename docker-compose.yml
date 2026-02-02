@@ -64,6 +64,23 @@ services:
       - darwin-net
     restart: unless-stopped
 
+  darwin-brain:
+    build: ./darwin-brain
+    ports:
+      - "0.0.0.0:3051:3051"  # 3D Brain visualization interface
+    environment:
+      - VITE_API_URL=${VITE_API_URL:-}
+      - VITE_WS_URL=${VITE_WS_URL:-}
+      - HOST=0.0.0.0
+    volumes:
+      - ./darwin-brain:/app
+      - /app/node_modules
+    depends_on:
+      - backend
+    networks:
+      - darwin-net
+    restart: unless-stopped
+
   sandbox:
     build: ./sandbox
     environment:

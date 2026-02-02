@@ -35,6 +35,7 @@ export function StatusBar() {
   const toggleFindings = useDarwinStore((state) => state.toggleFindings);
   const toggleSettings = useDarwinStore((state) => state.toggleSettings);
   const toggleMonitor = useDarwinStore((state) => state.toggleMonitor);
+  const toggleLanguageEvolution = useDarwinStore((state) => state.toggleLanguageEvolution);
   const isSpeaking = useDarwinStore((state) => state.isSpeaking);
 
   return (
@@ -135,6 +136,19 @@ export function StatusBar() {
 
             {/* Action Buttons */}
             <div className="flex items-center gap-2">
+              {/* Switch to Classic View */}
+              <button
+                onClick={() => {
+                  const currentHost = window.location.hostname;
+                  window.location.href = `http://${currentHost}:3050`;
+                }}
+                className="px-3 py-1.5 rounded-lg bg-gradient-to-r from-slate-600 to-slate-700 hover:from-slate-500 hover:to-slate-600 transition-colors text-xs font-medium"
+                title="Switch to Classic Dashboard"
+              >
+                <span className="mr-1">📺</span>
+                Classic
+              </button>
+
               {/* Findings */}
               <button
                 onClick={toggleFindings}
@@ -165,6 +179,15 @@ export function StatusBar() {
                 title="Activity Monitor"
               >
                 <span className="text-lg">📊</span>
+              </button>
+
+              {/* Language Evolution */}
+              <button
+                onClick={toggleLanguageEvolution}
+                className="p-2 rounded-lg hover:bg-gray-800 transition-colors"
+                title="Language Evolution"
+              >
+                <span className="text-lg">📈</span>
               </button>
 
               {/* Settings */}
