@@ -62,7 +62,7 @@ def add_reading_activity(post: dict, darwin_thought: Optional[str] = None):
         "submolt": submolt,
         "score": post.get("score", 0),
         "comment_count": post.get("comment_count", 0),
-        "url": f"https://www.moltbook.com/s/{submolt}/posts/{post.get('id', '')}",
+        "url": f"https://www.moltbook.com/post/{post.get('id', '')}",
         "darwin_thought": darwin_thought,
         "timestamp": datetime.now().isoformat()
     }
@@ -82,7 +82,7 @@ def add_reading_activity(post: dict, darwin_thought: Optional[str] = None):
                 original_content=post.get("content") or post.get("title", ""),
                 source_post_id=post.get("id", ""),
                 source_post_title=post.get("title", ""),
-                source_post_url=f"https://www.moltbook.com/s/{submolt}/posts/{post.get('id', '')}",
+                source_post_url=f"https://www.moltbook.com/post/{post.get('id', '')}",
                 metadata={
                     'author': author,
                     'submolt': submolt,

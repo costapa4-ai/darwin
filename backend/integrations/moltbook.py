@@ -526,7 +526,7 @@ class MoltbookClient:
             from services.language_evolution import get_language_evolution_service
             lang_service = get_language_evolution_service()
             # Construct URL - use posts endpoint (submolt not available here)
-            comment_url = f"https://www.moltbook.com/posts/{post_id}"
+            comment_url = f"https://www.moltbook.com/post/{post_id}"
             lang_service.add_content(
                 content_type='comment',
                 darwin_content=content,
