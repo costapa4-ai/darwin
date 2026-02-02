@@ -206,7 +206,7 @@ export function MonitorPanel() {
                   </div>
                 ) : (
                   <>
-                    {[...logs].reverse().map((log) => (
+                    {logs.map((log) => (
                       <motion.div
                         key={log.id}
                         initial={{ opacity: 0, x: -10 }}

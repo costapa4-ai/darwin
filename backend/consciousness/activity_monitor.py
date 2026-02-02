@@ -401,8 +401,8 @@ class ActivityMonitor:
         if since:
             logs = [l for l in logs if l.timestamp > since]
 
-        # Return most recent first
-        return [l.to_dict() for l in logs[-limit:][::-1]]
+        # Return in chronological order (oldest first, newest last)
+        return [l.to_dict() for l in logs[-limit:]]
 
     def get_errors(self, limit: int = 50) -> List[Dict[str, Any]]:
         """Get recent error logs"""
