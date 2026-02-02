@@ -1003,7 +1003,7 @@ Monitor shows: comments_made: 23  (INCORRECT - should be 0)
    - Found missing `generate()` method in AIService/Nucleus
    - Added methods and improved logging
 
-### Priority 2: Performance
+### Priority 2: Performance ✅ ALL RESOLVED
 
 9. **Memory Management** ✅ RESOLVED
    - ~~Implement explicit memory limits~~
@@ -1016,10 +1016,26 @@ Monitor shows: comments_made: 23  (INCORRECT - should be 0)
    - Collections auto-trim when exceeding limits
    - Integrated dedup store cleanup (30 days old entries)
 
-10. **Query Optimization**
-    - Add indices to semantic memory
-    - Implement query caching
-    - Pre-filter by relevance
+10. **Query Optimization** ✅ RESOLVED
+    - ~~Add indices to semantic memory~~
+    - ~~Implement query caching~~
+    - ~~Pre-filter by relevance~~
+    - **Vector-based similarity search:**
+      - Integrated SemanticMemory (ChromaDB + all-MiniLM-L6-v2 embeddings)
+      - `get_similar_tasks()` now uses embedding similarity instead of keyword overlap
+      - Converts L2 distance to 0-1 similarity score
+      - Falls back to keyword-based search if semantic unavailable
+    - **Query caching with TTL:**
+      - `QueryCache` class with LRU eviction (max 100 entries)
+      - 5-minute TTL for cache entries
+      - Auto-invalidation when new data is saved
+    - **Additional SQLite indices:**
+      - `idx_success_fitness` (success, fitness_score DESC)
+      - `idx_created_at` (created_at DESC)
+      - `idx_task_type_success` (task_type, success)
+    - **Dual storage on save:**
+      - SQLite for persistence + SemanticMemory for vector retrieval
+    - **Files Modified:** `backend/core/memory.py`
 
 ### Priority 3: Behavior
 
@@ -1082,15 +1098,16 @@ Monitor shows: comments_made: 23  (INCORRECT - should be 0)
       - String concatenation bypasses blocked by AST validation
     - **Files Modified:** `backend/utils/security.py`
 
-17. **Vector-based Similarity Search**
+17. **Vector-based Similarity Search** ✅ RESOLVED
     - Location: `backend/core/memory.py` (`MemoryStore`)
     - Problem: Uses simple keyword matching for similarity
-    - Current: `keywords = set(task_description.lower().split())`
-    - This is O(n) scan and misses semantic similarities
-    - Recommendations:
-      - Integrate with `semantic_memory.py` which already uses ChromaDB
-      - Use embedding-based similarity (already have `all-MiniLM-L6-v2`)
-      - Add approximate nearest neighbor indices
+    - **Fix Applied:**
+      - Integrated SemanticMemory for vector-based search
+      - Uses ChromaDB embeddings (all-MiniLM-L6-v2)
+      - Added QueryCache with LRU + TTL for performance
+      - Keyword matching kept as fallback
+      - Added additional SQLite indices
+    - **Files Modified:** `backend/core/memory.py`
 
 18. **Testing Strategy for Emergent Behaviors**
     - Problem: No formal testing for consciousness/evolution components
