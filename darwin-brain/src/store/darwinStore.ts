@@ -73,6 +73,16 @@ interface DarwinStore {
   toggleSettings: () => void;
   cameraTarget: [number, number, number];
   setCameraTarget: (target: [number, number, number]) => void;
+
+  // Visualization Settings
+  particleDensity: number;
+  setParticleDensity: (density: number) => void;
+  bloomIntensity: number;
+  setBloomIntensity: (intensity: number) => void;
+  autoRotate: boolean;
+  setAutoRotate: (rotate: boolean) => void;
+  voiceEnabled: boolean;
+  setVoiceEnabled: (enabled: boolean) => void;
 }
 
 const initialStatus: DarwinStatus = {
@@ -182,6 +192,16 @@ export const useDarwinStore = create<DarwinStore>((set) => ({
   toggleSettings: () => set((state) => ({ showSettings: !state.showSettings })),
   cameraTarget: [0, 0, 0],
   setCameraTarget: (target) => set({ cameraTarget: target }),
+
+  // Visualization Settings
+  particleDensity: 100,
+  setParticleDensity: (density) => set({ particleDensity: density }),
+  bloomIntensity: 50,
+  setBloomIntensity: (intensity) => set({ bloomIntensity: intensity }),
+  autoRotate: true,
+  setAutoRotate: (rotate) => set({ autoRotate: rotate }),
+  voiceEnabled: true,
+  setVoiceEnabled: (enabled) => set({ voiceEnabled: enabled }),
 }));
 
 // Selectors for performance

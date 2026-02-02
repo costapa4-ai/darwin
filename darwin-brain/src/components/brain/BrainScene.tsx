@@ -36,6 +36,24 @@ function CameraController() {
   return null;
 }
 
+// Orbit controls with settings from store
+function SceneOrbitControls() {
+  const autoRotate = useDarwinStore((state) => state.autoRotate);
+
+  return (
+    <OrbitControls
+      enablePan={false}
+      enableZoom={true}
+      minDistance={4}
+      maxDistance={20}
+      autoRotate={autoRotate}
+      autoRotateSpeed={0.3}
+      dampingFactor={0.05}
+      enableDamping
+    />
+  );
+}
+
 // Scene lighting based on consciousness state
 function DynamicLighting() {
   const ambientRef = useRef<THREE.AmbientLight>(null);
@@ -71,11 +89,17 @@ function DynamicLighting() {
 // Post-processing effects
 function Effects() {
   const status = useDarwinStore((state) => state.status);
+  const bloomSetting = useDarwinStore((state) => state.bloomIntensity);
 
-  // Stronger effects during dreaming
-  const bloomIntensity = status.state === 'dreaming' ? 1.5 :
-                         status.state === 'sleep' ? 0.8 :
-                         0.5;
+  // Base bloom from settings (0-100 mapped to 0-2)
+  const baseBloom = (bloomSetting / 100) * 2;
+
+  // State-based multiplier (dreaming/sleep adds extra bloom)
+  const stateMultiplier = status.state === 'dreaming' ? 1.5 :
+                          status.state === 'sleep' ? 1.2 :
+                          1.0;
+
+  const bloomIntensity = baseBloom * stateMultiplier;
 
   return (
     <EffectComposer>
@@ -101,6 +125,10 @@ function Effects() {
 // Main scene content
 function SceneContent() {
   const groupRef = useRef<THREE.Group>(null);
+  const particleDensity = useDarwinStore((state) => state.particleDensity);
+
+  // Calculate particle count from density setting (0-100 maps to 100-2000)
+  const particleCount = Math.max(100, Math.round((particleDensity / 100) * 2000));
 
   // Subtle scene rotation
   useFrame((state) => {
@@ -117,8 +145,8 @@ function SceneContent() {
       {/* Neural network connections */}
       <NeuralConnections nodeCount={40} />
 
-      {/* Ambient particles */}
-      <ParticleField count={1500} radius={12} />
+      {/* Ambient particles - count based on settings */}
+      <ParticleField count={particleCount} radius={12} />
 
       {/* Activity-based thought particles */}
       <ThoughtParticles />
@@ -182,16 +210,7 @@ export function BrainScene() {
           far={100}
         />
 
-        <OrbitControls
-          enablePan={false}
-          enableZoom={true}
-          minDistance={4}
-          maxDistance={20}
-          autoRotate
-          autoRotateSpeed={0.3}
-          dampingFactor={0.05}
-          enableDamping
-        />
+        <SceneOrbitControls />
 
         <Suspense fallback={<Loader />}>
           <CameraController />

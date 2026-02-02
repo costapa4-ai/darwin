@@ -1,4 +1,3 @@
-import { useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useDarwinStore } from '../../store/darwinStore';
 
@@ -7,10 +6,15 @@ export function SettingsPanel() {
   const toggleSettings = useDarwinStore((state) => state.toggleSettings);
   const status = useDarwinStore((state) => state.status);
 
-  const [voiceEnabled, setVoiceEnabled] = useState(true);
-  const [autoRotate, setAutoRotate] = useState(true);
-  const [particleDensity, setParticleDensity] = useState(100);
-  const [bloomIntensity, setBloomIntensity] = useState(50);
+  // Visualization settings from store (now affects the display)
+  const voiceEnabled = useDarwinStore((state) => state.voiceEnabled);
+  const setVoiceEnabled = useDarwinStore((state) => state.setVoiceEnabled);
+  const autoRotate = useDarwinStore((state) => state.autoRotate);
+  const setAutoRotate = useDarwinStore((state) => state.setAutoRotate);
+  const particleDensity = useDarwinStore((state) => state.particleDensity);
+  const setParticleDensity = useDarwinStore((state) => state.setParticleDensity);
+  const bloomIntensity = useDarwinStore((state) => state.bloomIntensity);
+  const setBloomIntensity = useDarwinStore((state) => state.setBloomIntensity);
 
   return (
     <AnimatePresence>
