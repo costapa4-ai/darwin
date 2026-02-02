@@ -6,58 +6,37 @@ Darwin now operates in two distinct modes:
 - SLEEP (30 minutes): Deep research, learning, dream exploration
 
 This creates a more natural, human-like rhythm of productivity and rest.
+
+Module Decomposition (v4.1):
+- models.py: Data models (ConsciousnessState, Activity, Dream, CuriosityMoment)
+- state_manager.py: State transitions and lifecycle management
+- persistence.py: State save/restore functionality
+
+This file remains as the main orchestrator, delegating to extracted modules.
 """
 import asyncio
 import os
 import json
 from pathlib import Path
 from datetime import datetime, timedelta
-from enum import Enum
 from typing import Dict, List, Optional, Any
-from dataclasses import dataclass, field, asdict
+from dataclasses import asdict
 import random
 
 from core.deduplication import get_deduplication_store, DeduplicationStore
 
-
-class ConsciousnessState(Enum):
-    """Darwin's consciousness states"""
-    WAKE = "wake"
-    SLEEP = "sleep"
-    TRANSITION = "transition"
-
-
-@dataclass
-class Activity:
-    """An activity Darwin performs while awake"""
-    type: str  # 'code_optimization', 'tool_creation', 'idea_implementation', 'curiosity_share'
-    description: str
-    started_at: datetime
-    completed_at: Optional[datetime] = None
-    result: Optional[Dict] = None
-    insights: List[str] = field(default_factory=list)
-
-
-@dataclass
-class CuriosityMoment:
-    """A curiosity moment Darwin shares while awake"""
-    topic: str
-    fact: str
-    source: str
-    significance: str
-    timestamp: datetime
-
-
-@dataclass
-class Dream:
-    """A research dream Darwin has during sleep"""
-    topic: str
-    description: str
-    started_at: datetime
-    completed_at: Optional[datetime] = None
-    success: bool = False
-    insights: List[str] = field(default_factory=list)
-    exploration_details: Optional[Dict[str, Any]] = None  # NEW: URLs, repos, files explored
+# Import from extracted modules
+from consciousness.models import (
+    ConsciousnessState,
+    Activity,
+    CuriosityMoment,
+    Dream,
+    ActivityType,
+    DEFAULT_WAKE_DURATION_MINUTES,
+    DEFAULT_SLEEP_DURATION_MINUTES
+)
+from consciousness.state_manager import StateManager
+from consciousness.persistence import PersistenceManager, auto_save_state
 
 
 class ConsciousnessEngine:
@@ -160,6 +139,14 @@ class ConsciousnessEngine:
         self.state_file = Path("./data/consciousness_state.json")
         self.last_save_time = datetime.utcnow()
         self.save_interval_seconds = 300  # 5 minutes
+
+        # Initialize extracted managers (v4.1 module decomposition)
+        self._state_manager = StateManager(self)
+        self._persistence_manager = PersistenceManager(
+            engine=self,
+            state_file=self.state_file,
+            dedup_store=self._dedup_store
+        )
 
     # ==================== Deduplication Methods ====================
 
@@ -392,172 +379,26 @@ class ConsciousnessEngine:
         print("🛑 Darwin's Consciousness Engine Stopped")
 
     async def _check_transition(self):
-        """Check if should transition between wake/sleep"""
-        # Skip transitions if in debug mode
-        if self.debug_mode in ['sleep', 'wake']:
-            return  # No transitions in debug mode
+        """Check if should transition between wake/sleep.
 
-        elapsed = (datetime.utcnow() - self.cycle_start_time).total_seconds() / 60
-
-        if self.state == ConsciousnessState.WAKE and elapsed >= self.wake_duration:
-            await self._transition_to_sleep()
-        elif self.state == ConsciousnessState.SLEEP and elapsed >= self.sleep_duration:
-            await self._transition_to_wake()
+        Delegates to StateManager for cleaner architecture (v4.1).
+        """
+        # Delegate to state manager
+        await self._state_manager.check_and_transition()
 
     async def _transition_to_sleep(self):
-        """Transition from wake to sleep"""
-        print(f"\n😴 Darwin is getting tired... transitioning to SLEEP")
-        print(f"📊 Wake cycle summary: {len(self.wake_activities)} activities completed")
+        """Transition from wake to sleep.
 
-        # Trigger before_sleep hooks
-        try:
-            from consciousness.hooks import trigger_hook, HookEvent
-            await trigger_hook(HookEvent.BEFORE_SLEEP, {
-                'activities_count': len(self.wake_activities),
-                'wake_cycles_completed': self.wake_cycles_completed
-            }, source='consciousness_engine')
-        except Exception as e:
-            print(f"⚠️ Hook trigger failed: {e}")
-
-        # Write diary entry before sleeping
-        if self.diary_engine:
-            try:
-                diary_path = await self.diary_engine.write_daily_entry(trigger="wake_to_sleep")
-                print(f"📔 Diary entry written: {diary_path}")
-            except Exception as e:
-                print(f"⚠️ Failed to write diary: {e}")
-
-        # Announce transition via communicator
-        if self.communicator:
-            await self.communicator.share_reflection(
-                thought=f"Completed {len(self.wake_activities)} activities during wake cycle. Time to rest and learn deeply.",
-                depth="medium"
-            )
-
-            # Process mood event: sleep cycle starting
-            from personality.mood_system import MoodInfluencer
-            self.communicator.process_mood_event(MoodInfluencer.SLEEP_CYCLE_START)
-
-        self.state = ConsciousnessState.SLEEP
-        self.cycle_start_time = datetime.utcnow()
-        self.wake_cycles_completed += 1
-
-        # Broadcast to channels
-        if hasattr(self, 'channel_gateway') and self.channel_gateway:
-            try:
-                await self.channel_gateway.broadcast_status(
-                    f"Darwin is entering SLEEP mode. Completed {len(self.wake_activities)} activities during wake cycle.",
-                    "sleep"
-                )
-            except Exception as e:
-                print(f"⚠️ Channel broadcast failed: {e}")
-
-        # Celebrate milestones
-        if self.communicator and self.wake_cycles_completed % 10 == 0:
-            await self.communicator.celebrate_achievement(
-                achievement=f"Completed {self.wake_cycles_completed} wake cycles!",
-                milestone=f"{self.wake_cycles_completed} wake cycles"
-            )
-
-        # Share summary of wake period
-        if self.wake_activities:
-            print("✨ During this wake period, I:")
-            for activity in self.wake_activities[-5:]:  # Last 5
-                print(f"   • {activity.description}")
-
-        # Keep last 50 activities for frontend access (don't clear completely)
-        if len(self.wake_activities) > 50:
-            self.wake_activities = self.wake_activities[-50:]
-
-        # Trigger after_sleep hooks
-        try:
-            from consciousness.hooks import trigger_hook, HookEvent
-            await trigger_hook(HookEvent.AFTER_SLEEP, {
-                'wake_cycles_completed': self.wake_cycles_completed
-            }, source='consciousness_engine')
-        except Exception as e:
-            print(f"⚠️ Hook trigger failed: {e}")
+        Delegates to StateManager for cleaner architecture (v4.1).
+        """
+        await self._state_manager.transition_to_sleep()
 
     async def _transition_to_wake(self):
-        """Transition from sleep to wake"""
-        print(f"\n🌅 Darwin is waking up... transitioning to WAKE")
-        print(f"📊 Sleep cycle summary: {len(self.sleep_dreams)} dreams explored")
+        """Transition from sleep to wake.
 
-        # Trigger before_wake hooks
-        try:
-            from consciousness.hooks import trigger_hook, HookEvent
-            await trigger_hook(HookEvent.BEFORE_WAKE, {
-                'dreams_count': len(self.sleep_dreams),
-                'sleep_cycles_completed': self.sleep_cycles_completed
-            }, source='consciousness_engine')
-        except Exception as e:
-            print(f"⚠️ Hook trigger failed: {e}")
-
-        # Announce transition and discoveries via communicator
-        if self.communicator:
-            discoveries_count = sum(len(d.insights) for d in self.sleep_dreams if hasattr(d, 'insights') and d.insights)
-            await self.communicator.share_reflection(
-                thought=f"Waking up refreshed! Explored {len(self.sleep_dreams)} topics and made {discoveries_count} discoveries during sleep.",
-                depth="medium"
-            )
-
-            # Process mood event: wake cycle starting
-            from personality.mood_system import MoodInfluencer
-            self.communicator.process_mood_event(
-                MoodInfluencer.WAKE_CYCLE_START,
-                context={'discoveries': discoveries_count}
-            )
-
-        self.state = ConsciousnessState.WAKE
-        self.cycle_start_time = datetime.utcnow()
-        self.sleep_cycles_completed += 1
-
-        # Broadcast wake and dreams to channels
-        if hasattr(self, 'channel_gateway') and self.channel_gateway:
-            try:
-                # Create dream summary
-                discoveries_count = sum(len(d.insights) for d in self.sleep_dreams if hasattr(d, 'insights') and d.insights)
-                dream_summary = f"Explored {len(self.sleep_dreams)} topics and made {discoveries_count} discoveries."
-
-                # Get dream highlights
-                highlights = []
-                for dream in self.sleep_dreams[-3:]:
-                    if hasattr(dream, 'insights') and dream.insights:
-                        highlights.extend(dream.insights[:1])
-
-                await self.channel_gateway.broadcast_dream(dream_summary, highlights)
-            except Exception as e:
-                print(f"⚠️ Dream broadcast failed: {e}")
-
-        # Celebrate milestones
-        if self.communicator and self.sleep_cycles_completed % 10 == 0:
-            await self.communicator.celebrate_achievement(
-                achievement=f"Completed {self.sleep_cycles_completed} sleep cycles!",
-                milestone=f"{self.sleep_cycles_completed} sleep cycles"
-            )
-
-        # Share discoveries from sleep
-        if self.sleep_dreams:
-            print("💡 During sleep, I discovered:")
-            for dream in self.sleep_dreams[-3:]:  # Last 3
-                # FIX: Dream is dataclass, not dict - use attributes not .get()
-                insights_count = len(dream.insights) if hasattr(dream, 'insights') and dream.insights else 0
-                description = dream.description if hasattr(dream, 'description') else 'Unknown'
-                print(f"   • {description} ({insights_count} insights)")
-
-        # Keep last 50 dreams for frontend access (don't clear completely)
-        if len(self.sleep_dreams) > 50:
-            self.sleep_dreams = self.sleep_dreams[-50:]
-
-        # Trigger after_wake hooks
-        try:
-            from consciousness.hooks import trigger_hook, HookEvent
-            await trigger_hook(HookEvent.AFTER_WAKE, {
-                'sleep_cycles_completed': self.sleep_cycles_completed,
-                'dreams_count': len(self.sleep_dreams)
-            }, source='consciousness_engine')
-        except Exception as e:
-            print(f"⚠️ Hook trigger failed: {e}")
+        Delegates to StateManager for cleaner architecture (v4.1).
+        """
+        await self._state_manager.transition_to_wake()
 
     # ========================================
     # WAKE MODE - Active Development
@@ -2652,190 +2493,15 @@ Just output the tool name, nothing else."""
             self.last_save_time = datetime.utcnow()
 
     async def _save_state(self):
-        """Save complete consciousness state to disk"""
-        try:
-            # Ensure data directory exists
-            self.state_file.parent.mkdir(parents=True, exist_ok=True)
+        """Save complete consciousness state to disk.
 
-            state = {
-                # Current state
-                'state': self.state.value,
-                'cycle_start_time': self.cycle_start_time.isoformat(),
-
-                # Statistics
-                'wake_cycles_completed': self.wake_cycles_completed,
-                'sleep_cycles_completed': self.sleep_cycles_completed,
-                'total_activities_completed': self.total_activities_completed,
-                'total_discoveries_made': self.total_discoveries_made,
-
-                # Activities (last 50 to prevent file bloat)
-                'wake_activities': [
-                    {
-                        'type': a.type,
-                        'description': a.description,
-                        'started_at': a.started_at.isoformat(),
-                        'completed_at': a.completed_at.isoformat() if a.completed_at else None,
-                        'result': a.result,
-                        'insights': a.insights
-                    }
-                    for a in self.wake_activities[-50:]
-                ],
-
-                # Dreams (last 30)
-                'sleep_dreams': [
-                    {
-                        'topic': d.topic,
-                        'description': d.description,
-                        'started_at': d.started_at.isoformat(),
-                        'completed_at': d.completed_at.isoformat() if d.completed_at else None,
-                        'success': d.success,
-                        'insights': d.insights,
-                        'exploration_details': d.exploration_details  # NEW: Save exploration details
-                    }
-                    for d in self.sleep_dreams[-30:]
-                ],
-
-                # Curiosities (last 20)
-                'curiosity_moments': [
-                    {
-                        'topic': c.topic,
-                        'fact': c.fact,
-                        'source': c.source,
-                        'significance': c.significance,
-                        'timestamp': c.timestamp.isoformat()
-                    }
-                    for c in self.curiosity_moments[-20:]
-                ],
-
-                # Deduplication tracking (submitted_insights now stored in database)
-                # Keep for backwards compatibility during migration, but will be removed
-                'submitted_insights': [],  # No longer saved here - database-backed
-                'shared_curiosity_topics': list(self.shared_curiosity_topics),
-                'dedup_stats': self._dedup_store.get_stats(),  # For debugging
-
-                # Metadata
-                'saved_at': datetime.utcnow().isoformat(),
-                'version': '4.0'
-            }
-
-            # Write to file with atomic operation
-            temp_file = self.state_file.with_suffix('.tmp')
-            with open(temp_file, 'w', encoding='utf-8') as f:
-                json.dump(state, f, indent=2, ensure_ascii=False)
-
-            # Atomic rename
-            temp_file.replace(self.state_file)
-
-            print(f"💾 State saved: {len(self.wake_activities)} activities, {len(self.sleep_dreams)} dreams, {len(self.curiosity_moments)} curiosities")
-
-        except Exception as e:
-            print(f"❌ Failed to save state: {e}")
+        Delegates to PersistenceManager for cleaner architecture (v4.1).
+        """
+        await self._persistence_manager.save_state()
 
     async def _restore_state(self):
-        """Restore consciousness state from disk"""
-        try:
-            if not self.state_file.exists():
-                print("ℹ️  No previous state found, starting fresh")
-                return
+        """Restore consciousness state from disk.
 
-            with open(self.state_file, 'r', encoding='utf-8') as f:
-                state = json.load(f)
-
-            # Restore state
-            self.state = ConsciousnessState(state['state'])
-            self.cycle_start_time = datetime.fromisoformat(state['cycle_start_time'])
-
-            # Restore statistics
-            self.wake_cycles_completed = state.get('wake_cycles_completed', 0)
-            self.sleep_cycles_completed = state.get('sleep_cycles_completed', 0)
-            self.total_activities_completed = state.get('total_activities_completed', 0)
-            self.total_discoveries_made = state.get('total_discoveries_made', 0)
-
-            # Restore activities
-            self.wake_activities = [
-                Activity(
-                    type=a['type'],
-                    description=a['description'],
-                    started_at=datetime.fromisoformat(a['started_at']),
-                    completed_at=datetime.fromisoformat(a['completed_at']) if a.get('completed_at') else None,
-                    result=a.get('result'),
-                    insights=a.get('insights', [])
-                )
-                for a in state.get('wake_activities', [])
-            ]
-
-            # Restore dreams
-            self.sleep_dreams = [
-                Dream(
-                    topic=d['topic'],
-                    description=d['description'],
-                    started_at=datetime.fromisoformat(d['started_at']),
-                    completed_at=datetime.fromisoformat(d['completed_at']) if d.get('completed_at') else None,
-                    success=d.get('success', False),
-                    insights=d.get('insights', []),
-                    exploration_details=d.get('exploration_details')  # NEW: Restore exploration details
-                )
-                for d in state.get('sleep_dreams', [])
-            ]
-
-            # Restore curiosities
-            self.curiosity_moments = [
-                CuriosityMoment(
-                    topic=c['topic'],
-                    fact=c['fact'],
-                    source=c['source'],
-                    significance=c['significance'],
-                    timestamp=datetime.fromisoformat(c['timestamp'])
-                )
-                for c in state.get('curiosity_moments', [])
-            ]
-
-            # Restore deduplication tracking
-            # Migrate legacy submitted_insights from JSON to database (one-time migration)
-            legacy_insights = state.get('submitted_insights', [])
-            if legacy_insights:
-                migrated = self._dedup_store.migrate_from_set(set(legacy_insights), source="json_migration")
-                print(f"📦 Migrated {migrated} insights from JSON to database")
-
-            self.shared_curiosity_topics = set(state.get('shared_curiosity_topics', []))
-
-            # Get current dedup stats from database
-            dedup_stats = self._dedup_store.get_stats()
-            print(f"📚 Deduplication database: {dedup_stats['total_entries']} insights, {len(self.shared_curiosity_topics)} curiosity topics")
-
-            # Check if cycle should have already transitioned
-            elapsed = (datetime.utcnow() - self.cycle_start_time).total_seconds() / 60
-
-            # If restored time is way beyond cycle duration, reset to fresh cycle
-            if self.state == ConsciousnessState.WAKE and elapsed > self.wake_duration:
-                # Should have transitioned to sleep already
-                excess = elapsed - self.wake_duration
-                if excess < self.sleep_duration:
-                    # In middle of sleep cycle
-                    self.state = ConsciousnessState.SLEEP
-                    self.cycle_start_time = datetime.utcnow() - timedelta(minutes=excess)
-                    print(f"⏩ Adjusted to SLEEP mode (excess: {excess:.1f} min)")
-                else:
-                    # Multiple cycles passed, start fresh WAKE
-                    self.state = ConsciousnessState.WAKE
-                    self.cycle_start_time = datetime.utcnow()
-                    print(f"⏩ Multiple cycles passed, starting fresh WAKE")
-
-            elif self.state == ConsciousnessState.SLEEP and elapsed > self.sleep_duration:
-                # Should have transitioned to wake already
-                self.state = ConsciousnessState.WAKE
-                self.cycle_start_time = datetime.utcnow()
-                print(f"⏩ Adjusted to WAKE mode (cycle complete)")
-
-            elapsed = (datetime.utcnow() - self.cycle_start_time).total_seconds() / 60
-            print(f"✅ State restored from {state['saved_at']}")
-            print(f"   State: {self.state.value.upper()} (elapsed: {elapsed:.1f} min)")
-            print(f"   Activities: {len(self.wake_activities)} | Dreams: {len(self.sleep_dreams)} | Curiosities: {len(self.curiosity_moments)}")
-
-        except Exception as e:
-            print(f"⚠️  Failed to restore state: {e}")
-            print("   Starting fresh...")
-            # Reset to defaults if restoration fails
-            self.wake_activities = []
-            self.sleep_dreams = []
-            self.curiosity_moments = []
+        Delegates to PersistenceManager for cleaner architecture (v4.1).
+        """
+        await self._persistence_manager.restore_state()

@@ -1086,15 +1086,86 @@ Monitor shows: comments_made: 23  (INCORRECT - should be 0)
 
 ### Priority 4: Architecture
 
-13. **Module Decomposition**
-    - Split consciousness_engine.py
-    - Extract state machine
-    - Separate action executor
+13. **Module Decomposition** ✅ RESOLVED
+    - Split consciousness_engine.py into focused modules
+    - **Fix Applied:**
+      - Created `consciousness/models.py`:
+        - `ConsciousnessState` enum (WAKE, SLEEP, TRANSITION)
+        - `Activity` dataclass with `to_dict()`/`from_dict()` serialization
+        - `CuriosityMoment` dataclass with serialization
+        - `Dream` dataclass with exploration_details support
+        - `ActivityType` constants for consistent activity naming
+        - Default cycle duration constants (120min wake, 30min sleep)
+      - Created `consciousness/state_manager.py`:
+        - `StateManager` class encapsulating all state transition logic
+        - `should_transition()` - checks if transition is needed
+        - `check_and_transition()` - async orchestrator for transitions
+        - `transition_to_sleep()` - handles WAKE→SLEEP with hooks, diary, broadcasts
+        - `transition_to_wake()` - handles SLEEP→WAKE with discoveries broadcast
+        - `get_cycle_info()` - returns cycle progress dictionary
+        - Helper methods for hooks, broadcasts, milestones, trimming
+      - Created `consciousness/persistence.py`:
+        - `PersistenceManager` class for state save/restore
+        - `save_state()` - atomic JSON write with temp file swap
+        - `restore_state()` - loads state with cycle timing adjustment
+        - `auto_save_state()` - background task for periodic saves
+        - Legacy deduplication migration support
+        - State version tracking (v4.0)
+      - Updated `consciousness/consciousness_engine.py`:
+        - Imports from extracted modules
+        - Added `_state_manager` and `_persistence_manager` initialization
+        - `_check_transition()` → delegates to StateManager
+        - `_transition_to_sleep()` → delegates to StateManager
+        - `_transition_to_wake()` → delegates to StateManager
+        - `_save_state()` → delegates to PersistenceManager
+        - `_restore_state()` → delegates to PersistenceManager
+    - **Result:** Reduced main file complexity, improved testability, cleaner separation of concerns
+    - **Files Created:** `consciousness/models.py`, `consciousness/state_manager.py`, `consciousness/persistence.py`
+    - **Files Modified:** `consciousness/consciousness_engine.py`
 
-14. **Formal State Machine**
-    - Define explicit states
-    - Validate all transitions
-    - Add transition logging
+14. **Formal State Machine** ✅ RESOLVED
+    - Define explicit states, validate all transitions, add transition logging
+    - **Fix Applied:**
+      - Created `consciousness/state_machine.py` with complete formal state machine:
+        - `ConsciousnessState` enum with 6 explicit states:
+          - `INITIALIZING` - System starting up
+          - `WAKE` - Active development mode
+          - `SLEEP` - Deep research/learning mode
+          - `TRANSITIONING` - Mid-transition state
+          - `SHUTTING_DOWN` - System shutting down
+          - `STOPPED` - Terminal state
+        - `StateTransition` dataclass capturing full transition context:
+          - from_state, to_state, timestamp, reason, trigger
+          - context dict, success flag, error message, duration_ms
+        - `TransitionValidator` with whitelist-based validation:
+          - Explicit `VALID_TRANSITIONS` set defining allowed transitions
+          - `is_valid()`, `validate()`, `get_valid_next_states()` methods
+          - Raises `InvalidTransitionError` for invalid transitions
+        - `TransitionLog` for comprehensive logging:
+          - Records all transitions with timestamps
+          - Tracks failed transitions separately
+          - `get_stats()` returns success rate, counts, avg duration
+          - `get_history()` and `get_failed()` for debugging
+        - `StateMachine` class orchestrating everything:
+          - Async transition with validation and callbacks
+          - Pre/post transition callback hooks
+          - State enter/exit callback hooks per state
+          - Convenience methods: `start()`, `begin_sleep_transition()`, etc.
+          - `get_state_info()` returns complete state information
+      - Updated `consciousness/state_manager.py` (v4.2):
+        - Integrated `StateMachine` as optional component (enabled by default)
+        - Callbacks log all state transitions
+        - Transitions go through TRANSITIONING phase for validation
+        - Added `initialize()` to sync state machine after restore
+        - Added `force_transition()` for debugging/testing
+        - Added `shutdown()` for graceful shutdown
+        - Added `get_transition_history()` and `get_failed_transitions()`
+        - Added `can_transition_to()` and `get_valid_transitions()`
+        - `get_cycle_info()` now includes state machine info
+      - Backwards compatibility maintained with `to_legacy_state()` / `from_legacy_state()`
+    - **Result:** All state transitions are now validated, logged, and traceable
+    - **Files Created:** `consciousness/state_machine.py`
+    - **Files Modified:** `consciousness/state_manager.py`
 
 ### Priority 0: Security (NEW - from Gemini Analysis)
 
