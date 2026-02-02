@@ -63,7 +63,7 @@ export function MonitorPanel() {
   const [showErrors, setShowErrors] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [autoRefresh, setAutoRefresh] = useState(true);
-  const logsStartRef = useRef<HTMLDivElement>(null);
+  const logsEndRef = useRef<HTMLDivElement>(null);
 
   // Fetch logs
   const fetchLogs = async () => {
@@ -104,10 +104,10 @@ export function MonitorPanel() {
     }
   }, [showMonitor, filter, showErrors, autoRefresh]);
 
-  // Auto-scroll to top (newest entries are at top)
+  // Auto-scroll to bottom (newest entries are at bottom)
   useEffect(() => {
     if (autoRefresh) {
-      logsStartRef.current?.scrollIntoView({ behavior: 'smooth' });
+      logsEndRef.current?.scrollIntoView({ behavior: 'smooth' });
     }
   }, [logs, autoRefresh]);
 
@@ -206,7 +206,6 @@ export function MonitorPanel() {
                   </div>
                 ) : (
                   <>
-                    <div ref={logsStartRef} />
                     {[...logs].reverse().map((log) => (
                       <motion.div
                         key={log.id}
@@ -239,6 +238,7 @@ export function MonitorPanel() {
                       )}
                       </motion.div>
                     ))}
+                    <div ref={logsEndRef} />
                   </>
                 )}
               </div>
