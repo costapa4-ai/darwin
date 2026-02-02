@@ -63,7 +63,7 @@ export function MonitorPanel() {
   const [showErrors, setShowErrors] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [autoRefresh, setAutoRefresh] = useState(true);
-  const logsEndRef = useRef<HTMLDivElement>(null);
+  const logsStartRef = useRef<HTMLDivElement>(null);
 
   // Fetch logs
   const fetchLogs = async () => {
@@ -104,10 +104,10 @@ export function MonitorPanel() {
     }
   }, [showMonitor, filter, showErrors, autoRefresh]);
 
-  // Auto-scroll to bottom
+  // Auto-scroll to top (newest entries are at top)
   useEffect(() => {
     if (autoRefresh) {
-      logsEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+      logsStartRef.current?.scrollIntoView({ behavior: 'smooth' });
     }
   }, [logs, autoRefresh]);
 
@@ -205,17 +205,19 @@ export function MonitorPanel() {
                     No activity logs yet
                   </div>
                 ) : (
-                  logs.map((log) => (
-                    <motion.div
-                      key={log.id}
-                      initial={{ opacity: 0, x: -10 }}
-                      animate={{ opacity: 1, x: 0 }}
-                      className={`flex items-start gap-2 p-1.5 rounded border ${
-                        log.status === 'failed'
-                          ? 'border-red-500/30 bg-red-500/10'
-                          : categoryColors[log.category] || 'border-gray-500/30'
-                      }`}
-                    >
+                  <>
+                    <div ref={logsStartRef} />
+                    {[...logs].reverse().map((log) => (
+                      <motion.div
+                        key={log.id}
+                        initial={{ opacity: 0, x: -10 }}
+                        animate={{ opacity: 1, x: 0 }}
+                        className={`flex items-start gap-2 p-1.5 rounded border ${
+                          log.status === 'failed'
+                            ? 'border-red-500/30 bg-red-500/10'
+                            : categoryColors[log.category] || 'border-gray-500/30'
+                        }`}
+                      >
                       <span className="text-gray-500 whitespace-nowrap">
                         {formatTime(log.timestamp)}
                       </span>
@@ -235,10 +237,10 @@ export function MonitorPanel() {
                           {log.error.slice(0, 50)}
                         </span>
                       )}
-                    </motion.div>
-                  ))
+                      </motion.div>
+                    ))}
+                  </>
                 )}
-                <div ref={logsEndRef} />
               </div>
 
               {/* Stats Sidebar */}
