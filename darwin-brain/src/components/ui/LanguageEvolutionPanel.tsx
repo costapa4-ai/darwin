@@ -359,7 +359,22 @@ function ContentCard({ item }: { item: LanguageContentItem }) {
           </div>
 
           {item.source_post_title && (
-            <p className="text-xs text-gray-500 mb-1 truncate">Re: {item.source_post_title}</p>
+            <p className="text-xs text-gray-500 mb-1 truncate">
+              Re:{' '}
+              {item.source_post_url ? (
+                <a
+                  href={item.source_post_url}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  onClick={(e) => e.stopPropagation()}
+                  className="text-cyan-400 hover:text-cyan-300 hover:underline"
+                >
+                  {item.source_post_title}
+                </a>
+              ) : (
+                item.source_post_title
+              )}
+            </p>
           )}
 
           <p className={`text-sm text-gray-200 ${expanded ? '' : 'line-clamp-2'}`}>

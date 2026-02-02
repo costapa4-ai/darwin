@@ -22,6 +22,7 @@ export interface LanguageContentItem {
   original_content?: string;
   source_post_id?: string;
   source_post_title?: string;
+  source_post_url?: string;
   metrics: LanguageMetrics;
   metadata?: Record<string, unknown>;
 }
