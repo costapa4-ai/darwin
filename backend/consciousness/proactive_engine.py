@@ -2626,7 +2626,7 @@ Just write the comment text, nothing else."""
             category=ActivityCategory.SYSTEM,
             action="error_escalation",
             description=f"Action '{action.name}' auto-disabled: {action.disable_reason}",
-            status=ActivityStatus.FAILED,
+            status=ActivityStatus.WARNING,
             details={
                 "action_id": action.id,
                 "action_name": action.name,

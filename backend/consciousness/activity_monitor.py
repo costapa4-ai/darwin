@@ -47,6 +47,7 @@ class ActivityStatus(Enum):
     SUCCESS = "success"
     FAILED = "failed"
     PARTIAL = "partial"
+    WARNING = "warning"  # System notifications/alerts (not actual failures)
 
 
 @dataclass
