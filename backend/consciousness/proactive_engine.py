@@ -2250,11 +2250,11 @@ class ProactiveEngine:
     async def _read_moltbook_feed(self, context: Dict[str, Any] = None) -> Dict[str, Any]:
         """Read and analyze posts from Moltbook AI social network."""
         try:
-            from integrations.moltbook import MoltbookClient, PostSort
+            from integrations.moltbook import MoltbookClient, PostSort, get_moltbook_client
             from api.moltbook_routes import add_reading_activity
             from services.ai_service import AIService
 
-            client = MoltbookClient()
+            client = get_moltbook_client()
             if not client.api_key:
                 return {"success": False, "reason": "Moltbook not configured"}
 
@@ -2264,7 +2264,6 @@ class ProactiveEngine:
             # Filter out posts we've already read
             unread_posts = [p for p in posts if p.id not in self._moltbook_read_posts]
             if not unread_posts:
-                await client.close()
                 logger.info("🦞 No new posts to read on Moltbook")
                 return {"success": True, "posts_read": 0, "reason": "All posts already read"}
 
@@ -2342,8 +2341,6 @@ class ProactiveEngine:
                     except Exception as e:
                         logger.debug(f"Could not add Moltbook curiosity: {e}")
 
-            await client.close()
-
             logger.info(f"🦞 Read {len(analyzed)} Moltbook posts, added discoveries to curiosity pool")
             return {
                 "success": True,
@@ -2358,9 +2355,9 @@ class ProactiveEngine:
     async def _comment_on_moltbook(self, context: Dict[str, Any] = None) -> Dict[str, Any]:
         """Comment on interesting Moltbook posts."""
         try:
-            from integrations.moltbook import MoltbookClient, PostSort
+            from integrations.moltbook import MoltbookClient, PostSort, get_moltbook_client
 
-            client = MoltbookClient()
+            client = get_moltbook_client()
             if not client.api_key:
                 return {"success": False, "reason": "Moltbook not configured"}
 
@@ -2368,13 +2365,11 @@ class ProactiveEngine:
             posts = await client.get_feed(sort=PostSort.HOT, limit=10)
 
             if not posts:
-                await client.close()
                 return {"success": False, "reason": "No posts available in feed"}
 
             # Filter out posts we've already commented on
             uncommented_posts = [p for p in posts if p.id not in self._moltbook_commented_posts]
             if not uncommented_posts:
-                await client.close()
                 logger.info("🦞 Already commented on all available posts")
                 return {"success": True, "reason": "Already commented on all available posts"}
 
@@ -2400,7 +2395,6 @@ class ProactiveEngine:
                         result = await client.create_comment(post.id, comment, post_title=post.title)
                         # Track as commented to prevent duplicate comments
                         self._moltbook_commented_posts.add(post.id)
-                        await client.close()
                         logger.info(f"🦞 Commented on: {post.title[:50]}... (score={post.score}, comments={post.comment_count})")
                         return {
                             "success": True,
@@ -2415,7 +2409,6 @@ class ProactiveEngine:
                 else:
                     logger.debug(f"Could not generate comment for: {post.title[:40]}")
 
-            await client.close()
             return {"success": False, "reason": "Could not generate suitable comment for any post"}
 
         except Exception as e:
@@ -2425,10 +2418,10 @@ class ProactiveEngine:
     async def _share_on_moltbook(self, context: Dict[str, Any] = None) -> Dict[str, Any]:
         """Share a discovery or thought on Moltbook."""
         try:
-            from integrations.moltbook import MoltbookClient
+            from integrations.moltbook import get_moltbook_client
             from consciousness.findings_inbox import get_findings_inbox
 
-            client = MoltbookClient()
+            client = get_moltbook_client()
             if not client.api_key:
                 return {"success": False, "reason": "Moltbook not configured"}
 
@@ -2450,8 +2443,6 @@ class ProactiveEngine:
                                 content=content[:1000],
                                 submolt="ai_discoveries"
                             )
-                            # Mark as shared (would need to update finding)
-                            await client.close()
                             logger.info(f"🦞 Shared discovery on Moltbook: {title[:50]}...")
                             return {
                                 "success": True,
@@ -2461,7 +2452,6 @@ class ProactiveEngine:
                         except Exception as e:
                             logger.warning(f"Could not share: {e}")
 
-            await client.close()
             return {"success": False, "reason": "No suitable discoveries to share"}
 
         except Exception as e:
@@ -2471,9 +2461,9 @@ class ProactiveEngine:
     async def _follow_on_moltbook(self, context: Dict[str, Any] = None) -> Dict[str, Any]:
         """Follow interesting agents on Moltbook based on post quality."""
         try:
-            from integrations.moltbook import MoltbookClient, PostSort
+            from integrations.moltbook import PostSort, get_moltbook_client
 
-            client = MoltbookClient()
+            client = get_moltbook_client()
             if not client.api_key:
                 return {"success": False, "reason": "Moltbook not configured"}
 
@@ -2481,7 +2471,6 @@ class ProactiveEngine:
             posts = await client.get_feed(sort=PostSort.HOT, limit=20)
 
             if not posts:
-                await client.close()
                 return {"success": True, "followed": 0, "reason": "No posts in feed"}
 
             # Find authors we haven't followed yet
@@ -2521,7 +2510,6 @@ class ProactiveEngine:
                     })
 
             if not potential_follows:
-                await client.close()
                 logger.info("🦞 No new interesting agents to follow")
                 return {"success": True, "followed": 0, "reason": "No interesting agents to follow"}
 
@@ -2532,7 +2520,6 @@ class ProactiveEngine:
             try:
                 await client.follow_agent(to_follow['name'])
                 self._moltbook_followed_agents.add(to_follow['name'])
-                await client.close()
 
                 logger.info(f"🦞 Now following {to_follow['name']} (score={to_follow['score']}, based on: {to_follow['post_title']}...)")
                 return {
@@ -2542,7 +2529,6 @@ class ProactiveEngine:
                     "reason": f"Interesting post: {to_follow['post_title']}"
                 }
             except Exception as e:
-                await client.close()
                 # May already be following or agent doesn't exist
                 logger.debug(f"Could not follow {to_follow['name']}: {e}")
                 self._moltbook_followed_agents.add(to_follow['name'])  # Mark as attempted
