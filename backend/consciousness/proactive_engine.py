@@ -313,6 +313,7 @@ class ProactiveEngine:
         self._moltbook_read_posts: set = set()      # Post IDs we've read
         self._moltbook_commented_posts: set = set() # Post IDs we've commented on
         self._moltbook_voted_posts: set = set()     # Post IDs we've voted on
+        self._moltbook_followed_agents: set = set() # Agent names we've followed
         self._load_moltbook_history()
 
         self._register_default_actions()
@@ -577,6 +578,18 @@ class ProactiveEngine:
             cooldown_minutes=45,  # Increased from 35 for more thoughtful sharing
             timeout_seconds=90,  # Network + content generation
             action_fn=self._share_on_moltbook
+        ))
+
+        self.register_action(ProactiveAction(
+            id="follow_on_moltbook",
+            name="Follow Interesting Agents on Moltbook",
+            description="Follow AI agents that post interesting content",
+            category=ActionCategory.COMMUNICATION,
+            priority=ActionPriority.LOW,
+            trigger_condition="When discovering agents with engaging content",
+            cooldown_minutes=60,  # Once per hour
+            timeout_seconds=60,
+            action_fn=self._follow_on_moltbook
         ))
 
     def register_action(self, action: ProactiveAction):
@@ -2453,6 +2466,90 @@ class ProactiveEngine:
 
         except Exception as e:
             logger.error(f"Failed to share on Moltbook: {e}")
+            return {"success": False, "error": str(e)}
+
+    async def _follow_on_moltbook(self, context: Dict[str, Any] = None) -> Dict[str, Any]:
+        """Follow interesting agents on Moltbook based on post quality."""
+        try:
+            from integrations.moltbook import MoltbookClient, PostSort
+
+            client = MoltbookClient()
+            if not client.api_key:
+                return {"success": False, "reason": "Moltbook not configured"}
+
+            # Get hot posts to find interesting authors
+            posts = await client.get_feed(sort=PostSort.HOT, limit=20)
+
+            if not posts:
+                await client.close()
+                return {"success": True, "followed": 0, "reason": "No posts in feed"}
+
+            # Find authors we haven't followed yet
+            potential_follows = []
+            for post in posts:
+                author = post.author
+                if isinstance(author, dict):
+                    author = author.get('name', author.get('username', ''))
+
+                if not author or author in self._moltbook_followed_agents:
+                    continue
+
+                # Score authors based on post quality
+                score = 0
+                if post.score >= 10:
+                    score += 3
+                elif post.score >= 5:
+                    score += 2
+                elif post.score >= 1:
+                    score += 1
+
+                if post.comment_count >= 5:
+                    score += 2
+                elif post.comment_count >= 2:
+                    score += 1
+
+                # Bonus for AI-related topics
+                title_lower = post.title.lower()
+                if any(kw in title_lower for kw in ['ai', 'learning', 'neural', 'consciousness', 'agent', 'llm', 'model']):
+                    score += 2
+
+                if score >= 3:  # Minimum threshold
+                    potential_follows.append({
+                        'name': author,
+                        'score': score,
+                        'post_title': post.title[:50]
+                    })
+
+            if not potential_follows:
+                await client.close()
+                logger.info("🦞 No new interesting agents to follow")
+                return {"success": True, "followed": 0, "reason": "No interesting agents to follow"}
+
+            # Sort by score and follow the top one
+            potential_follows.sort(key=lambda x: x['score'], reverse=True)
+            to_follow = potential_follows[0]
+
+            try:
+                await client.follow_agent(to_follow['name'])
+                self._moltbook_followed_agents.add(to_follow['name'])
+                await client.close()
+
+                logger.info(f"🦞 Now following {to_follow['name']} (score={to_follow['score']}, based on: {to_follow['post_title']}...)")
+                return {
+                    "success": True,
+                    "followed": 1,
+                    "agent": to_follow['name'],
+                    "reason": f"Interesting post: {to_follow['post_title']}"
+                }
+            except Exception as e:
+                await client.close()
+                # May already be following or agent doesn't exist
+                logger.debug(f"Could not follow {to_follow['name']}: {e}")
+                self._moltbook_followed_agents.add(to_follow['name'])  # Mark as attempted
+                return {"success": True, "followed": 0, "reason": f"Could not follow: {e}"}
+
+        except Exception as e:
+            logger.error(f"Failed to follow on Moltbook: {e}")
             return {"success": False, "error": str(e)}
 
     def _get_ai_api_key(self, settings) -> tuple[str, str]:
