@@ -155,12 +155,22 @@ def register_all_tools(
                 # Run with trial & error
                 result = await trial_error_engine.run_experiment(experiment, iterations=2)
 
+                # Format result with fields expected by consciousness engine
+                success_rate = result.get('success_rate', 0)
+                category = result.get('category', 'unknown')
+                insights_list = result.get('insights', [])
+                learnings = result.get('learnings', [])
+
                 return {
                     'success': result.get('final_success', False),
                     'experiment_id': result.get('experiment_id'),
-                    'category': result.get('category'),
-                    'success_rate': result.get('success_rate', 0),
-                    'insights': result.get('insights', [])
+                    'experiment': f"{category} experiment",  # For exploration_details
+                    'category': category,
+                    'outcome': f"{success_rate:.0%} success rate" if success_rate else "completed",
+                    'success_rate': success_rate,
+                    'insights': insights_list,
+                    'learnings_count': len(learnings),
+                    'iterations': result.get('iterations', 0)
                 }
             except Exception as e:
                 return {'success': False, 'error': str(e)}
