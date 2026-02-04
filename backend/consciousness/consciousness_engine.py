@@ -692,15 +692,22 @@ class ConsciousnessEngine:
                                 validator = CodeValidator()
                                 validation_result = await validator.validate(code_result)
 
-                                print(f"   📊 Validation score: {validation_result.score}/100")
+                                print(f"   📊 Validation score: {validation_result.score}/100, Valid: {validation_result.valid}")
 
                                 # Log if corrections were made
                                 if "corrected" in code_result.explanation.lower():
                                     activity.insights.append("🔧 Code auto-corrected by Claude")
 
-                                # Submit to approval queue with validation
-                                insight_key = f"optimization:{top_optimization.get('title')}"
-                                if self.approval_queue:
+                                # IMPORTANT: Only submit code that actually passes validation
+                                # Code that doesn't run should be automatically discarded
+                                if not validation_result.valid:
+                                    activity.insights.append("🗑️ Code discarded - failed validation (doesn't run)")
+                                    print(f"   🗑️ Code DISCARDED - failed validation after all correction attempts")
+                                    print(f"      Errors: {validation_result.errors[:2]}")
+                                    # Don't mark as submitted - allow retry later
+                                elif self.approval_queue:
+                                    # Code is valid - submit to approval queue
+                                    insight_key = f"optimization:{top_optimization.get('title')}"
                                     approval_result = self.approval_queue.add(code_result, validation_result)
 
                                     # Mark as submitted ONLY after successful submission (database-backed)
@@ -1631,53 +1638,61 @@ Just output the tool name, nothing else."""
                                 if "corrected" in code_result.explanation.lower():
                                     activity.insights.append("🔧 Code was auto-corrected by Claude")
 
-                                print(f"   📊 Validation score: {validation_result.score}/100")
+                                print(f"   📊 Validation score: {validation_result.score}/100, Valid: {validation_result.valid}")
                                 activity.insights.append(f"Validation score: {validation_result.score}/100")
 
-                                # Submit to approval queue with validation
-                                insight_key = f"improvement:{top_improvement.get('title')}"
-                                approval_result = self.approval_queue.add(code_result, validation_result)
-
-                                # Mark as submitted ONLY after successful submission (database-backed)
-                                if approval_result and approval_result.get('status') in ['auto_approved', 'pending']:
-                                    self._dedup_store.mark_submitted(insight_key, source="improvement")
-                                    print(f"   ✅ Marked as submitted: {insight_key}")
-
-                                if approval_result.get('status') == 'auto_approved':
-                                    activity.insights.append("✅ Code auto-approved!")
-                                    print(f"   ✅ Code auto-approved!")
-
-                                    # Apply code automatically if auto_applier available
-                                    if self.auto_applier:
-                                        try:
-                                            change_dict = {
-                                                'id': approval_result.get('change_id'),
-                                                'generated_code': {
-                                                    'file_path': code_result.file_path,
-                                                    'new_code': code_result.new_code
-                                                }
-                                            }
-                                            apply_result = self.auto_applier.apply_change(change_dict)
-
-                                            if apply_result.get('success'):
-                                                activity.insights.append(f"📝 SELF-IMPROVED: Applied to {code_result.file_path}")
-                                                print(f"   📝 SELF-IMPROVED: Applied to {code_result.file_path}")
-                                                # Count successful self-improvement as a discovery
-                                                self.total_discoveries_made += 1
-                                            else:
-                                                activity.insights.append(f"⚠️ Failed to apply: {apply_result.get('error', 'Unknown error')}")
-                                                print(f"   ⚠️ Apply failed: {apply_result.get('error')}")
-                                        except Exception as e:
-                                            activity.insights.append(f"⚠️ Apply error: {str(e)[:50]}")
-                                            print(f"   ⚠️ Apply error: {e}")
-                                elif approval_result.get('status') == 'pending':
-                                    activity.insights.append("📋 Code submitted for human approval")
-                                    print(f"   📋 Awaiting human approval for: {code_result.file_path}")
-                                elif approval_result.get('auto_rejected'):
-                                    activity.insights.append(f"❌ Auto-rejected (score too low)")
-                                    print(f"   ❌ Code auto-rejected: Quality score too low")
+                                # IMPORTANT: Only submit code that actually passes validation
+                                # Code that doesn't run should be automatically discarded
+                                if not validation_result.valid:
+                                    activity.insights.append("🗑️ Code discarded - failed validation (doesn't run)")
+                                    print(f"   🗑️ Code DISCARDED - failed validation after all correction attempts")
+                                    print(f"      Errors: {validation_result.errors[:2]}")  # Show first 2 errors
+                                    # Don't mark as submitted - allow retry later
                                 else:
-                                    activity.insights.append(f"⚠️ Approval status: {approval_result.get('status')}")
+                                    # Code is valid - submit to approval queue
+                                    insight_key = f"improvement:{top_improvement.get('title')}"
+                                    approval_result = self.approval_queue.add(code_result, validation_result)
+
+                                    # Mark as submitted ONLY after successful submission (database-backed)
+                                    if approval_result and approval_result.get('status') in ['auto_approved', 'pending']:
+                                        self._dedup_store.mark_submitted(insight_key, source="improvement")
+                                        print(f"   ✅ Marked as submitted: {insight_key}")
+
+                                    if approval_result.get('status') == 'auto_approved':
+                                        activity.insights.append("✅ Code auto-approved!")
+                                        print(f"   ✅ Code auto-approved!")
+
+                                        # Apply code automatically if auto_applier available
+                                        if self.auto_applier:
+                                            try:
+                                                change_dict = {
+                                                    'id': approval_result.get('change_id'),
+                                                    'generated_code': {
+                                                        'file_path': code_result.file_path,
+                                                        'new_code': code_result.new_code
+                                                    }
+                                                }
+                                                apply_result = self.auto_applier.apply_change(change_dict)
+
+                                                if apply_result.get('success'):
+                                                    activity.insights.append(f"📝 SELF-IMPROVED: Applied to {code_result.file_path}")
+                                                    print(f"   📝 SELF-IMPROVED: Applied to {code_result.file_path}")
+                                                    # Count successful self-improvement as a discovery
+                                                    self.total_discoveries_made += 1
+                                                else:
+                                                    activity.insights.append(f"⚠️ Failed to apply: {apply_result.get('error', 'Unknown error')}")
+                                                    print(f"   ⚠️ Apply failed: {apply_result.get('error')}")
+                                            except Exception as e:
+                                                activity.insights.append(f"⚠️ Apply error: {str(e)[:50]}")
+                                                print(f"   ⚠️ Apply error: {e}")
+                                    elif approval_result.get('status') == 'pending':
+                                        activity.insights.append("📋 Code submitted for human approval")
+                                        print(f"   📋 Awaiting human approval for: {code_result.file_path}")
+                                    elif approval_result.get('auto_rejected'):
+                                        activity.insights.append(f"❌ Auto-rejected (score too low)")
+                                        print(f"   ❌ Code auto-rejected: Quality score too low")
+                                    else:
+                                        activity.insights.append(f"⚠️ Approval status: {approval_result.get('status')}")
                             else:
                                 activity.insights.append("⚠️ Code generation returned empty result")
                                 print(f"   ⚠️ Code generation returned empty result")
