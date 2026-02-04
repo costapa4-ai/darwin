@@ -360,8 +360,9 @@ class ProactiveEngine:
         except Exception as e:
             logger.warning(f"Could not load Moltbook history: {e}")
 
-        # Load own posts from file
+        # Load own posts and shared findings from files
         self._load_own_posts()
+        self._load_shared_findings()
 
     def _load_own_posts(self):
         """Load Darwin's own posts from persistent storage."""
@@ -384,6 +385,32 @@ class ProactiveEngine:
                 json.dump(self._moltbook_own_posts, f, indent=2)
         except Exception as e:
             logger.warning(f"Could not save own posts: {e}")
+
+    def _load_shared_findings(self):
+        """Load shared findings IDs from persistent storage to prevent duplicates."""
+        try:
+            shared_file = Path("./data/moltbook_shared_findings.json")
+            if shared_file.exists():
+                with open(shared_file, 'r') as f:
+                    data = json.load(f)
+                    self._moltbook_shared_findings = set(data.get('finding_ids', []))
+                logger.info(f"Loaded {len(self._moltbook_shared_findings)} shared finding IDs")
+        except Exception as e:
+            logger.warning(f"Could not load shared findings: {e}")
+            self._moltbook_shared_findings = set()
+
+    def _save_shared_findings(self):
+        """Save shared findings IDs to persistent storage."""
+        try:
+            shared_file = Path("./data/moltbook_shared_findings.json")
+            shared_file.parent.mkdir(parents=True, exist_ok=True)
+            with open(shared_file, 'w') as f:
+                json.dump({
+                    'finding_ids': list(self._moltbook_shared_findings),
+                    'updated_at': datetime.now().isoformat()
+                }, f, indent=2)
+        except Exception as e:
+            logger.warning(f"Could not save shared findings: {e}")
 
     def _get_mood_system(self) -> Optional["MoodSystem"]:
         """Get the mood system, either injected or from singleton."""
@@ -2555,12 +2582,19 @@ class ProactiveEngine:
                 if len(content) < 100:
                     continue
 
-                # Create appropriate title based on type
+                # Create appropriate title based on type (avoid double prefixes)
+                raw_title = finding.get('title', '')
                 if finding_type == "discovery":
-                    title = f"Discovery: {finding.get('title', 'Interesting Finding')}"
+                    if raw_title.startswith("Discovery:"):
+                        title = raw_title
+                    else:
+                        title = f"Discovery: {raw_title or 'Interesting Finding'}"
                     submolt = "ai_discoveries"
                 else:  # insight
-                    title = f"Learned: {finding.get('title', 'New Knowledge')}"
+                    if raw_title.startswith("Learned:"):
+                        title = raw_title
+                    else:
+                        title = f"Learned: {raw_title or 'New Knowledge'}"
                     submolt = "ai"
 
                 try:
@@ -2569,8 +2603,9 @@ class ProactiveEngine:
                         content=content[:1000],
                         submolt=submolt
                     )
-                    # Track as shared to prevent duplicates
+                    # Track as shared to prevent duplicates (persisted)
                     self._moltbook_shared_findings.add(finding_id)
+                    self._save_shared_findings()
 
                     # Store own post for later comment reading
                     if post.id:
@@ -2592,8 +2627,9 @@ class ProactiveEngine:
                     }
                 except Exception as e:
                     logger.warning(f"Could not share: {e}")
-                    # Mark as attempted to avoid retrying the same finding
+                    # Mark as attempted to avoid retrying the same finding (persisted)
                     self._moltbook_shared_findings.add(finding_id)
+                    self._save_shared_findings()
 
             return {"success": True, "shared": 0, "reason": "No new findings to share"}
 
