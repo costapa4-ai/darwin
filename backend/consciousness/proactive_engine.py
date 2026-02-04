@@ -314,6 +314,7 @@ class ProactiveEngine:
         self._moltbook_commented_posts: set = set() # Post IDs we've commented on
         self._moltbook_voted_posts: set = set()     # Post IDs we've voted on
         self._moltbook_followed_agents: set = set() # Agent names we've followed
+        self._moltbook_shared_findings: set = set() # Finding IDs we've shared
         self._load_moltbook_history()
 
         self._register_default_actions()
@@ -2416,7 +2417,7 @@ class ProactiveEngine:
             return {"success": False, "error": str(e)}
 
     async def _share_on_moltbook(self, context: Dict[str, Any] = None) -> Dict[str, Any]:
-        """Share a discovery or thought on Moltbook."""
+        """Share a discovery or insight on Moltbook."""
         try:
             from integrations.moltbook import get_moltbook_client
             from consciousness.findings_inbox import get_findings_inbox
@@ -2425,34 +2426,57 @@ class ProactiveEngine:
             if not client.api_key:
                 return {"success": False, "reason": "Moltbook not configured"}
 
-            # Get recent discoveries to share
+            # Get recent findings to share (discoveries and insights are shareable)
             inbox = get_findings_inbox()
-            recent_findings = inbox.get_all_active(limit=5)
+            recent_findings = inbox.get_all_active(limit=20)
+
+            # Shareable types: discovery, insight (from learn_from_web, etc.)
+            shareable_types = ["discovery", "insight"]
 
             for finding in recent_findings:
-                if finding.get("type") == "discovery" and not finding.get("shared_to_moltbook"):
-                    # Create a post about this discovery
+                finding_type = finding.get("type", "")
+                finding_id = finding.get("id", "")
+
+                # Skip if not a shareable type or already shared
+                if finding_type not in shareable_types:
+                    continue
+                if finding_id in self._moltbook_shared_findings:
+                    continue
+
+                # Skip low-quality findings (need meaningful content)
+                content = finding.get("description", "")
+                if len(content) < 100:
+                    continue
+
+                # Create appropriate title based on type
+                if finding_type == "discovery":
                     title = f"Discovery: {finding.get('title', 'Interesting Finding')}"
-                    content = finding.get("description", "")
+                    submolt = "ai_discoveries"
+                else:  # insight
+                    title = f"Learned: {finding.get('title', 'New Knowledge')}"
+                    submolt = "ai"
 
-                    # Make sure content is appropriate for sharing
-                    if len(content) > 50:
-                        try:
-                            post = await client.create_post(
-                                title=title[:100],
-                                content=content[:1000],
-                                submolt="ai_discoveries"
-                            )
-                            logger.info(f"🦞 Shared discovery on Moltbook: {title[:50]}...")
-                            return {
-                                "success": True,
-                                "post_id": post.id,
-                                "title": title
-                            }
-                        except Exception as e:
-                            logger.warning(f"Could not share: {e}")
+                try:
+                    post = await client.create_post(
+                        title=title[:100],
+                        content=content[:1000],
+                        submolt=submolt
+                    )
+                    # Track as shared to prevent duplicates
+                    self._moltbook_shared_findings.add(finding_id)
+                    logger.info(f"🦞 Shared {finding_type} on Moltbook: {title[:50]}...")
+                    return {
+                        "success": True,
+                        "post_id": post.id,
+                        "title": title,
+                        "type": finding_type
+                    }
+                except Exception as e:
+                    logger.warning(f"Could not share: {e}")
+                    # Mark as attempted to avoid retrying the same finding
+                    self._moltbook_shared_findings.add(finding_id)
 
-            return {"success": False, "reason": "No suitable discoveries to share"}
+            return {"success": True, "shared": 0, "reason": "No new findings to share"}
 
         except Exception as e:
             logger.error(f"Failed to share on Moltbook: {e}")
