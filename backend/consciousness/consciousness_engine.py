@@ -678,18 +678,25 @@ class ConsciousnessEngine:
                                 estimated_impact=top_optimization.get('estimated_impact', 'medium')
                             )
 
-                            # Generate code using the code generator
-                            code_result = await self.code_generator.generate_code_for_insight(insight)
+                            # Generate code with automatic validation and correction
+                            code_result = await self.code_generator.generate_and_validate_with_retry(
+                                insight=insight,
+                                max_correction_attempts=2
+                            )
 
                             if code_result and hasattr(code_result, 'new_code') and code_result.new_code:
                                 print(f"   ✅ Code generated: {len(code_result.new_code)} chars")
 
-                                # Validate the generated code
+                                # Final validation
                                 from introspection.code_validator import CodeValidator
                                 validator = CodeValidator()
                                 validation_result = await validator.validate(code_result)
 
                                 print(f"   📊 Validation score: {validation_result.score}/100")
+
+                                # Log if corrections were made
+                                if "corrected" in code_result.explanation.lower():
+                                    activity.insights.append("🔧 Code auto-corrected by Claude")
 
                                 # Submit to approval queue with validation
                                 insight_key = f"optimization:{top_optimization.get('title')}"
@@ -1604,17 +1611,25 @@ Just output the tool name, nothing else."""
                                 estimated_impact=top_improvement.get('estimated_impact', 'high')
                             )
 
-                            # Generate code using the code generator
-                            code_result = await self.code_generator.generate_code_for_insight(insight)
+                            # Generate code with automatic validation and correction
+                            # This will attempt to fix validation errors automatically using Claude
+                            code_result = await self.code_generator.generate_and_validate_with_retry(
+                                insight=insight,
+                                max_correction_attempts=2  # Try up to 2 corrections if validation fails
+                            )
 
                             if code_result and hasattr(code_result, 'new_code') and code_result.new_code:
                                 print(f"   ✅ Code generated: {len(code_result.new_code)} chars")
                                 activity.insights.append(f"Generated {len(code_result.new_code)} chars of code")
 
-                                # Validate the generated code
+                                # Final validation of the (possibly corrected) code
                                 from introspection.code_validator import CodeValidator
                                 validator = CodeValidator()
                                 validation_result = await validator.validate(code_result)
+
+                                # Log if corrections were made
+                                if "corrected" in code_result.explanation.lower():
+                                    activity.insights.append("🔧 Code was auto-corrected by Claude")
 
                                 print(f"   📊 Validation score: {validation_result.score}/100")
                                 activity.insights.append(f"Validation score: {validation_result.score}/100")

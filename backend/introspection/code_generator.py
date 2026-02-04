@@ -444,6 +444,218 @@ class CodeGenerator:
         # No code found, return fallback
         return fallback
 
+    async def correct_code_with_ai(
+        self,
+        code: str,
+        validation_errors: List[str],
+        validation_warnings: List[str],
+        insight_title: str,
+        max_retries: int = 2
+    ) -> tuple[str, bool]:
+        """
+        Ask Claude to review and correct code that failed validation.
+
+        Args:
+            code: The generated code that has errors
+            validation_errors: List of validation errors
+            validation_warnings: List of validation warnings
+            insight_title: Title of the insight being implemented
+            max_retries: Maximum correction attempts
+
+        Returns:
+            Tuple of (corrected_code, success_bool)
+        """
+        if not self.multi_model_router:
+            print("   ⚠️ No AI router available for code correction")
+            return code, False
+
+        print(f"   🔧 Asking Claude to fix {len(validation_errors)} errors and {len(validation_warnings)} warnings...")
+
+        # Format errors for the prompt
+        errors_text = "\n".join([f"  - {e}" for e in validation_errors]) if validation_errors else "None"
+        warnings_text = "\n".join([f"  - {w}" for w in validation_warnings]) if validation_warnings else "None"
+
+        correction_prompt = f"""You are an expert Python developer. The following code was generated but has validation errors that need to be fixed.
+
+## Original Code:
+```python
+{code}
+```
+
+## Validation Errors (MUST FIX):
+{errors_text}
+
+## Validation Warnings (should fix if possible):
+{warnings_text}
+
+## Task:
+Fix ALL the validation errors in the code. The most common issues are:
+1. Syntax errors (unclosed parentheses, brackets, quotes)
+2. Import errors
+3. Indentation problems
+4. Missing function definitions
+
+## Requirements:
+1. Return the COMPLETE corrected Python code
+2. Preserve ALL functionality - do not remove features
+3. Fix ALL syntax errors
+4. Ensure all imports are valid
+5. Ensure all parentheses, brackets, and quotes are properly closed
+6. Double-check line endings and indentation
+
+## Output Format:
+Return ONLY the corrected Python code in a code block. No explanations needed.
+
+```python
+# Your corrected code here
+```
+"""
+
+        try:
+            result = await self.multi_model_router.generate(
+                task_description=f"[CRITICAL] Fix validation errors in Python code for: {insight_title}",
+                prompt=correction_prompt,
+                max_tokens=4000,  # Allow longer response for full code
+                context={
+                    'code_length': 200,  # Force COMPLEX routing
+                    'task_type': 'code_correction',
+                    'priority': 'high'
+                }
+            )
+
+            response = result.get('result', '') if isinstance(result, dict) else str(result)
+            corrected_code = self._extract_code_from_response(response, code)
+
+            # Basic validation: check if corrected code is substantially different and not empty
+            if corrected_code and len(corrected_code) > 100 and corrected_code != code:
+                print(f"   ✅ Claude provided corrected code ({len(corrected_code)} chars)")
+                return corrected_code, True
+            else:
+                print(f"   ⚠️ Claude's correction was empty or unchanged")
+                return code, False
+
+        except Exception as e:
+            print(f"   ❌ Code correction failed: {e}")
+            return code, False
+
+    async def generate_and_validate_with_retry(
+        self,
+        insight: CodeInsight,
+        max_correction_attempts: int = 2
+    ) -> Optional['GeneratedCode']:
+        """
+        Generate code for an insight with automatic validation and correction.
+
+        This method:
+        1. Generates code using AI
+        2. Validates the code
+        3. If validation fails, asks Claude to fix it
+        4. Repeats up to max_correction_attempts times
+
+        Args:
+            insight: The CodeInsight to implement
+            max_correction_attempts: Max times to try correcting the code
+
+        Returns:
+            GeneratedCode object with final (hopefully valid) code
+        """
+        from introspection.code_validator import CodeValidator
+
+        print(f"🔧 Generating code for: {insight.title}")
+
+        # Check for duplicates first
+        duplicate_error = self._check_duplicate_tool(insight)
+        if duplicate_error:
+            print(f"❌ Skipping: {duplicate_error}")
+            return None
+
+        # Read original code
+        original_code = self._read_current_code(insight.code_location)
+
+        # Generate initial code
+        if self.multi_model_router or self.nucleus:
+            new_code, explanation = await self._generate_with_ai(insight, original_code)
+        else:
+            new_code, explanation = self._generate_with_template(insight, original_code)
+
+        new_code = self._clean_markdown_fences(new_code)
+
+        # Validate and correct loop
+        validator = CodeValidator()
+        attempt = 0
+
+        while attempt <= max_correction_attempts:
+            # Create temporary GeneratedCode for validation
+            temp_generated = GeneratedCode(
+                insight_id=f"insight_{hash(insight.title)}",
+                insight_title=insight.title,
+                file_path=self._determine_file_path(insight),
+                original_code=original_code,
+                new_code=new_code,
+                diff_html="",
+                diff_unified="",
+                explanation=explanation,
+                risk_level=self._assess_risk(insight, original_code, new_code),
+                estimated_time_minutes=self._estimate_time(insight, original_code, new_code),
+                is_new_file=not Path(self._determine_file_path(insight)).exists()
+            )
+
+            # Validate
+            validation = await validator.validate(temp_generated)
+
+            print(f"   📊 Validation attempt {attempt + 1}: Score {validation.score}/100, Valid: {validation.valid}")
+
+            if validation.valid and validation.score >= 70:
+                # Good enough! Create final result
+                print(f"   ✅ Code passed validation!")
+                break
+            elif attempt < max_correction_attempts:
+                # Try to correct
+                print(f"   🔄 Attempting correction (attempt {attempt + 1}/{max_correction_attempts})...")
+
+                all_issues = validation.errors + validation.warnings
+                corrected_code, success = await self.correct_code_with_ai(
+                    code=new_code,
+                    validation_errors=validation.errors,
+                    validation_warnings=validation.warnings[:3],  # Limit warnings to top 3
+                    insight_title=insight.title
+                )
+
+                if success:
+                    new_code = self._clean_markdown_fences(corrected_code)
+                    explanation = f"AI-generated (corrected after {attempt + 1} attempts): {insight.title}"
+                else:
+                    print(f"   ⚠️ Correction attempt {attempt + 1} failed, trying again...")
+            else:
+                print(f"   ⚠️ Max correction attempts reached. Submitting with current quality.")
+
+            attempt += 1
+
+        # Create final diffs
+        file_path = self._determine_file_path(insight)
+        diff_unified = self._create_unified_diff(original_code, new_code, file_path)
+        diff_html = self._create_html_diff(original_code, new_code)
+
+        # Generate tests if needed
+        tests_code = None
+        if self._needs_tests(insight):
+            tests_code = await self._generate_tests(insight, new_code)
+
+        return GeneratedCode(
+            insight_id=f"insight_{hash(insight.title)}",
+            insight_title=insight.title,
+            file_path=file_path,
+            original_code=original_code,
+            new_code=new_code,
+            diff_html=diff_html,
+            diff_unified=diff_unified,
+            explanation=explanation,
+            risk_level=self._assess_risk(insight, original_code, new_code),
+            estimated_time_minutes=self._estimate_time(insight, original_code, new_code),
+            tests_code=tests_code,
+            is_new_file=not Path(file_path).exists()
+        )
+
     def _generate_with_template(self, insight: CodeInsight, current_code: str) -> tuple[str, str]:
         """
         Fallback: Generate code using templates
