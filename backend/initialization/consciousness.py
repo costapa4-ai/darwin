@@ -258,7 +258,7 @@ async def init_consciousness_engine(
         services['proactive_engine'] = proactive_engine
         asyncio.create_task(proactive_engine.run_proactive_loop(
             interval_seconds=120,  # Check every 2 minutes
-            max_actions_per_hour=20  # Allow more actions for Moltbook engagement
+            max_actions_per_hour=30  # Increased for more activity
         ))
         logger.info("Proactive Engine started (interval: 2min, mood-action integration active)")
 
