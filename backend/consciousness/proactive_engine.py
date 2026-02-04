@@ -13,8 +13,10 @@ Makes Darwin feel more "alive" by acting without being asked.
 """
 
 import asyncio
+import json
 import random
 from datetime import datetime, timedelta
+from pathlib import Path
 from typing import Dict, Any, List, Optional, Callable, TYPE_CHECKING
 from enum import Enum
 from dataclasses import dataclass, field
@@ -315,6 +317,7 @@ class ProactiveEngine:
         self._moltbook_voted_posts: set = set()     # Post IDs we've voted on
         self._moltbook_followed_agents: set = set() # Agent names we've followed
         self._moltbook_shared_findings: set = set() # Finding IDs we've shared
+        self._moltbook_own_posts: Dict[str, Dict] = {}  # Darwin's own posts: {post_id: {title, created_at, last_checked}}
         self._load_moltbook_history()
 
         self._register_default_actions()
@@ -356,6 +359,31 @@ class ProactiveEngine:
             )
         except Exception as e:
             logger.warning(f"Could not load Moltbook history: {e}")
+
+        # Load own posts from file
+        self._load_own_posts()
+
+    def _load_own_posts(self):
+        """Load Darwin's own posts from persistent storage."""
+        try:
+            own_posts_file = Path("./data/moltbook_own_posts.json")
+            if own_posts_file.exists():
+                with open(own_posts_file, 'r') as f:
+                    self._moltbook_own_posts = json.load(f)
+                logger.info(f"Loaded {len(self._moltbook_own_posts)} own Moltbook posts")
+        except Exception as e:
+            logger.warning(f"Could not load own posts: {e}")
+            self._moltbook_own_posts = {}
+
+    def _save_own_posts(self):
+        """Save Darwin's own posts to persistent storage."""
+        try:
+            own_posts_file = Path("./data/moltbook_own_posts.json")
+            own_posts_file.parent.mkdir(parents=True, exist_ok=True)
+            with open(own_posts_file, 'w') as f:
+                json.dump(self._moltbook_own_posts, f, indent=2)
+        except Exception as e:
+            logger.warning(f"Could not save own posts: {e}")
 
     def _get_mood_system(self) -> Optional["MoodSystem"]:
         """Get the mood system, either injected or from singleton."""
@@ -591,6 +619,18 @@ class ProactiveEngine:
             cooldown_minutes=60,  # Once per hour
             timeout_seconds=60,
             action_fn=self._follow_on_moltbook
+        ))
+
+        self.register_action(ProactiveAction(
+            id="read_own_post_comments",
+            name="Read Comments on Own Posts",
+            description="Check comments on Darwin's own Moltbook posts to learn from feedback",
+            category=ActionCategory.COMMUNICATION,
+            priority=ActionPriority.LOW,
+            trigger_condition="When having posts older than 1 hour with potential comments",
+            cooldown_minutes=30,  # Check every 30 minutes
+            timeout_seconds=120,
+            action_fn=self._read_own_post_comments
         ))
 
     def register_action(self, action: ProactiveAction):
@@ -2531,6 +2571,18 @@ class ProactiveEngine:
                     )
                     # Track as shared to prevent duplicates
                     self._moltbook_shared_findings.add(finding_id)
+
+                    # Store own post for later comment reading
+                    if post.id:
+                        self._moltbook_own_posts[post.id] = {
+                            "title": title,
+                            "created_at": datetime.now().isoformat(),
+                            "last_checked": None,
+                            "finding_id": finding_id,
+                            "type": finding_type
+                        }
+                        self._save_own_posts()
+
                     logger.info(f"🦞 Shared {finding_type} on Moltbook: {title[:50]}...")
                     return {
                         "success": True,
@@ -2627,6 +2679,162 @@ class ProactiveEngine:
 
         except Exception as e:
             logger.error(f"Failed to follow on Moltbook: {e}")
+            return {"success": False, "error": str(e)}
+
+    async def _read_own_post_comments(self, context: Dict[str, Any] = None) -> Dict[str, Any]:
+        """Read and learn from comments on Darwin's own Moltbook posts."""
+        try:
+            from integrations.moltbook import get_moltbook_client, CommentSort
+
+            client = get_moltbook_client()
+            if not client.api_key:
+                return {"success": False, "reason": "Moltbook not configured"}
+
+            if not self._moltbook_own_posts:
+                return {"success": True, "reason": "No own posts to check"}
+
+            # Find posts that haven't been checked recently (at least 1 hour old, not checked in 2 hours)
+            now = datetime.now()
+            posts_to_check = []
+
+            for post_id, post_data in self._moltbook_own_posts.items():
+                created_at = datetime.fromisoformat(post_data.get("created_at", now.isoformat()))
+                last_checked = post_data.get("last_checked")
+
+                # Post must be at least 1 hour old to have accumulated comments
+                if (now - created_at).total_seconds() < 3600:
+                    continue
+
+                # Check if not checked recently (every 2 hours)
+                if last_checked:
+                    last_checked_dt = datetime.fromisoformat(last_checked)
+                    if (now - last_checked_dt).total_seconds() < 7200:
+                        continue
+
+                posts_to_check.append((post_id, post_data))
+
+            if not posts_to_check:
+                return {"success": True, "reason": "No posts need checking yet"}
+
+            # Pick the oldest unchecked post
+            posts_to_check.sort(key=lambda x: x[1].get("created_at", ""))
+            post_id, post_data = posts_to_check[0]
+
+            # Fetch comments
+            try:
+                comments = await client.get_comments(post_id, sort=CommentSort.NEW)
+            except Exception as e:
+                logger.warning(f"Could not fetch comments for post {post_id}: {e}")
+                # Update last_checked to avoid retrying immediately
+                self._moltbook_own_posts[post_id]["last_checked"] = now.isoformat()
+                self._save_own_posts()
+                return {"success": False, "reason": f"Failed to fetch comments: {e}"}
+
+            # Update last_checked
+            self._moltbook_own_posts[post_id]["last_checked"] = now.isoformat()
+            self._save_own_posts()
+
+            if not comments:
+                logger.info(f"📭 No comments on post '{post_data.get('title', post_id)[:30]}...'")
+                return {"success": True, "post_id": post_id, "comments_found": 0}
+
+            # Analyze comments for learning opportunities
+            learnings = []
+            feedback_positive = 0
+            feedback_negative = 0
+            questions_raised = []
+
+            for comment in comments:
+                content = comment.content.lower()
+
+                # Detect sentiment
+                positive_words = ['great', 'interesting', 'helpful', 'thanks', 'agree', 'good', 'nice', 'love', 'awesome', 'useful']
+                negative_words = ['wrong', 'disagree', 'incorrect', 'bad', 'not', 'no', 'but', 'however', 'mistake']
+
+                if any(word in content for word in positive_words):
+                    feedback_positive += 1
+                if any(word in content for word in negative_words):
+                    feedback_negative += 1
+
+                # Detect questions (learning opportunities)
+                if '?' in comment.content:
+                    questions_raised.append({
+                        "question": comment.content[:200],
+                        "author": comment.author
+                    })
+
+                # Extract any suggestions or corrections
+                if any(phrase in content for phrase in ['actually', 'consider', 'you should', 'have you tried', 'what about']):
+                    learnings.append({
+                        "type": "suggestion",
+                        "content": comment.content[:300],
+                        "author": comment.author
+                    })
+
+            # Log the learning
+            post_title = post_data.get('title', 'Unknown')[:50]
+            logger.info(
+                f"📚 Read {len(comments)} comments on '{post_title}...': "
+                f"+{feedback_positive}/-{feedback_negative}, {len(questions_raised)} questions"
+            )
+
+            # Track in language evolution service
+            try:
+                from services.language_evolution import get_language_evolution_service
+                lang_service = get_language_evolution_service()
+
+                # Create a summary of feedback
+                feedback_summary = f"Feedback on post '{post_title}': "
+                feedback_summary += f"{len(comments)} comments, {feedback_positive} positive, {feedback_negative} negative. "
+                if questions_raised:
+                    feedback_summary += f"Questions raised: {questions_raised[0]['question'][:100]}..."
+
+                lang_service.add_content(
+                    content_type='feedback',
+                    darwin_content=feedback_summary,
+                    source_post_id=post_id,
+                    source_post_title=post_data.get('title', ''),
+                    metadata={
+                        'comments_count': len(comments),
+                        'positive_feedback': feedback_positive,
+                        'negative_feedback': feedback_negative,
+                        'questions_count': len(questions_raised)
+                    }
+                )
+            except Exception as e:
+                logger.warning(f"Could not track feedback in language evolution: {e}")
+
+            # If there are interesting questions, contribute to expedition queue
+            if questions_raised:
+                try:
+                    from consciousness.feedback_loops import get_feedback_manager
+                    feedback_manager = get_feedback_manager()
+                    if feedback_manager:
+                        for q in questions_raised[:2]:  # Max 2 questions per check
+                            await feedback_manager.contribute_topic(
+                                source="moltbook_feedback",
+                                topic=f"Community Question: {q['question'][:50]}",
+                                question=q['question'][:200],
+                                priority=5,  # Medium priority
+                                metadata={"author": q['author'], "post_id": post_id}
+                            )
+                        logger.info(f"🔄 Contributed {min(len(questions_raised), 2)} questions to expedition queue")
+                except Exception as e:
+                    logger.debug(f"Could not contribute to feedback loop: {e}")
+
+            return {
+                "success": True,
+                "post_id": post_id,
+                "post_title": post_title,
+                "comments_found": len(comments),
+                "positive_feedback": feedback_positive,
+                "negative_feedback": feedback_negative,
+                "questions_raised": len(questions_raised),
+                "learnings": len(learnings)
+            }
+
+        except Exception as e:
+            logger.error(f"Failed to read own post comments: {e}")
             return {"success": False, "error": str(e)}
 
     def _get_ai_api_key(self, settings) -> tuple[str, str]:
