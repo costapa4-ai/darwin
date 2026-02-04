@@ -98,7 +98,75 @@ class SandboxManager:
         self.successful_experiments = 0
         self.failed_experiments = 0
 
+        # Cleanup orphaned workspaces from previous runs
+        self._cleanup_orphaned_workspaces()
+
         logger.info(f"SandboxManager initialized (max: {self.max_sandboxes} sandboxes)")
+
+    def _cleanup_orphaned_workspaces(self):
+        """
+        Clean up orphaned workspace directories from previous runs.
+
+        This runs on startup to remove directories that were left behind
+        when the process crashed or wasn't properly shut down.
+        """
+        if not self.workspace_root.exists():
+            return
+
+        orphaned_count = 0
+        for item in self.workspace_root.iterdir():
+            if item.is_dir() and item.name.startswith('sandbox_'):
+                # This directory is not tracked in memory, so it's orphaned
+                if item.name not in [f"sandbox_{s.id.split('_')[1]}" for s in self.sandboxes.values()]:
+                    try:
+                        shutil.rmtree(item)
+                        orphaned_count += 1
+                    except Exception as e:
+                        logger.warning(f"Failed to remove orphaned sandbox {item.name}: {e}")
+
+        if orphaned_count > 0:
+            logger.info(f"🧹 Cleaned up {orphaned_count} orphaned sandbox directories")
+
+    async def run_maintenance(self) -> Dict[str, Any]:
+        """
+        Run maintenance tasks: cleanup old sandboxes and orphaned directories.
+
+        This should be called periodically (e.g., by proactive engine).
+
+        Returns:
+            Maintenance result with cleanup statistics
+        """
+        result = {
+            'timestamp': datetime.utcnow().isoformat(),
+            'old_sandboxes_cleaned': 0,
+            'orphaned_directories_cleaned': 0,
+            'active_sandboxes': len(self.sandboxes)
+        }
+
+        # 1. Clean up old sandboxes (past lifetime)
+        await self._cleanup_old_sandboxes()
+        result['old_sandboxes_cleaned'] = len([
+            s for s in self.sandboxes.values()
+            if (datetime.utcnow() - s.created_at).total_seconds() / 60 > self.sandbox_lifetime_minutes
+        ])
+
+        # 2. Clean up orphaned directories
+        if self.workspace_root.exists():
+            active_dirs = {f"sandbox_{sid.split('_')[1]}" for sid in self.sandboxes.keys()}
+
+            for item in self.workspace_root.iterdir():
+                if item.is_dir() and item.name.startswith('sandbox_'):
+                    if item.name not in active_dirs:
+                        try:
+                            shutil.rmtree(item)
+                            result['orphaned_directories_cleaned'] += 1
+                        except Exception as e:
+                            logger.warning(f"Failed to remove {item.name}: {e}")
+
+        if result['orphaned_directories_cleaned'] > 0:
+            logger.info(f"🧹 Maintenance: cleaned {result['orphaned_directories_cleaned']} orphaned directories")
+
+        return result
 
     async def create_sandbox(self) -> str:
         """
@@ -414,9 +482,19 @@ class SandboxManager:
 
     def get_statistics(self) -> Dict[str, Any]:
         """Get sandbox statistics"""
+        # Count orphaned directories on disk
+        orphaned_count = 0
+        if self.workspace_root.exists():
+            active_dirs = {f"sandbox_{sid.split('_')[1]}" for sid in self.sandboxes.keys()}
+            for item in self.workspace_root.iterdir():
+                if item.is_dir() and item.name.startswith('sandbox_'):
+                    if item.name not in active_dirs:
+                        orphaned_count += 1
+
         return {
             'active_sandboxes': len(self.sandboxes),
             'max_sandboxes': self.max_sandboxes,
+            'orphaned_directories': orphaned_count,
             'total_experiments': self.total_experiments,
             'successful_experiments': self.successful_experiments,
             'failed_experiments': self.failed_experiments,
