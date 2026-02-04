@@ -788,6 +788,26 @@ Respond with ONLY the number."""
                         # Apply smart defaults for missing required arguments
                         kwargs = _get_smart_defaults(func_name, required_params, kwargs)
 
+                        # Filter kwargs to only include parameters the function accepts
+                        # This prevents "unexpected keyword argument" errors
+                        func = tool_manager.get_function(func_name)
+                        if func:
+                            import inspect
+                            try:
+                                sig = inspect.signature(func)
+                                valid_params = set(sig.parameters.keys())
+                                # Check if function accepts **kwargs
+                                accepts_var_kwargs = any(
+                                    p.kind == inspect.Parameter.VAR_KEYWORD
+                                    for p in sig.parameters.values()
+                                )
+                                if not accepts_var_kwargs:
+                                    # Filter to only valid parameters
+                                    kwargs = {k: v for k, v in kwargs.items() if k in valid_params}
+                            except (ValueError, TypeError):
+                                # If we can't get signature, pass kwargs as-is
+                                pass
+
                         result = tool_manager.call_function(func_name, **kwargs)
                         return {
                             'success': True,
