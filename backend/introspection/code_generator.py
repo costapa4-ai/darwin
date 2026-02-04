@@ -161,8 +161,8 @@ class CodeGenerator:
         # 1. Read current code
         original_code = self._read_current_code(insight.code_location)
 
-        # 2. Generate new code using AI
-        if self.nucleus:
+        # 2. Generate new code using AI (prefer multi_model_router)
+        if self.multi_model_router or self.nucleus:
             new_code, explanation = await self._generate_with_ai(insight, original_code)
         else:
             # Fallback: template-based generation
@@ -390,10 +390,17 @@ class CodeGenerator:
         try:
             # Use multi_model_router if available
             if self.multi_model_router:
+                # IMPORTANT: Code generation requires high quality - force COMPLEX routing
+                # This ensures we use Claude Sonnet instead of Ollama for code generation
                 result = await self.multi_model_router.generate(
-                    task_description=f"Generate Python code for: {insight.title}",
+                    task_description=f"[CRITICAL] Generate production Python code to implement: {insight.title}. Requires careful architecture and implementation.",
                     prompt=prompt,
-                    max_tokens=2000
+                    max_tokens=2000,
+                    context={
+                        'code_length': 150,  # Signal large code generation to trigger COMPLEX
+                        'task_type': 'code_generation',
+                        'priority': insight.priority
+                    }
                 )
 
                 # Extract code from result

@@ -591,9 +591,10 @@ class ConsciousnessEngine:
         ]
 
         # Weighted random choice (prioritize applying approved changes!)
-        weights = [0.15, 0.08, 0.15, 0.30, 0.17, 0.10, 0.05]
+        weights = [0.12, 0.08, 0.15, 0.30, 0.15, 0.17, 0.03]
         # apply_changes gets 30% - highest priority to actually deploy approved code
-        # poetry_generation gets 5% - occasional creative expression
+        # self_improvement gets 17% - Darwin should actively improve itself!
+        # poetry_generation gets 3% - occasional creative expression
         activity_type = random.choices(activity_types, weights=weights)[0]
 
         # Execute the activity
@@ -1533,7 +1534,7 @@ Just output the tool name, nothing else."""
         self.total_activities_completed += 1
 
     async def _improve_self(self):
-        """Analyze and improve Darwin's own systems"""
+        """Analyze and improve Darwin's own systems - NOW ACTUALLY IMPLEMENTS IMPROVEMENTS"""
         activity = Activity(
             type='self_improvement',
             description="Analyzing self for improvements",
@@ -1555,18 +1556,124 @@ Just output the tool name, nothing else."""
                     activity.insights.append(f"Found {len(high_priority)} high-priority improvements out of {len(all_insights)} total")
                     print(f"   📊 Found {len(high_priority)} high-priority improvements out of {len(all_insights)} total")
 
-                    # Add details of top 3 improvements to insights
-                    for i, improvement in enumerate(high_priority[:3], 1):
-                        title = improvement.get('title', 'Unknown')
-                        description = improvement.get('description', '')
-                        impact = improvement.get('estimated_impact', 'unknown')
+                    # Filter out already submitted improvements (database-backed check)
+                    available_improvements = [
+                        imp for imp in high_priority
+                        if not self._is_insight_submitted(f"improvement:{imp.get('title')}")
+                    ]
 
-                        activity.insights.append(f"{i}. {title} (Impact: {impact})")
-                        activity.insights.append(f"   → {description[:150]}")
+                    if not available_improvements:
+                        print(f"   ⏭️ All improvements already submitted, checking semantic memory for ideas")
+                        activity.insights.append("All improvements already submitted")
+                        activity.result = {'improvements_found': len(high_priority), 'all_submitted': True}
+                        activity.completed_at = datetime.utcnow()
+                        self.wake_activities.append(activity)
+                        self.total_activities_completed += 1
+                        return
 
-                        print(f"   {i}. 🎯 {title}")
-                        print(f"      💡 {description[:100]}...")
-                        print(f"      📈 Impact: {impact}")
+                    # Take the top improvement to actually implement
+                    top_improvement = available_improvements[0]
+                    title = top_improvement.get('title', 'Unknown')
+                    description = top_improvement.get('description', '')
+                    impact = top_improvement.get('estimated_impact', 'unknown')
+
+                    print(f"   🎯 Selected for implementation: {title}")
+                    print(f"      💡 {description[:100]}...")
+                    print(f"      📈 Impact: {impact}")
+
+                    activity.insights.append(f"Implementing: {title} (Impact: {impact})")
+
+                    # =========================================================================
+                    # ACTUALLY IMPLEMENT THE IMPROVEMENT (code generation + approval)
+                    # =========================================================================
+                    if self.code_generator and self.approval_queue:
+                        activity.insights.append("Generating implementation code...")
+                        print(f"   🔧 Generating code for improvement...")
+
+                        try:
+                            # Convert improvement to CodeInsight format
+                            from introspection.self_analyzer import CodeInsight
+                            insight = CodeInsight(
+                                type=top_improvement.get('type', 'improvement'),
+                                component=top_improvement.get('component', 'unknown'),
+                                priority=top_improvement.get('priority', 'high'),
+                                title=top_improvement.get('title', ''),
+                                description=top_improvement.get('description', ''),
+                                proposed_change=top_improvement.get('proposed_change', ''),
+                                benefits=top_improvement.get('benefits', []),
+                                estimated_impact=top_improvement.get('estimated_impact', 'high')
+                            )
+
+                            # Generate code using the code generator
+                            code_result = await self.code_generator.generate_code_for_insight(insight)
+
+                            if code_result and hasattr(code_result, 'new_code') and code_result.new_code:
+                                print(f"   ✅ Code generated: {len(code_result.new_code)} chars")
+                                activity.insights.append(f"Generated {len(code_result.new_code)} chars of code")
+
+                                # Validate the generated code
+                                from introspection.code_validator import CodeValidator
+                                validator = CodeValidator()
+                                validation_result = await validator.validate(code_result)
+
+                                print(f"   📊 Validation score: {validation_result.score}/100")
+                                activity.insights.append(f"Validation score: {validation_result.score}/100")
+
+                                # Submit to approval queue with validation
+                                insight_key = f"improvement:{top_improvement.get('title')}"
+                                approval_result = self.approval_queue.add(code_result, validation_result)
+
+                                # Mark as submitted ONLY after successful submission (database-backed)
+                                if approval_result and approval_result.get('status') in ['auto_approved', 'pending']:
+                                    self._dedup_store.mark_submitted(insight_key, source="improvement")
+                                    print(f"   ✅ Marked as submitted: {insight_key}")
+
+                                if approval_result.get('status') == 'auto_approved':
+                                    activity.insights.append("✅ Code auto-approved!")
+                                    print(f"   ✅ Code auto-approved!")
+
+                                    # Apply code automatically if auto_applier available
+                                    if self.auto_applier:
+                                        try:
+                                            change_dict = {
+                                                'id': approval_result.get('change_id'),
+                                                'generated_code': {
+                                                    'file_path': code_result.file_path,
+                                                    'new_code': code_result.new_code
+                                                }
+                                            }
+                                            apply_result = self.auto_applier.apply_change(change_dict)
+
+                                            if apply_result.get('success'):
+                                                activity.insights.append(f"📝 SELF-IMPROVED: Applied to {code_result.file_path}")
+                                                print(f"   📝 SELF-IMPROVED: Applied to {code_result.file_path}")
+                                                # Count successful self-improvement as a discovery
+                                                self.total_discoveries_made += 1
+                                            else:
+                                                activity.insights.append(f"⚠️ Failed to apply: {apply_result.get('error', 'Unknown error')}")
+                                                print(f"   ⚠️ Apply failed: {apply_result.get('error')}")
+                                        except Exception as e:
+                                            activity.insights.append(f"⚠️ Apply error: {str(e)[:50]}")
+                                            print(f"   ⚠️ Apply error: {e}")
+                                elif approval_result.get('status') == 'pending':
+                                    activity.insights.append("📋 Code submitted for human approval")
+                                    print(f"   📋 Awaiting human approval for: {code_result.file_path}")
+                                elif approval_result.get('auto_rejected'):
+                                    activity.insights.append(f"❌ Auto-rejected (score too low)")
+                                    print(f"   ❌ Code auto-rejected: Quality score too low")
+                                else:
+                                    activity.insights.append(f"⚠️ Approval status: {approval_result.get('status')}")
+                            else:
+                                activity.insights.append("⚠️ Code generation returned empty result")
+                                print(f"   ⚠️ Code generation returned empty result")
+                        except Exception as e:
+                            activity.insights.append(f"❌ Code generation failed: {str(e)[:50]}")
+                            print(f"   ❌ Code generation error: {e}")
+                            import traceback
+                            traceback.print_exc()
+                    else:
+                        # No code generator - just log and store
+                        print(f"   ℹ️ Code generator not available, storing improvement for later")
 
                     # Store all high-priority improvements in semantic memory
                     if self.semantic_memory and high_priority:
@@ -1577,6 +1684,7 @@ Just output the tool name, nothing else."""
                     activity.result = {
                         'improvements_found': len(high_priority),
                         'total_insights': len(all_insights),
+                        'implemented': top_improvement.get('title'),
                         'top_improvements': [
                             {
                                 'title': imp.get('title'),
@@ -1590,6 +1698,8 @@ Just output the tool name, nothing else."""
 
             except Exception as e:
                 print(f"   ⚠️ Self-improvement error: {str(e)[:100]}")
+                import traceback
+                traceback.print_exc()
 
         activity.completed_at = datetime.utcnow()
         self.wake_activities.append(activity)
