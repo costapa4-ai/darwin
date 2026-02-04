@@ -70,8 +70,8 @@ class FeedbackLoopManager:
         FeedbackSource.MOLTBOOK: SourceConfig(
             enabled=True,
             base_priority=5,
-            cooldown_minutes=10,
-            max_contributions_per_hour=6
+            cooldown_minutes=3,  # Reduced from 10 to allow more posts
+            max_contributions_per_hour=12  # Increased from 6
         ),
         FeedbackSource.FINDINGS: SourceConfig(
             enabled=True,
@@ -88,8 +88,8 @@ class FeedbackLoopManager:
         FeedbackSource.CURIOSITY_ENGINE: SourceConfig(
             enabled=True,
             base_priority=6,
-            cooldown_minutes=5,
-            max_contributions_per_hour=10
+            cooldown_minutes=2,  # Reduced from 5 for faster learning
+            max_contributions_per_hour=15  # Increased from 10
         ),
         FeedbackSource.CHAT: SourceConfig(
             enabled=False,  # Opt-in
@@ -325,38 +325,59 @@ class FeedbackLoopManager:
         Returns:
             True if a topic was queued
         """
-        if not post or not analysis:
+        try:
+            if not post:
+                logger.debug("process_moltbook_post: No post data")
+                return False
+
+            title = post.get("title", "")
+            content = post.get("content", "")
+            tags = post.get("tags", [])
+
+            if not title and not content:
+                logger.debug("process_moltbook_post: No title or content")
+                return False
+
+            # Extract topic - prefer tags, then title keywords
+            if tags and isinstance(tags, list) and len(tags) > 0:
+                topic = f"Moltbook: {tags[0]}"
+            elif title:
+                # Extract meaningful words from title
+                words = [w for w in title.split()[:5] if len(w) > 2]
+                topic = f"Moltbook: {' '.join(words)}" if words else f"Moltbook: {title[:30]}"
+            else:
+                topic = "Moltbook: Community Discussion"
+
+            # Generate question - use analysis if available, otherwise derive from title
+            question = self._generate_question_from_post(title, content, analysis or "")
+
+            # Fallback question generation if the method returns None
+            if not question:
+                if title:
+                    question = f"What insights can I gain from: {title}?"
+                else:
+                    question = f"What can I learn from this community discussion about {topic}?"
+
+            success = await self.contribute_topic(
+                source=FeedbackSource.MOLTBOOK,
+                topic=topic,
+                question=question,
+                metadata={
+                    "post_id": post.get("id"),
+                    "post_title": title[:100] if title else "",
+                    "analysis_preview": analysis[:200] if analysis else "",
+                    "has_tags": bool(tags)
+                }
+            )
+
+            if success:
+                logger.info(f"Moltbook post queued for expedition: {title[:40]}")
+
+            return success
+
+        except Exception as e:
+            logger.warning(f"Error processing Moltbook post: {e}")
             return False
-
-        title = post.get("title", "")
-        content = post.get("content", "")
-        tags = post.get("tags", [])
-
-        # Extract topic and question from the post
-        # Use the first tag or extract from title
-        if tags:
-            topic = f"Moltbook: {tags[0]}"
-        else:
-            # Extract topic from title (first few words)
-            words = title.split()[:4]
-            topic = f"Moltbook: {' '.join(words)}"
-
-        # Generate a question based on the post
-        question = self._generate_question_from_post(title, content, analysis)
-
-        if not question:
-            return False
-
-        return await self.contribute_topic(
-            source=FeedbackSource.MOLTBOOK,
-            topic=topic,
-            question=question,
-            metadata={
-                "post_id": post.get("id"),
-                "post_title": title,
-                "analysis_preview": analysis[:200] if analysis else ""
-            }
-        )
 
     async def process_anomaly_questions(
         self,
@@ -393,6 +414,72 @@ class FeedbackLoopManager:
 
         return queued
 
+    async def contribute_curiosity(
+        self,
+        topic: str,
+        question: str,
+        source_action: str = "generate_curiosity",
+        priority: int = 5
+    ) -> bool:
+        """
+        Directly contribute a curiosity question to the expedition queue.
+
+        This is a simpler interface for proactive actions that generate curiosities.
+
+        Args:
+            topic: Topic category (e.g., "AI Ethics", "Python Optimization")
+            question: The curiosity question to explore
+            source_action: Which action generated this (for tracking)
+            priority: Base priority (default 5)
+
+        Returns:
+            True if queued successfully
+        """
+        # Use CURIOSITY_ENGINE as the source
+        success = await self.contribute_topic(
+            source=FeedbackSource.CURIOSITY_ENGINE,
+            topic=f"Curiosity: {topic}",
+            question=question,
+            priority_override=priority,
+            metadata={
+                "source_action": source_action,
+                "generated_at": datetime.utcnow().isoformat()
+            }
+        )
+
+        if success:
+            logger.info(f"Queued curiosity: {topic[:30]} -> {question[:50]}")
+
+        return success
+
+    async def contribute_web_learning(
+        self,
+        topic: str,
+        what_learned: str,
+        follow_up_question: str
+    ) -> bool:
+        """
+        Contribute a follow-up question from web learning to the expedition queue.
+
+        Args:
+            topic: What was being researched
+            what_learned: Summary of what was learned
+            follow_up_question: Question for deeper exploration
+
+        Returns:
+            True if queued successfully
+        """
+        return await self.contribute_topic(
+            source=FeedbackSource.META_LEARNER,
+            topic=f"Follow-up: {topic}",
+            question=follow_up_question,
+            priority_override=5,
+            metadata={
+                "original_topic": topic,
+                "learning_summary": what_learned[:200] if what_learned else ""
+            }
+        )
+
     def get_statistics(self) -> Dict[str, Any]:
         """Get comprehensive statistics about feedback loop activity"""
         return {
@@ -428,42 +515,67 @@ class FeedbackLoopManager:
         """
         Hook callback for ON_FINDING events.
 
-        Queues HIGH and URGENT findings for investigation.
+        Queues MEDIUM, HIGH and URGENT findings for investigation.
+        Also processes interesting insights and anomalies.
         """
         data = context.data
         finding = data.get("finding", {})
 
-        priority_str = finding.get("priority", "medium")
+        priority_raw = finding.get("priority", 1)
+        finding_type = finding.get("type", "finding")
 
-        # Only process HIGH and URGENT findings
-        if priority_str not in ["high", "urgent", "HIGH", "URGENT", "3", "4"]:
+        # Normalize priority to integer
+        if isinstance(priority_raw, str):
+            priority_map = {"low": 1, "medium": 2, "high": 3, "urgent": 4}
+            priority_int = priority_map.get(priority_raw.lower(), 1)
+        else:
+            priority_int = int(priority_raw) if priority_raw else 1
+
+        # Process MEDIUM (2) and above, or any anomaly/discovery type
+        interesting_types = ["anomaly", "discovery"]
+        if priority_int < 2 and finding_type not in interesting_types:
             return
 
         title = finding.get("title", "Unknown Finding")
         description = finding.get("description", "")
-        finding_type = finding.get("type", "finding")
 
-        # Calculate priority: HIGH=7, URGENT=9
-        if priority_str in ["urgent", "URGENT", "4"]:
-            priority = 9
+        # Calculate expedition priority based on finding priority and type
+        if priority_int >= 4:  # URGENT
+            expedition_priority = 9
+        elif priority_int >= 3:  # HIGH
+            expedition_priority = 7
+        elif finding_type in interesting_types:  # Anomaly/Discovery get higher priority
+            expedition_priority = 6
+        else:  # MEDIUM
+            expedition_priority = 5
+
+        # Generate appropriate question based on type
+        if finding_type == "anomaly":
+            question = f"Investigate anomaly: {title}. What caused this and how can it be resolved?"
+        elif finding_type == "discovery":
+            question = f"Explore discovery: {title}. What are the implications and related topics?"
+        elif finding_type == "insight":
+            question = f"Deep dive: {title}. What more can I learn about this topic?"
         else:
-            priority = 7
+            question = f"Investigate: {title}. What caused this {finding_type}?"
 
-        question = f"Investigate: {title}. What caused this {finding_type}?"
         if description:
             question += f" Context: {description[:100]}"
 
-        await self.contribute_topic(
+        success = await self.contribute_topic(
             source=FeedbackSource.FINDINGS,
             topic=f"Finding: {title[:50]}",
             question=question,
-            priority_override=priority,
+            priority_override=expedition_priority,
             metadata={
                 "finding_id": finding.get("id"),
                 "finding_type": finding_type,
-                "original_priority": priority_str
+                "original_priority": priority_int
             }
         )
+
+        if success:
+            logger.info(f"Queued finding for expedition: {title[:40]} (priority={expedition_priority})")
 
     async def _on_expedition_complete_hook(self, context):
         """

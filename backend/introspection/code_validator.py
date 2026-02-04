@@ -87,27 +87,40 @@ class CodeValidator:
             )
 
         # 0.5 CRITICAL: Check for full file replacement
-        replacement_check = self._detect_full_replacement(
-            generated.original_code,
-            generated.new_code
+        # Skip this check for new files (is_new_file=True) or placeholder originals
+        is_new_file = getattr(generated, 'is_new_file', False)
+        is_placeholder_original = (
+            not generated.original_code or
+            generated.original_code.startswith('# No specific') or
+            generated.original_code.startswith('# File not found') or
+            generated.original_code.startswith('# Error reading') or
+            len(generated.original_code.strip()) < 50
         )
-        if replacement_check['detected']:
-            checks_failed.append(f"❌ FULL FILE REPLACEMENT: {replacement_check['message']}")
-            valid = False
-            # Return immediately - this is dangerous
-            return ValidationResult(
-                valid=False,
-                score=10,  # Very low score
-                errors=checks_failed,
-                warnings=[
-                    'This appears to be a full file replacement, not an edit',
-                    f"Similarity: {replacement_check['similarity']:.1%}",
-                    f"Size ratio: {replacement_check['size_ratio']:.2f}x"
-                ],
-                security_issues=['Full file replacements are blocked for safety'],
-                checks_passed=checks_passed,
-                checks_failed=checks_failed
+
+        if not is_new_file and not is_placeholder_original:
+            replacement_check = self._detect_full_replacement(
+                generated.original_code,
+                generated.new_code
             )
+            if replacement_check['detected']:
+                checks_failed.append(f"❌ FULL FILE REPLACEMENT: {replacement_check['message']}")
+                valid = False
+                # Return immediately - this is dangerous
+                return ValidationResult(
+                    valid=False,
+                    score=10,  # Very low score
+                    errors=checks_failed,
+                    warnings=[
+                        'This appears to be a full file replacement, not an edit',
+                        f"Similarity: {replacement_check['similarity']:.1%}",
+                        f"Size ratio: {replacement_check['size_ratio']:.2f}x"
+                    ],
+                    security_issues=['Full file replacements are blocked for safety'],
+                    checks_passed=checks_passed,
+                    checks_failed=checks_failed
+                )
+        elif is_new_file:
+            checks_passed.append('✅ New file creation allowed')
 
         # 1. Syntax Validation
         syntax_result = self._validate_syntax(generated.new_code)

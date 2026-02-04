@@ -321,3 +321,155 @@ class WebResearcher:
         context = self.format_research_context(results)
 
         return context
+
+    async def research(
+        self,
+        query: str,
+        max_results: int = 5
+    ) -> Dict[str, Any]:
+        """
+        Research a topic and return structured findings.
+
+        This method is used by the Curiosity Expedition system.
+        Uses multiple search strategies with fallbacks:
+        1. API-based searches (if keys configured)
+        2. DuckDuckGo via WebSearchService (no API key needed)
+        3. GitHub public search (limited rate)
+
+        Args:
+            query: Research query/question
+            max_results: Maximum number of results per source
+
+        Returns:
+            Dict with:
+                - success: bool
+                - sources: List of source URLs explored
+                - findings: List of discoveries with title/summary
+                - synthesis: Overall synthesis of findings
+        """
+        logger.info(f"Researching: {query}")
+
+        sources = []
+        findings = []
+
+        try:
+            # Strategy 1: Try API-based comprehensive search if keys are available
+            if self.serpapi_key:
+                search_results = await self.comprehensive_search(query)
+
+                for source_name, items in search_results.items():
+                    for item in items[:max_results]:
+                        url = item.get('link', item.get('url', ''))
+                        if url:
+                            sources.append(url)
+
+                        title = item.get('title', 'Untitled')
+                        content = (
+                            item.get('snippet', '') or
+                            item.get('description', '') or
+                            item.get('summary', '') or
+                            item.get('abstract', '')
+                        )
+
+                        if title and content:
+                            findings.append({
+                                'title': title,
+                                'summary': content[:500],
+                                'content': content,
+                                'source': source_name,
+                                'url': url
+                            })
+
+            # Strategy 2: Fallback to DuckDuckGo via WebSearchService (no API key needed)
+            if not findings:
+                logger.info("Using DuckDuckGo fallback for research")
+                try:
+                    from services.web_service import WebSearchService
+                    web_service = WebSearchService()
+                    ddg_results = await web_service.search(query)
+
+                    for item in ddg_results[:max_results]:
+                        url = item.get('url', '')
+                        if url:
+                            sources.append(url)
+
+                        title = item.get('title', 'Untitled')
+                        snippet = item.get('snippet', '')
+
+                        if title:
+                            findings.append({
+                                'title': title,
+                                'summary': snippet[:500] if snippet else f"Result about: {query}",
+                                'content': snippet,
+                                'source': 'duckduckgo',
+                                'url': url
+                            })
+
+                    logger.info(f"DuckDuckGo returned {len(ddg_results)} results")
+
+                except Exception as ddg_error:
+                    logger.warning(f"DuckDuckGo search failed: {ddg_error}")
+
+            # Strategy 3: Also try GitHub search (works without token, but rate limited)
+            if len(findings) < max_results:
+                try:
+                    github_results = await self.search_github(query)
+                    for item in github_results[:max_results - len(findings)]:
+                        url = item.get('link', '')
+                        if url:
+                            sources.append(url)
+
+                        findings.append({
+                            'title': item.get('title', 'GitHub Project'),
+                            'summary': item.get('description', '')[:500] if item.get('description') else f"GitHub project related to: {query}",
+                            'content': item.get('description', ''),
+                            'source': 'github',
+                            'url': url,
+                            'stars': item.get('stars', 0)
+                        })
+
+                    logger.info(f"GitHub returned {len(github_results)} results")
+
+                except Exception as gh_error:
+                    logger.debug(f"GitHub search failed: {gh_error}")
+
+            # Generate synthesis if we found anything
+            synthesis = ""
+            if findings:
+                topics = [f.get('title', '')[:50] for f in findings[:3]]
+                unique_sources = set()
+                for s in sources[:5]:
+                    try:
+                        if '/' in s:
+                            domain = s.split('/')[2]
+                            unique_sources.add(domain)
+                    except:
+                        pass
+
+                synthesis = f"Explored {len(findings)} resources about: {query}. "
+                synthesis += f"Key topics covered: {', '.join(topics)}. "
+                if unique_sources:
+                    synthesis += f"Sources include: {', '.join(list(unique_sources)[:3])}."
+
+            success = len(findings) > 0
+
+            logger.info(f"Research complete: {len(findings)} findings, {len(sources)} sources, success={success}")
+
+            return {
+                'success': success,
+                'sources': sources[:max_results * 2],
+                'findings': findings[:max_results],
+                'synthesis': synthesis,
+                'query': query
+            }
+
+        except Exception as e:
+            logger.error(f"Research failed for '{query}': {e}")
+            return {
+                'success': False,
+                'sources': [],
+                'findings': [],
+                'synthesis': f"Research could not be completed: {str(e)[:100]}",
+                'query': query,
+                'error': str(e)
+            }

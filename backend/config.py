@@ -31,7 +31,7 @@ class Settings(BaseSettings):
     chroma_persist_directory: str = "./data/chroma"
 
     # Phase 2: Web Research
-    enable_web_research: bool = False  # Disabled by default (requires API keys)
+    enable_web_research: bool = True  # Enabled - uses DuckDuckGo fallback if no API keys
     serpapi_api_key: str = ""
     github_token: str = ""
 

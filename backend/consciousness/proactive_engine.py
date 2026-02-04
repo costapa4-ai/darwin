@@ -1613,10 +1613,52 @@ class ProactiveEngine:
             learn_more="Curiosity questions help drive proactive exploration and learning."
         )
 
+        # Also contribute to expedition queue via feedback loop
+        queued_for_expedition = False
+        try:
+            from consciousness.feedback_loops import get_feedback_manager
+            feedback_manager = get_feedback_manager()
+            if feedback_manager:
+                # Extract topic from question keywords
+                topic_keywords = {
+                    "patterns": "Code Patterns",
+                    "evolved": "Codebase Evolution",
+                    "bugs": "Bug Prevention",
+                    "performance": "Performance Optimization",
+                    "complex": "Code Complexity",
+                    "security": "Security Best Practices",
+                    "dependencies": "Dependency Management",
+                    "error": "Error Handling",
+                    "reuse": "Code Reusability",
+                    "developer": "Developer Experience",
+                    "cpu": "System Performance",
+                    "discoveries": "New Discoveries",
+                    "idle": "Proactive Improvements"
+                }
+
+                topic = "General Exploration"
+                for keyword, topic_name in topic_keywords.items():
+                    if keyword in question.lower():
+                        topic = topic_name
+                        break
+
+                # Context-driven questions get higher priority
+                priority = 6 if question in contextual_questions else 5
+
+                queued_for_expedition = await feedback_manager.contribute_curiosity(
+                    topic=topic,
+                    question=question,
+                    source_action="generate_curiosity",
+                    priority=priority
+                )
+        except Exception as e:
+            logger.debug(f"Could not contribute curiosity to expedition queue: {e}")
+
         return {
             "success": True,
             "question": question,
             "context_driven": question in contextual_questions,
+            "queued_for_expedition": queued_for_expedition,
             "generated_at": datetime.now().isoformat()
         }
 
@@ -2153,12 +2195,37 @@ class ProactiveEngine:
         # Keep last 100 learned items
         self._learned_knowledge = self._learned_knowledge[-100:]
 
-        logger.info(f"🎓 Learning session complete: {len(learned_items)} topics researched, {findings_created} findings created")
+        # Contribute follow-up questions to expedition queue via feedback loop
+        queued_for_expedition = 0
+        try:
+            from consciousness.feedback_loops import get_feedback_manager
+            feedback_manager = get_feedback_manager()
+            if feedback_manager and learned_items:
+                for item in learned_items[:2]:  # Limit to 2 follow-ups per session
+                    topic = item.get("topic", "")
+                    category = item.get("category", "general")
+
+                    # Generate a follow-up question
+                    follow_up = f"What advanced techniques exist for {category.replace('_', ' ')}?"
+
+                    success = await feedback_manager.contribute_web_learning(
+                        topic=topic,
+                        what_learned=f"Researched {topic} and found {len(item.get('sources', []))} sources",
+                        follow_up_question=follow_up
+                    )
+                    if success:
+                        queued_for_expedition += 1
+
+        except Exception as e:
+            logger.debug(f"Could not contribute web learning to expedition queue: {e}")
+
+        logger.info(f"🎓 Learning session complete: {len(learned_items)} topics researched, {findings_created} findings created, {queued_for_expedition} queued for expedition")
 
         return {
             "success": True,
             "topics_researched": len(learned_items),
             "findings_created": findings_created,
+            "queued_for_expedition": queued_for_expedition,
             "learned_items": learned_items,
             "knowledge_base_size": len(self._learned_knowledge)
         }
