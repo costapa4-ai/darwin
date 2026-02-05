@@ -2950,8 +2950,8 @@ class ProactiveEngine:
                 return {"success": False, "reason": "Expedition engine not available"}
 
             # Check if there are topics in the queue
-            queue = expedition_engine.get_queue()
-            if not queue:
+            queue_status = expedition_engine.get_queue_status()
+            if not queue_status.get('queue_size', 0):
                 logger.debug("🔭 No topics in expedition queue")
                 return {"success": True, "reason": "No topics in queue", "expeditions_conducted": 0}
 
