@@ -317,6 +317,7 @@ class ProactiveEngine:
         self._moltbook_voted_posts: set = set()     # Post IDs we've voted on
         self._moltbook_followed_agents: set = set() # Agent names we've followed
         self._moltbook_shared_findings: set = set() # Finding IDs we've shared
+        self._moltbook_shared_titles: set = set()   # Content titles we've shared (content dedup)
         self._moltbook_own_posts: Dict[str, Dict] = {}  # Darwin's own posts: {post_id: {title, created_at, last_checked}}
         self._load_moltbook_history()
 
@@ -387,26 +388,36 @@ class ProactiveEngine:
             logger.warning(f"Could not save own posts: {e}")
 
     def _load_shared_findings(self):
-        """Load shared findings IDs from persistent storage to prevent duplicates."""
+        """Load shared findings IDs and titles from persistent storage to prevent duplicates."""
         try:
             shared_file = Path("./data/moltbook_shared_findings.json")
             if shared_file.exists():
                 with open(shared_file, 'r') as f:
                     data = json.load(f)
                     self._moltbook_shared_findings = set(data.get('finding_ids', []))
-                logger.info(f"Loaded {len(self._moltbook_shared_findings)} shared finding IDs")
+                    self._moltbook_shared_titles = set(data.get('shared_titles', []))
+
+            # Also seed titles from own_posts for backwards compatibility
+            for post_data in self._moltbook_own_posts.values():
+                title = post_data.get('title', '')
+                if title:
+                    self._moltbook_shared_titles.add(title.lower().strip())
+
+            logger.info(f"Loaded {len(self._moltbook_shared_findings)} shared finding IDs, {len(self._moltbook_shared_titles)} shared titles")
         except Exception as e:
             logger.warning(f"Could not load shared findings: {e}")
             self._moltbook_shared_findings = set()
+            self._moltbook_shared_titles = set()
 
     def _save_shared_findings(self):
-        """Save shared findings IDs to persistent storage."""
+        """Save shared findings IDs and titles to persistent storage."""
         try:
             shared_file = Path("./data/moltbook_shared_findings.json")
             shared_file.parent.mkdir(parents=True, exist_ok=True)
             with open(shared_file, 'w') as f:
                 json.dump({
                     'finding_ids': list(self._moltbook_shared_findings),
+                    'shared_titles': list(self._moltbook_shared_titles),
                     'updated_at': datetime.now().isoformat()
                 }, f, indent=2)
         except Exception as e:
@@ -2398,6 +2409,13 @@ class ProactiveEngine:
 
             # Filter out posts we've already read
             unread_posts = [p for p in posts if p.id not in self._moltbook_read_posts]
+
+            # If all HOT posts are read, also check NEW posts
+            if not unread_posts:
+                logger.info("🦞 All HOT posts already read, checking NEW posts...")
+                new_posts = await client.get_feed(sort=PostSort.NEW, limit=15)
+                unread_posts = [p for p in new_posts if p.id not in self._moltbook_read_posts]
+
             if not unread_posts:
                 logger.info("🦞 No new posts to read on Moltbook")
                 return {"success": True, "posts_read": 0, "reason": "All posts already read"}
@@ -2504,6 +2522,13 @@ class ProactiveEngine:
 
             # Filter out posts we've already commented on
             uncommented_posts = [p for p in posts if p.id not in self._moltbook_commented_posts]
+
+            # If all HOT posts are commented, also check NEW posts
+            if not uncommented_posts:
+                logger.info("🦞 All HOT posts already commented, checking NEW posts...")
+                new_posts = await client.get_feed(sort=PostSort.NEW, limit=15)
+                uncommented_posts = [p for p in new_posts if p.id not in self._moltbook_commented_posts]
+
             if not uncommented_posts:
                 logger.info("🦞 Already commented on all available posts")
                 return {"success": True, "reason": "Already commented on all available posts"}
@@ -2571,7 +2596,7 @@ class ProactiveEngine:
                 finding_type = finding.get("type", "")
                 finding_id = finding.get("id", "")
 
-                # Skip if not a shareable type or already shared
+                # Skip if not a shareable type or already shared by finding ID
                 if finding_type not in shareable_types:
                     continue
                 if finding_id in self._moltbook_shared_findings:
@@ -2582,20 +2607,36 @@ class ProactiveEngine:
                 if len(content) < 100:
                     continue
 
-                # Create appropriate title based on type (avoid double prefixes)
-                raw_title = finding.get('title', '')
+                # Create appropriate title based on type
+                # Strip any existing prefixes to avoid double prefix bug
+                raw_title = finding.get('title', '').strip()
+
+                # Remove existing prefixes to normalize
+                prefixes_to_strip = ["Learned:", "Discovery:", "Insight:"]
+                clean_title = raw_title
+                for prefix in prefixes_to_strip:
+                    if clean_title.startswith(prefix):
+                        clean_title = clean_title[len(prefix):].strip()
+
+                # Use category as title if available and title is generic
+                category = finding.get('category', '')
+                if category and (not clean_title or clean_title.lower() in ['new knowledge', 'interesting finding']):
+                    clean_title = category.replace('_', ' ').title()
+
                 if finding_type == "discovery":
-                    if raw_title.startswith("Discovery:"):
-                        title = raw_title
-                    else:
-                        title = f"Discovery: {raw_title or 'Interesting Finding'}"
+                    title = f"Discovery: {clean_title or 'Interesting Finding'}"
                     submolt = "ai_discoveries"
                 else:  # insight
-                    if raw_title.startswith("Learned:"):
-                        title = raw_title
-                    else:
-                        title = f"Learned: {raw_title or 'New Knowledge'}"
+                    title = f"Learned: {clean_title or 'New Knowledge'}"
                     submolt = "ai"
+
+                # Content-based deduplication: skip if we've shared this title before
+                title_key = title.lower().strip()
+                if title_key in self._moltbook_shared_titles:
+                    logger.debug(f"Skipping duplicate Moltbook content: {title[:40]}...")
+                    # Mark finding as "shared" to avoid re-checking
+                    self._moltbook_shared_findings.add(finding_id)
+                    continue
 
                 try:
                     post = await client.create_post(
@@ -2605,6 +2646,7 @@ class ProactiveEngine:
                     )
                     # Track as shared to prevent duplicates (persisted)
                     self._moltbook_shared_findings.add(finding_id)
+                    self._moltbook_shared_titles.add(title_key)  # Content dedup
                     self._save_shared_findings()
 
                     # Store own post for later comment reading
@@ -2648,6 +2690,15 @@ class ProactiveEngine:
 
             # Get hot posts to find interesting authors
             posts = await client.get_feed(sort=PostSort.HOT, limit=20)
+
+            # Also check NEW posts for new authors
+            new_posts = await client.get_feed(sort=PostSort.NEW, limit=15)
+            # Combine and dedupe by post ID
+            seen_ids = set(p.id for p in posts)
+            for p in new_posts:
+                if p.id not in seen_ids:
+                    posts.append(p)
+                    seen_ids.add(p.id)
 
             if not posts:
                 return {"success": True, "followed": 0, "reason": "No posts in feed"}
