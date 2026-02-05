@@ -12,6 +12,17 @@ from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Dict, Any, List, Optional, TYPE_CHECKING
 
+
+class SafeJSONEncoder(json.JSONEncoder):
+    """JSON encoder that handles non-serializable objects by converting to string."""
+    def default(self, obj):
+        try:
+            # Try default serialization first
+            return super().default(obj)
+        except TypeError:
+            # Convert non-serializable objects to their string representation
+            return str(obj)
+
 from consciousness.models import (
     ConsciousnessState, Activity, Dream, CuriosityMoment,
     DEFAULT_WAKE_DURATION_MINUTES, DEFAULT_SLEEP_DURATION_MINUTES
@@ -71,7 +82,7 @@ class PersistenceManager:
             # Write to file with atomic operation
             temp_file = self.state_file.with_suffix('.tmp')
             with open(temp_file, 'w', encoding='utf-8') as f:
-                json.dump(state, f, indent=2, ensure_ascii=False)
+                json.dump(state, f, indent=2, ensure_ascii=False, cls=SafeJSONEncoder)
 
             # Atomic rename
             temp_file.replace(self.state_file)

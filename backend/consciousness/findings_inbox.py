@@ -111,6 +111,51 @@ class FindingsInbox:
         self._load_state()
         logger.info(f"FindingsInbox initialized with {len(self.findings)} active findings")
 
+    def _is_duplicate_finding(
+        self,
+        type: FindingType,
+        title: str,
+        category: Optional[str] = None,
+        hours_window: int = 24
+    ) -> bool:
+        """
+        Check if a similar finding already exists within the time window.
+
+        Args:
+            type: Type of finding
+            title: Title to check
+            category: Category to check (for insights)
+            hours_window: Hours to look back for duplicates
+
+        Returns:
+            True if a duplicate exists
+        """
+        cutoff = datetime.now() - timedelta(hours=hours_window)
+        title_lower = title.lower().strip()
+
+        for finding in self.findings:
+            # Skip different types
+            if finding.type != type.value:
+                continue
+
+            # Skip old findings
+            try:
+                created = datetime.fromisoformat(finding.created_at)
+                if created < cutoff:
+                    continue
+            except (ValueError, TypeError):
+                continue
+
+            # Check title similarity (exact match only)
+            existing_title = finding.title.lower().strip()
+            if existing_title == title_lower:
+                return True
+
+            # Note: Category-based deduplication removed - was too aggressive
+            # and blocked legitimate new learning with the same categories
+
+        return False
+
     def add_finding(
         self,
         type: FindingType,
@@ -126,7 +171,7 @@ class FindingsInbox:
         category: Optional[str] = None,
         related_files: Optional[List[str]] = None,
         learn_more: Optional[str] = None
-    ) -> str:
+    ) -> Optional[str]:
         """
         Add a new finding to the inbox.
 
@@ -146,8 +191,13 @@ class FindingsInbox:
             learn_more: Additional context or documentation links
 
         Returns:
-            The ID of the created finding
+            The ID of the created finding, or None if duplicate
         """
+        # Check for duplicate findings (same title+type within 24h)
+        if self._is_duplicate_finding(type, title, category, hours_window=24):
+            logger.debug(f"Skipping duplicate finding: {title} ({type.value})")
+            return None
+
         finding_id = f"finding_{datetime.now().strftime('%Y%m%d_%H%M%S')}_{uuid.uuid4().hex[:8]}"
 
         expires_at = None
