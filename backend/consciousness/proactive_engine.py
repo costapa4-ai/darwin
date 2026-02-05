@@ -671,6 +671,19 @@ class ProactiveEngine:
             action_fn=self._read_own_post_comments
         ))
 
+        # Curiosity expedition processing
+        self.register_action(ProactiveAction(
+            id="conduct_curiosity_expedition",
+            name="Conduct Curiosity Expedition",
+            description="Explore a topic from the curiosity queue through web research",
+            category=ActionCategory.LEARNING,
+            priority=ActionPriority.MEDIUM,
+            trigger_condition="When there are topics in the expedition queue",
+            cooldown_minutes=15,  # Can conduct expeditions every 15 minutes
+            timeout_seconds=180,  # 3 minutes max for research
+            action_fn=self._conduct_curiosity_expedition
+        ))
+
     def register_action(self, action: ProactiveAction):
         """Register a new proactive action."""
         self.actions[action.id] = action
@@ -2922,6 +2935,84 @@ class ProactiveEngine:
 
         except Exception as e:
             logger.error(f"Failed to read own post comments: {e}")
+            return {"success": False, "error": str(e)}
+
+    async def _conduct_curiosity_expedition(self, context: Dict[str, Any] = None) -> Dict[str, Any]:
+        """
+        Conduct a curiosity expedition from the queue.
+
+        This proactive action picks a topic from the expedition queue and
+        conducts web research to learn about it, creating findings and insights.
+        """
+        try:
+            from api.expedition_routes import expedition_engine
+            if not expedition_engine:
+                return {"success": False, "reason": "Expedition engine not available"}
+
+            # Check if there are topics in the queue
+            queue = expedition_engine.get_queue()
+            if not queue:
+                logger.debug("🔭 No topics in expedition queue")
+                return {"success": True, "reason": "No topics in queue", "expeditions_conducted": 0}
+
+            # Start an expedition from the queue
+            expedition = await expedition_engine.start_expedition()
+            if not expedition:
+                return {"success": False, "reason": "Failed to start expedition"}
+
+            logger.info(f"🔭 Starting expedition: {expedition.topic}")
+
+            # Conduct the expedition (do the actual research)
+            result = await expedition_engine.conduct_expedition()
+
+            if result and result.success:
+                logger.info(
+                    f"🔭 Expedition complete: {result.topic} - "
+                    f"{len(result.discoveries)} discoveries, {len(result.insights)} insights"
+                )
+
+                # Create findings from discoveries
+                findings_created = 0
+                try:
+                    from consciousness.findings_inbox import get_findings_inbox
+                    findings_inbox = get_findings_inbox()
+
+                    for discovery in result.discoveries[:3]:  # Max 3 findings per expedition
+                        findings_inbox.add_finding(
+                            type="discovery",
+                            title=f"Expedition: {discovery.get('title', result.topic)[:50]}",
+                            description=discovery.get('content', '')[:500],
+                            priority="medium",
+                            source="curiosity_expedition",
+                            metadata={
+                                "expedition_id": result.id,
+                                "expedition_topic": result.topic,
+                                "significance": discovery.get('significance', 'medium')
+                            }
+                        )
+                        findings_created += 1
+                except Exception as e:
+                    logger.warning(f"Could not create findings from expedition: {e}")
+
+                return {
+                    "success": True,
+                    "topic": result.topic,
+                    "discoveries": len(result.discoveries),
+                    "insights": len(result.insights),
+                    "findings_created": findings_created,
+                    "duration_minutes": result.duration_minutes,
+                    "related_topics": result.related_topics[:3] if result.related_topics else []
+                }
+            else:
+                logger.warning(f"🔭 Expedition did not succeed: {expedition.topic}")
+                return {
+                    "success": False,
+                    "topic": expedition.topic,
+                    "reason": "Expedition did not find significant results"
+                }
+
+        except Exception as e:
+            logger.error(f"Failed to conduct curiosity expedition: {e}")
             return {"success": False, "error": str(e)}
 
     def _get_ai_api_key(self, settings) -> tuple[str, str]:
