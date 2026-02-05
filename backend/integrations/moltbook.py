@@ -394,7 +394,7 @@ class MoltbookClient:
 
         data = await self._request("POST", "/posts", action="post", json=payload)
 
-        logger.info(f"Created post: {title}")
+        logger.info(f"Created post: {title} (API returned id: '{data.get('id', 'MISSING')}')")
 
         # Track post/share in language evolution
         try:

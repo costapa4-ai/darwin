@@ -2663,6 +2663,7 @@ class ProactiveEngine:
                     self._save_shared_findings()
 
                     # Store own post for later comment reading
+                    logger.info(f"🦞 Post created with id: '{post.id}'")
                     if post.id:
                         self._moltbook_own_posts[post.id] = {
                             "title": title,
