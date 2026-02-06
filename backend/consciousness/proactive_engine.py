@@ -319,6 +319,7 @@ class ProactiveEngine:
         self._moltbook_shared_findings: set = set() # Finding IDs we've shared
         self._moltbook_shared_titles: set = set()   # Content titles we've shared (content dedup)
         self._moltbook_own_posts: Dict[str, Dict] = {}  # Darwin's own posts: {post_id: {title, created_at, last_checked}}
+        self._moltbook_post_topics: Dict[str, Dict] = {}  # Topics extracted from posts for learning
         self._load_moltbook_history()
 
         self._register_default_actions()
@@ -2193,21 +2194,109 @@ class ProactiveEngine:
         except Exception as e:
             logger.debug(f"Could not analyze discoveries: {e}")
 
-        # 2. General curiosity topics (always included)
-        general_topics = [
-            {"query": "linux system monitoring tools 2024", "category": "system_tools", "context": "General knowledge"},
-            {"query": "developer productivity tools", "category": "tooling", "context": "Improving workflow"},
-            {"query": "code quality analysis techniques", "category": "code_quality", "context": "Better analysis"},
-            {"query": "automated testing best practices", "category": "testing", "context": "Testing knowledge"},
-            {"query": "CI/CD pipeline optimization", "category": "devops", "context": "DevOps learning"},
-            {"query": "debugging techniques for developers", "category": "debugging", "context": "Problem solving"},
-            {"query": "software architecture patterns", "category": "architecture", "context": "Design patterns"},
-            {"query": "API design best practices", "category": "api_design", "context": "API knowledge"},
-        ]
+        # 2. Learn from curiosity questions Darwin has generated
+        try:
+            curiosity_findings = inbox.get_by_type(FindingType.CURIOSITY, include_viewed=False, limit=5)
+            for finding in curiosity_findings:
+                question = finding.get('description', '')
+                if question and len(question) > 10:
+                    learning_topics.append({
+                        "query": question[:100],
+                        "category": "curiosity",
+                        "context": f"Darwin's curiosity: {question[:50]}"
+                    })
+        except Exception as e:
+            logger.debug(f"Could not get curiosity questions: {e}")
 
-        # Add a random general topic if we don't have enough context-specific ones
-        if len(learning_topics) < 3:
-            learning_topics.extend(random.sample(general_topics, min(2, len(general_topics))))
+        # 3. Learn from Moltbook discussions Darwin has read
+        try:
+            if hasattr(self, '_moltbook_read_posts') and self._moltbook_read_posts:
+                # Get topics from recently read posts
+                recent_posts = list(self._moltbook_read_posts)[-10:]
+                if hasattr(self, '_moltbook_post_topics'):
+                    for post_id in recent_posts:
+                        topic_info = self._moltbook_post_topics.get(post_id, {})
+                        if topic_info.get('topic'):
+                            learning_topics.append({
+                                "query": f"{topic_info['topic']} deep dive",
+                                "category": "moltbook_inspired",
+                                "context": f"From Moltbook discussion: {topic_info.get('title', '')[:30]}"
+                            })
+        except Exception as e:
+            logger.debug(f"Could not get Moltbook topics: {e}")
+
+        # 4. Learn from expedition results
+        try:
+            from consciousness.curiosity_expeditions import get_expedition_engine
+            expedition_engine = get_expedition_engine()
+            if expedition_engine and hasattr(expedition_engine, 'completed_expeditions'):
+                for exp in list(expedition_engine.completed_expeditions)[-5:]:
+                    if exp.get('success') and exp.get('topic'):
+                        # Generate follow-up learning from successful expeditions
+                        learning_topics.append({
+                            "query": f"{exp['topic']} advanced techniques",
+                            "category": "expedition_followup",
+                            "context": f"Following up on expedition: {exp['topic'][:30]}"
+                        })
+        except Exception as e:
+            logger.debug(f"Could not get expedition topics: {e}")
+
+        # 5. Learn from meta-learner insights about what Darwin is good/bad at
+        try:
+            from consciousness.meta_learner import get_enhanced_meta_learner
+            meta_learner = get_enhanced_meta_learner()
+            if meta_learner:
+                summary = meta_learner.get_learning_summary() if hasattr(meta_learner, 'get_learning_summary') else {}
+                weak_areas = summary.get('weak_areas', [])
+                for area in weak_areas[:2]:
+                    area_name = area if isinstance(area, str) else area.get('area', '')
+                    if area_name:
+                        learning_topics.append({
+                            "query": f"how to improve {area_name} skills",
+                            "category": "self_improvement",
+                            "context": f"Meta-learner identified gap: {area_name}"
+                        })
+        except Exception as e:
+            logger.debug(f"Could not get meta-learner topics: {e}")
+
+        # 6. If still no topics, use AI to generate novel topics based on Darwin's knowledge
+        if len(learning_topics) < 2:
+            try:
+                # Get Darwin's recent learning history to avoid repetition
+                learned_titles = list(getattr(self, '_moltbook_shared_titles', set()))[-20:]
+
+                if self.multi_model_router:
+                    prompt = f"""Darwin is an AI that learns continuously. Based on these recently learned topics:
+{chr(10).join(f'- {t}' for t in learned_titles[-10:])}
+
+Generate 3 completely NEW and different topics Darwin should research next.
+Topics should be:
+- Diverse (technology, science, philosophy, creativity, systems thinking)
+- Not repetitive of what was already learned
+- Interesting and useful for an AI learning about the world
+
+Output format - just the search queries, one per line:"""
+
+                    result = await self.multi_model_router.generate(
+                        task_description="Generate novel learning topics",
+                        prompt=prompt,
+                        max_tokens=200
+                    )
+
+                    ai_topics = result.get('result', '') if isinstance(result, dict) else str(result)
+                    for line in ai_topics.strip().split('\n'):
+                        line = line.strip().strip('-•*').strip()
+                        if line and len(line) > 10 and len(line) < 100:
+                            learning_topics.append({
+                                "query": line,
+                                "category": "ai_generated",
+                                "context": "AI-generated novel topic"
+                            })
+            except Exception as e:
+                logger.debug(f"Could not generate AI topics: {e}")
+
+        # 7. Shuffle to ensure variety and avoid always picking the same ones
+        random.shuffle(learning_topics)
 
         # 3. Execute web research
         learned_items = []
@@ -2451,6 +2540,20 @@ class ProactiveEngine:
 
                 # Track as read to prevent re-reading
                 self._moltbook_read_posts.add(post.id)
+
+                # Extract and store topic for later learning
+                if not hasattr(self, '_moltbook_post_topics'):
+                    self._moltbook_post_topics = {}
+
+                # Extract key topic from post title and content
+                topic_text = f"{post.title} {post.content[:200] if post.content else ''}"
+                self._moltbook_post_topics[post.id] = {
+                    "title": post.title,
+                    "topic": post.title,  # Use title as topic
+                    "tags": getattr(post, 'tags', []),
+                    "submolt": post.submolt,
+                    "read_at": datetime.now().isoformat()
+                }
 
                 # Vote based on Darwin's sentiment about the post
                 if post.id not in self._moltbook_voted_posts and thought:
