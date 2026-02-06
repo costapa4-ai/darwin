@@ -2502,6 +2502,22 @@ Just output the topic, nothing else.""",
             dream.success = True
             self.sleep_dreams.append(dream)
 
+            # Trigger ON_DREAM hook
+            try:
+                from consciousness.hooks import trigger_hook, HookEvent
+                await trigger_hook(
+                    HookEvent.ON_DREAM,
+                    data={
+                        "topic": dream.topic,
+                        "success": dream.success,
+                        "insights_count": len(dream.insights),
+                        "duration_seconds": (dream.completed_at - dream.started_at).total_seconds() if dream.started_at else 0
+                    },
+                    source="consciousness_engine"
+                )
+            except Exception:
+                pass  # Hooks are optional
+
             print(f"   ✅ Dream completed with {len(dream.insights)} insights stored")
 
             # Announce completion via communicator

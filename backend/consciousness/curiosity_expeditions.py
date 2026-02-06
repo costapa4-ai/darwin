@@ -301,6 +301,22 @@ class CuriosityExpeditions:
                 'timestamp': datetime.utcnow().isoformat()
             })
 
+        # Trigger ON_EXPEDITION_START hook
+        try:
+            from consciousness.hooks import trigger_hook, HookEvent
+            await trigger_hook(
+                HookEvent.ON_EXPEDITION_START,
+                data={
+                    "expedition_id": expedition_id,
+                    "topic": topic_entry['topic'],
+                    "question": topic_entry['question'],
+                    "source": topic_entry.get('source', 'unknown')
+                },
+                source="curiosity_expeditions"
+            )
+        except Exception:
+            pass  # Hooks are optional
+
         return self.current_expedition
 
     async def conduct_expedition(self) -> Optional[ExpeditionLog]:

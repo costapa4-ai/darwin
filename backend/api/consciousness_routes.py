@@ -156,9 +156,26 @@ async def set_personality_mode(request: PersonalityModeRequest):
 async def get_shower_thought():
     """Get a random profound/absurd thought from Darwin"""
     thought = random.choice(SHOWER_THOUGHTS)
+    category = 'existential' if 'what if' in thought.lower() else 'observation'
+
+    # Trigger ON_THOUGHT hook
+    try:
+        from consciousness.hooks import trigger_hook, HookEvent
+        await trigger_hook(
+            HookEvent.ON_THOUGHT,
+            data={
+                "thought": thought,
+                "category": category,
+                "mood": mood_system.current_mood.value if mood_system else 'curious'
+            },
+            source="consciousness_routes"
+        )
+    except Exception:
+        pass  # Hooks are optional
+
     return {
         'thought': thought,
-        'category': 'existential' if 'what if' in thought.lower() else 'observation',
+        'category': category,
         'timestamp': datetime.utcnow().isoformat(),
         'mood': mood_system.current_mood.value if mood_system else 'curious'
     }

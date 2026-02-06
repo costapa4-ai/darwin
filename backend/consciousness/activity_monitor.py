@@ -301,6 +301,25 @@ class ActivityMonitor:
             details=details
         )
 
+        # Trigger ON_ERROR hook
+        try:
+            import asyncio
+            from consciousness.hooks import trigger_hook, HookEvent
+            asyncio.create_task(
+                trigger_hook(
+                    HookEvent.ON_ERROR,
+                    data={
+                        "category": category.value,
+                        "action": action,
+                        "error": error[:500],
+                        "details": details
+                    },
+                    source="activity_monitor"
+                )
+            )
+        except Exception:
+            pass  # Hooks are optional
+
     def _add_log(self, log: ActivityLog):
         """Add log to memory and persist"""
         self.logs.append(log)

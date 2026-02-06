@@ -284,6 +284,24 @@ class FinancialConsciousness:
             try:
                 await self.channel_gateway.broadcast_status(alert_message, "alert")
                 self.last_alert_time = datetime.utcnow()
+
+                # Trigger ON_BUDGET_ALERT hook
+                try:
+                    from consciousness.hooks import trigger_hook, HookEvent
+                    await trigger_hook(
+                        HookEvent.ON_BUDGET_ALERT,
+                        data={
+                            "message": alert_message,
+                            "daily_cost": self.daily_cost,
+                            "daily_budget": self.daily_budget,
+                            "percent_used": daily_percent,
+                            "exceeded": daily_percent >= 100
+                        },
+                        source="financial_consciousness"
+                    )
+                except Exception:
+                    pass  # Hooks are optional
+
                 return alert_message
             except Exception as e:
                 logger.error(f"Failed to send cost alert: {e}")

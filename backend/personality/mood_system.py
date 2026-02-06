@@ -400,9 +400,30 @@ class MoodSystem:
             self.mood_history = self.mood_history[-self.history_limit:]
 
         # Update current mood
+        old_mood = self.current_mood
         self.current_mood = new_mood
         self.mood_intensity = intensity
         self.mood_start_time = datetime.now()
+
+        # Trigger ON_MOOD_CHANGE hook
+        try:
+            import asyncio
+            from consciousness.hooks import trigger_hook, HookEvent
+            asyncio.create_task(
+                trigger_hook(
+                    HookEvent.ON_MOOD_CHANGE,
+                    data={
+                        "old_mood": old_mood.value if old_mood else None,
+                        "new_mood": new_mood.value,
+                        "intensity": intensity.value,
+                        "event": event,
+                        "timestamp": datetime.now().isoformat()
+                    },
+                    source="mood_system"
+                )
+            )
+        except Exception as e:
+            pass  # Hooks are optional
 
     def _calculate_mood_intensity(self) -> MoodIntensity:
         """
