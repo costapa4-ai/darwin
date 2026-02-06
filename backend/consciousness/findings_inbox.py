@@ -258,8 +258,9 @@ class FindingsInbox:
             except Exception as e:
                 logger.debug(f"Could not broadcast to channels: {e}")
 
-        # Trigger ON_FINDING hook for feedback loops (HIGH/URGENT findings)
-        if priority in [FindingPriority.HIGH, FindingPriority.URGENT]:
+        # Trigger ON_FINDING hook for feedback loops (MEDIUM/HIGH/URGENT findings)
+        # This feeds interesting findings into the expedition queue for investigation
+        if priority in [FindingPriority.MEDIUM, FindingPriority.HIGH, FindingPriority.URGENT]:
             try:
                 import asyncio
                 from consciousness.hooks import trigger_hook, HookEvent

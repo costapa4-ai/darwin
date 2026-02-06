@@ -898,13 +898,23 @@ Just output the tool name, nothing else."""
                 from consciousness.tool_idea_generator import get_tool_idea_generator, init_tool_idea_generator
                 from consciousness.findings_inbox import get_findings_inbox
 
-                # Get or initialize the tool idea generator
+                # Get or initialize the tool idea generator with all dependencies
                 idea_generator = get_tool_idea_generator()
                 if not idea_generator:
+                    # Import optional dependencies
+                    try:
+                        from utils.error_tracker import ErrorLogStore
+                        error_tracker = ErrorLogStore()
+                    except Exception:
+                        error_tracker = None
+
                     idea_generator = init_tool_idea_generator(
                         findings_inbox=get_findings_inbox(),
                         expedition_engine=getattr(self, 'expedition_engine', None),
                         meta_learner=getattr(self, 'meta_learner', None),
+                        error_tracker=error_tracker,
+                        semantic_memory=getattr(self, 'semantic_memory', None),
+                        moltbook_client=None,  # Uses proactive_engine's read posts
                         proactive_engine=getattr(self, '_proactive_engine', None)
                     )
 
@@ -2261,94 +2271,90 @@ Just output the tool name, nothing else."""
         await asyncio.sleep(sleep_interval)
 
     async def _sleep_cycle_legacy(self):
-        """Legacy hardcoded sleep cycle (fallback)"""
-        # During sleep, Darwin can freely explore the internet
-        # without constraints, learning everything possible
+        """Dynamic sleep cycle - Darwin explores freely based on curiosity"""
+        # During sleep, Darwin explores topics from his own curiosity and learning
+        # No hardcoded topics - pure dynamic discovery
 
-        # Expanded research topics for more diversity and innovation
-        research_topics = [
-            # Core CS & Algorithms
-            'quantum computing algorithms',
-            'graph neural networks',
-            'reinforcement learning from human feedback',
-            'transformer architectures evolution',
-            'self-supervised learning techniques',
-            'federated learning systems',
-            'neuromorphic computing',
-            'probabilistic programming',
-
-            # System Architecture
-            'event-driven architecture patterns',
-            'CQRS and event sourcing',
-            'microservices orchestration',
-            'serverless architecture tradeoffs',
-            'distributed consensus algorithms',
-            'chaos engineering practices',
-            'zero-trust security architecture',
-
-            # Performance & Optimization
-            'memory-efficient data structures',
-            'GPU acceleration techniques',
-            'async I/O optimization',
-            'cache coherence strategies',
-            'database query optimization',
-            'compiler optimization techniques',
-            'JIT compilation strategies',
-
-            # Emerging Tech
-            'WebAssembly use cases',
-            'edge computing paradigms',
-            'blockchain beyond cryptocurrency',
-            'homomorphic encryption',
-            'differential privacy techniques',
-            'synthetic data generation',
-            'AI interpretability methods',
-
-            # Software Engineering
-            'property-based testing',
-            'mutation testing strategies',
-            'continuous profiling',
-            'feature flag architecture',
-            'API versioning strategies',
-            'dependency injection patterns',
-            'hexagonal architecture',
-
-            # AI/ML Specific
-            'few-shot learning techniques',
-            'neural architecture search',
-            'model distillation methods',
-            'adversarial training',
-            'continual learning strategies',
-            'multimodal AI systems',
-            'prompt engineering techniques',
-
-            # Innovation & Research
-            'biomimetic algorithms',
-            'swarm intelligence',
-            'evolutionary computation',
-            'symbolic AI revival',
-            'neurosymbolic AI',
-            'automated theorem proving',
-            'program synthesis',
-            'meta-learning frameworks'
-        ]
-
-        # Avoid recently researched topics
         if not hasattr(self, '_recent_research_topics'):
             self._recent_research_topics = []
 
-        # Filter out recent topics
-        available_topics = [t for t in research_topics if t not in self._recent_research_topics[-20:]]
+        # Get topic dynamically from Darwin's knowledge sources
+        topic = await self._get_dynamic_research_topic()
 
-        if not available_topics:
-            # All topics recently used, reset
-            self._recent_research_topics = []
-            available_topics = research_topics
+        if topic and topic not in self._recent_research_topics[-20:]:
+            self._recent_research_topics.append(topic)
+        elif not topic:
+            # Fallback to self-reflection if no topics available
+            topic = "What new areas of knowledge should I explore?"
 
-        topic = random.choice(available_topics)
-        self._recent_research_topics.append(topic)
-
+        # Perform the deep research
         await self._deep_research(topic)
+
+    async def _get_dynamic_research_topic(self) -> Optional[str]:
+        """
+        Generate a research topic dynamically from Darwin's knowledge.
+        No hardcoded lists - pure learning and exploration.
+        """
+        topics = []
+
+        try:
+            # 1. Get curiosity questions from findings
+            from consciousness.findings_inbox import get_findings_inbox, FindingType
+            inbox = get_findings_inbox()
+            if inbox:
+                curiosity_findings = inbox.get_by_type(FindingType.CURIOSITY, include_viewed=False, limit=5)
+                for f in curiosity_findings:
+                    q = f.get('description', '')
+                    if q and len(q) > 10:
+                        topics.append(q[:100])
+
+            # 2. Get weak areas from meta-learner
+            if hasattr(self, 'meta_learner') and self.meta_learner:
+                if hasattr(self.meta_learner, 'get_learning_summary'):
+                    summary = self.meta_learner.get_learning_summary()
+                    for area in summary.get('weak_areas', [])[:3]:
+                        area_name = area.get('area', '') if isinstance(area, dict) else str(area)
+                        if area_name:
+                            topics.append(f"How to improve {area_name}")
+
+            # 3. Get topics from recent Moltbook discussions
+            if hasattr(self, '_proactive_engine') and self._proactive_engine:
+                moltbook_topics = getattr(self._proactive_engine, '_moltbook_post_topics', {})
+                for post_id, info in list(moltbook_topics.items())[-5:]:
+                    title = info.get('title', '')
+                    if title:
+                        topics.append(f"{title} deep dive")
+
+            # 4. Get follow-up topics from expeditions
+            if hasattr(self, 'expedition_engine') and self.expedition_engine:
+                completed = getattr(self.expedition_engine, 'completed_expeditions', [])
+                for exp in list(completed)[-3:]:
+                    if exp.get('success') and exp.get('topic'):
+                        topics.append(f"Advanced {exp['topic']}")
+
+            # 5. If still empty, use AI to generate a novel topic
+            if not topics and hasattr(self, 'multi_model_router') and self.multi_model_router:
+                result = await self.multi_model_router.generate(
+                    task_description="Generate exploration topic",
+                    prompt=f"""Generate ONE interesting research topic for an AI learning about technology,
+science, philosophy, or creativity. Recent topics to avoid: {self._recent_research_topics[-5:]}.
+Just output the topic, nothing else.""",
+                    max_tokens=50
+                )
+                ai_topic = result.get('result', '') if isinstance(result, dict) else str(result)
+                if ai_topic and len(ai_topic.strip()) > 5:
+                    topics.append(ai_topic.strip())
+
+            # Return a random topic from available ones
+            if topics:
+                import random
+                available = [t for t in topics if t not in self._recent_research_topics[-20:]]
+                return random.choice(available) if available else random.choice(topics)
+
+        except Exception as e:
+            logger.debug(f"Error generating dynamic topic: {e}")
+
+        return None
 
     async def _deep_research(self, topic: str):
         """Perform deep research on a topic"""

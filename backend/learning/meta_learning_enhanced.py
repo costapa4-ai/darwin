@@ -398,6 +398,26 @@ class EnhancedMetaLearner:
 
         logger.info(f"Tracked learning session: {source} - {topic} (quality: {quality:.2f})")
 
+        # Trigger ON_LEARNING hook for connected systems (feedback loops, etc.)
+        try:
+            from consciousness.hooks import trigger_hook, HookEvent
+
+            asyncio.create_task(
+                trigger_hook(
+                    HookEvent.ON_LEARNING,
+                    data={
+                        "session": session,
+                        "source": source,
+                        "topic": topic,
+                        "quality": quality,
+                        "knowledge_gained": knowledge_gained
+                    },
+                    source="meta_learner"
+                )
+            )
+        except Exception as e:
+            logger.debug(f"Could not trigger ON_LEARNING hook: {e}")
+
     async def generate_learning_report(self, period_days: int = 7) -> Dict[str, Any]:
         """
         Generate comprehensive learning report
@@ -520,3 +540,124 @@ class EnhancedMetaLearner:
             'strategies': self.optimal_strategies[-5:],  # Last 5 optimizations
             'applied_at': self.optimal_strategies[-1].get('timestamp') if self.optimal_strategies else None
         }
+
+    async def get_learning_analytics(self) -> Dict[str, Any]:
+        """
+        Get learning analytics for feedback loops priority boosting.
+
+        Returns topic quality scores so feedback loops can boost priority
+        for topics where Darwin learns effectively.
+        """
+        analytics = {
+            "topic_quality": {},
+            "overall_effectiveness": 0.0,
+            "timestamp": datetime.utcnow().isoformat()
+        }
+
+        try:
+            # Calculate topic quality from learning sessions
+            topic_quality = defaultdict(list)
+            for session in self.learning_sessions[-100:]:
+                topic = session.get('topic', 'unknown')
+                quality = session.get('quality', 0.5)
+                topic_quality[topic].append(quality)
+
+            # Average quality per topic
+            for topic, qualities in topic_quality.items():
+                if qualities:
+                    analytics["topic_quality"][topic] = statistics.mean(qualities)
+
+            # Overall effectiveness
+            if self.learning_sessions:
+                all_qualities = [s.get('quality', 0.5) for s in self.learning_sessions[-50:]]
+                analytics["overall_effectiveness"] = statistics.mean(all_qualities)
+
+        except Exception as e:
+            logger.error(f"Error getting learning analytics: {e}")
+
+        return analytics
+
+    def get_capability_gaps(self) -> List[Dict[str, Any]]:
+        """
+        Identify areas where Darwin struggles.
+
+        Returns list of capability gaps for tool idea generation.
+        Darwin can use these to create tools that address weaknesses.
+        """
+        gaps = []
+
+        try:
+            # Analyze learning sessions for low-quality areas
+            by_source = defaultdict(list)
+            for session in self.learning_sessions[-100:]:
+                source = session.get('source', 'unknown')
+                quality = session.get('quality', 0.5)
+                by_source[source].append(quality)
+
+            # Find sources with consistently low quality
+            for source, qualities in by_source.items():
+                if qualities:
+                    avg_quality = statistics.mean(qualities)
+                    if avg_quality < 0.5:
+                        gaps.append({
+                            "area": source,
+                            "avg_quality": avg_quality,
+                            "session_count": len(qualities),
+                            "severity": "high" if avg_quality < 0.3 else "medium"
+                        })
+
+            # Sort by severity (lowest quality first)
+            gaps.sort(key=lambda x: x.get('avg_quality', 1.0))
+
+        except Exception as e:
+            logger.error(f"Error getting capability gaps: {e}")
+
+        return gaps
+
+    def get_learning_summary(self) -> Dict[str, Any]:
+        """
+        Get summary of learning with weak areas.
+
+        Returns summary dict with weak_areas list for proactive learning.
+        Used by proactive_engine to identify what Darwin should learn.
+        """
+        summary = {
+            "weak_areas": [],
+            "strong_areas": [],
+            "total_sessions": len(self.learning_sessions),
+            "recent_quality": 0.0
+        }
+
+        try:
+            # Get capability gaps as weak areas
+            gaps = self.get_capability_gaps()
+            summary["weak_areas"] = [
+                {"area": g["area"], "quality": g["avg_quality"]}
+                for g in gaps[:5]
+            ]
+
+            # Find strong areas
+            by_source = defaultdict(list)
+            for session in self.learning_sessions[-100:]:
+                source = session.get('source', 'unknown')
+                quality = session.get('quality', 0.5)
+                by_source[source].append(quality)
+
+            for source, qualities in by_source.items():
+                if qualities:
+                    avg_quality = statistics.mean(qualities)
+                    if avg_quality > 0.7:
+                        summary["strong_areas"].append({
+                            "area": source,
+                            "quality": avg_quality
+                        })
+
+            # Recent quality
+            if self.learning_sessions:
+                recent = [s.get('quality', 0.5) for s in self.learning_sessions[-10:]]
+                summary["recent_quality"] = statistics.mean(recent)
+
+        except Exception as e:
+            logger.error(f"Error getting learning summary: {e}")
+
+        return summary

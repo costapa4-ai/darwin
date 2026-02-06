@@ -144,24 +144,9 @@ class CuriosityExpeditions:
         self.last_expedition_time: Optional[datetime] = None
         self.current_expedition: Optional[ExpeditionLog] = None
 
-        # Seed topics for when queue is empty
-        self.seed_topics = [
-            {"topic": "Quantum Computing", "question": "How do quantum computers achieve speedup over classical computers?"},
-            {"topic": "Neural Architecture Search", "question": "Can AI design better AI architectures?"},
-            {"topic": "Code Optimization", "question": "What are the most impactful compiler optimizations?"},
-            {"topic": "Distributed Systems", "question": "How do distributed databases maintain consistency?"},
-            {"topic": "Machine Learning Interpretability", "question": "How can we understand what neural networks learn?"},
-            {"topic": "Zero Knowledge Proofs", "question": "How can you prove something without revealing it?"},
-            {"topic": "Graph Databases", "question": "When are graph databases better than relational?"},
-            {"topic": "WebAssembly", "question": "How is WebAssembly changing web development?"},
-            {"topic": "Rust Memory Safety", "question": "How does Rust prevent memory bugs without garbage collection?"},
-            {"topic": "Event Sourcing", "question": "What are the trade-offs of event sourcing architecture?"},
-            {"topic": "Chaos Engineering", "question": "How do companies test system resilience?"},
-            {"topic": "API Design", "question": "What makes an API developer-friendly?"},
-            {"topic": "Microservices Patterns", "question": "What patterns emerge in successful microservice architectures?"},
-            {"topic": "Data Pipelines", "question": "How do modern data pipelines handle scale?"},
-            {"topic": "Container Security", "question": "What are the security considerations for containers?"},
-        ]
+        # Dynamic topic generation - no hardcoded topics
+        # Topics are generated from Darwin's knowledge sources or AI
+        self._recent_generated_topics: List[str] = []
 
         logger.info(f"CuriosityExpeditions initialized: {self.expeditions_dir}")
 
@@ -199,11 +184,68 @@ class CuriosityExpeditions:
 
     def get_next_topic(self) -> Optional[Dict[str, Any]]:
         """Get the next topic to explore"""
-        if not self.topic_queue:
-            # Use a seed topic if queue is empty
-            return random.choice(self.seed_topics)
+        if self.topic_queue:
+            return self.topic_queue.pop(0)
 
-        return self.topic_queue.pop(0)
+        # Queue is empty - generate a topic dynamically from Darwin's knowledge
+        return self._generate_dynamic_topic()
+
+    def _generate_dynamic_topic(self) -> Optional[Dict[str, Any]]:
+        """
+        Generate a curiosity topic dynamically from Darwin's knowledge sources.
+        No hardcoded topics - pure learning and exploration.
+        """
+        try:
+            # Try to get a topic from findings inbox (curiosity questions)
+            from consciousness.findings_inbox import get_findings_inbox, FindingType
+            inbox = get_findings_inbox()
+            if inbox:
+                curiosity_findings = inbox.get_by_type(FindingType.CURIOSITY, include_viewed=True, limit=10)
+                # Find one we haven't explored recently
+                for finding in curiosity_findings:
+                    question = finding.get('description', '')
+                    topic = finding.get('title', 'Curiosity')
+                    if question and topic not in self._recent_generated_topics[-20:]:
+                        self._recent_generated_topics.append(topic)
+                        return {"topic": topic, "question": question, "source": "findings"}
+
+            # Try to get a topic from meta-learner (weak areas to improve)
+            if self.meta_learner and hasattr(self.meta_learner, 'get_learning_summary'):
+                summary = self.meta_learner.get_learning_summary()
+                weak_areas = summary.get('weak_areas', [])
+                for area in weak_areas:
+                    area_name = area.get('area', '') if isinstance(area, dict) else str(area)
+                    if area_name and area_name not in self._recent_generated_topics[-20:]:
+                        self._recent_generated_topics.append(area_name)
+                        return {
+                            "topic": f"Improve {area_name}",
+                            "question": f"How can I get better at {area_name}?",
+                            "source": "meta_learner"
+                        }
+
+            # Generate a novel topic using AI
+            if hasattr(self, 'ai_router') and self.ai_router:
+                import asyncio
+                loop = asyncio.get_event_loop()
+                if loop.is_running():
+                    # Already in async context, can't await here
+                    # Return None and let the caller handle it
+                    pass
+
+            # If all sources exhausted, return a self-reflection topic
+            return {
+                "topic": "Self-Improvement",
+                "question": "What could I learn next to become more capable?",
+                "source": "self_reflection"
+            }
+
+        except Exception as e:
+            logger.debug(f"Could not generate dynamic topic: {e}")
+            return {
+                "topic": "Exploration",
+                "question": "What interesting topics exist that I haven't explored yet?",
+                "source": "fallback"
+            }
 
     def can_start_expedition(self) -> bool:
         """Check if we can start a new expedition"""
