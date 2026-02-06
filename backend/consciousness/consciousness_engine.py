@@ -891,58 +891,48 @@ Just output the tool name, nothing else."""
                                 tool_idea = "Code pattern analyzer"
                                 break
 
-        # Fallback to hardcoded + expanded list
+        # Fallback: Use ToolIdeaGenerator to find meaningful tool ideas
+        # from Darwin's knowledge sources (findings, expeditions, meta-learner, etc.)
         if not tool_idea:
-            tool_ideas = [
-                "Code complexity analyzer",
-                "Automated test generator",
-                "Performance profiler",
-                "Documentation generator",
-                "Dependency analyzer",
-                "Security vulnerability scanner",
-                "API rate limiter",
-                "Data validator",
-                "Cache manager",
-                # NEW: Expanded list
-                "Memory leak detector",
-                "API response time optimizer",
-                "Database query analyzer",
-                "Frontend bundle size optimizer",
-                "Environment configuration validator",
-                "Log aggregation tool",
-                "Health check dashboard",
-                "Metrics collector",
-                "Error tracking system",
-                "Load testing framework"
-            ]
+            try:
+                from consciousness.tool_idea_generator import get_tool_idea_generator, init_tool_idea_generator
+                from consciousness.findings_inbox import get_findings_inbox
 
-            # Filter out already submitted, existing, and pending tools
-            existing_tools = self._get_existing_tools()
-            pending_tools = self._get_pending_tool_changes()
+                # Get or initialize the tool idea generator
+                idea_generator = get_tool_idea_generator()
+                if not idea_generator:
+                    idea_generator = init_tool_idea_generator(
+                        findings_inbox=get_findings_inbox(),
+                        expedition_engine=getattr(self, 'expedition_engine', None),
+                        meta_learner=getattr(self, 'meta_learner', None),
+                        proactive_engine=getattr(self, '_proactive_engine', None)
+                    )
 
-            available_tools = [
-                tool for tool in tool_ideas
-                if (not self._is_insight_submitted(f"tool:{tool}") and
-                    tool not in existing_tools and
-                    tool not in pending_tools)
-            ]
+                # Update existing tools to avoid duplicates
+                existing_tools = self._get_existing_tools()
+                pending_tools = self._get_pending_tool_changes()
+                idea_generator.set_existing_tools(list(existing_tools) + list(pending_tools))
 
-            # Log what we're skipping
-            if len(tool_ideas) > len(available_tools):
-                skipped = len(tool_ideas) - len(available_tools)
-                print(f"   🔍 Filtered out {skipped} existing/pending tools")
+                # Generate a meaningful tool idea from Darwin's knowledge
+                idea = await idea_generator.generate_idea()
 
-            # If all tools submitted, generate a unique one
-            if not available_tools:
-                # Generate unique tool based on timestamp
-                concepts = ["optimizer", "analyzer", "validator", "monitor", "tracker", "profiler"]
-                targets = ["API", "database", "memory", "network", "security", "performance"]
-                import time
-                tool_idea = f"{random.choice(targets)} {random.choice(concepts)} {int(time.time()) % 1000}"
-                activity.insights.append(f"Generated unique tool: {tool_idea}")
-                print(f"   🎲 Generated unique tool: {tool_idea}")
-            else:
-                tool_idea = random.choice(available_tools)
+                if idea:
+                    tool_idea = idea.name
+                    activity.insights.append(f"Tool idea from {idea.source.value}: {idea.name}")
+                    print(f"   🧠 Generated from {idea.source.value}: {tool_idea}")
+                    print(f"   📋 Evidence: {idea.evidence[0] if idea.evidence else 'N/A'}")
+                else:
+                    # No meaningful ideas available - skip tool creation
+                    activity.insights.append("No meaningful tool ideas available from knowledge sources")
+                    print(f"   ✅ No meaningful tool ideas available - skipping tool creation")
+                    return activity
+
+            except Exception as e:
+                logger.warning(f"Could not use ToolIdeaGenerator: {e}")
+                # Last resort: skip tool creation rather than generate random
+                activity.insights.append(f"Tool idea generation unavailable: {e}")
+                print(f"   ⚠️ Tool idea generation unavailable - skipping")
+                return activity
         activity.insights.append(f"Tool idea: {tool_idea}")
         print(f"   💡 Idea: {tool_idea}")
 

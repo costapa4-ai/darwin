@@ -394,7 +394,13 @@ class MoltbookClient:
 
         data = await self._request("POST", "/posts", action="post", json=payload)
 
-        logger.info(f"Created post: {title} (API returned id: '{data.get('id', 'MISSING')}')")
+        # Debug: log full API response to identify correct ID field
+        logger.info(f"Created post: {title} (API response keys: {list(data.keys()) if isinstance(data, dict) else type(data)})")
+
+        # Try common ID field names
+        post_id = data.get('id') or data.get('post_id') or data.get('_id') or data.get('uuid') or ''
+        if post_id:
+            logger.info(f"Found post ID: {post_id}")
 
         # Track post/share in language evolution
         try:
@@ -405,20 +411,20 @@ class MoltbookClient:
             lang_service.add_content(
                 content_type='share',
                 darwin_content=full_content,
-                source_post_id=data.get('id', ''),
+                source_post_id=post_id,
                 source_post_title=title,
                 source_post_url=url,
                 metadata={
                     'submolt': submolt,
                     'url': url,
-                    'post_id': data.get('id', '')
+                    'post_id': post_id
                 }
             )
         except Exception as e:
             logger.warning(f"Failed to track post in language evolution: {e}")
 
         return MoltbookPost(
-            id=data.get('id', ''),
+            id=post_id,
             title=title,
             content=content,
             url=url,
