@@ -31,16 +31,19 @@ services:
       - CONSCIOUSNESS_DEBUG_MODE=off
       # Ollama (local LLM - FREE!)
       - OLLAMA_ENABLED=${OLLAMA_ENABLED:-true}
-      - OLLAMA_URL=${OLLAMA_URL:-http://ollama:11434}
-      - OLLAMA_MODEL=${OLLAMA_MODEL:-llama3.2}
+      - OLLAMA_URL=${OLLAMA_URL:-http://host.docker.internal:11434}
+      - OLLAMA_MODEL=${OLLAMA_MODEL:-qwen2.5:7b}
+      - OLLAMA_CODE_MODEL=${OLLAMA_CODE_MODEL:-qwen2.5-coder:14b}
+      - OLLAMA_REASONING_MODEL=${OLLAMA_REASONING_MODEL:-qwen2.5:7b}
     volumes:
       - ./data:/app/data
       - ./logs:/app/logs
       - ./backend:/app
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     depends_on:
       - redis
       - sandbox
-      - ollama
     networks:
       - darwin-net
     restart: unless-stopped

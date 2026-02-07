@@ -98,7 +98,7 @@ class Nucleus:
                 result = await self.router.generate(
                     task_description=task.get('description', ''),
                     prompt=prompt,
-                    max_tokens=2048
+                    max_tokens=8192
                 )
                 code = self._extract_code(result["result"])
                 logger.info(f"Solution generated using {result['model_used']}", extra={
@@ -110,7 +110,7 @@ class Nucleus:
             elif self.provider == "claude":
                 response = self.client.messages.create(
                     model=self.model,
-                    max_tokens=2048,
+                    max_tokens=8192,
                     messages=[{
                         "role": "user",
                         "content": prompt
@@ -218,7 +218,7 @@ Return ONLY the improved Python code, no explanations."""
             if self.provider == "claude":
                 response = self.client.messages.create(
                     model=self.model,
-                    max_tokens=2048,
+                    max_tokens=8192,
                     messages=[{"role": "user", "content": prompt}]
                 )
                 improved_code = self._extract_code(response.content[0].text)

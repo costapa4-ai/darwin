@@ -343,6 +343,47 @@ class CodeGenerator:
 
         return f"tools/{filename}.py"
 
+    def _is_truncated(self, code: str) -> bool:
+        """
+        Detect if generated code was truncated mid-output.
+
+        Checks for signs of incomplete code:
+        - Unclosed parentheses, brackets, braces
+        - Incomplete string literals
+        - Code ending mid-statement (no newline at end)
+        - Missing closing of class/function definitions
+
+        Returns:
+            True if code appears truncated
+        """
+        if not code or len(code) < 50:
+            return False
+
+        # Count bracket balance
+        open_parens = code.count('(') - code.count(')')
+        open_brackets = code.count('[') - code.count(']')
+        open_braces = code.count('{') - code.count('}')
+
+        if open_parens > 0 or open_brackets > 0 or open_braces > 0:
+            print(f"   ⚠️ Truncation detected: unbalanced brackets (parens={open_parens}, brackets={open_brackets}, braces={open_braces})")
+            return True
+
+        # Check for unclosed triple-quoted strings
+        triple_double = code.count('"""')
+        triple_single = code.count("'''")
+        if triple_double % 2 != 0 or triple_single % 2 != 0:
+            print(f"   ⚠️ Truncation detected: unclosed triple-quoted string")
+            return True
+
+        # Check if code ends abruptly (no newline, ends mid-line with common incomplete patterns)
+        last_line = code.rstrip().split('\n')[-1].strip()
+        incomplete_endings = [',', '(', '[', '{', ':', '+', '-', '*', '/', '=', 'and', 'or', 'not', 'in', '\\']
+        if last_line and any(last_line.endswith(e) for e in incomplete_endings):
+            print(f"   ⚠️ Truncation detected: code ends with incomplete statement: '{last_line[-30:]}'")
+            return True
+
+        return False
+
     def _clean_markdown_fences(self, code: str) -> str:
         """
         Remove markdown code fences from generated code.
@@ -395,7 +436,7 @@ class CodeGenerator:
                 result = await self.multi_model_router.generate(
                     task_description=f"[CRITICAL] Generate production Python code to implement: {insight.title}. Requires careful architecture and implementation.",
                     prompt=prompt,
-                    max_tokens=2000,
+                    max_tokens=8192,
                     context={
                         'code_length': 150,  # Signal large code generation to trigger COMPLEX
                         'task_type': 'code_generation',
@@ -408,6 +449,26 @@ class CodeGenerator:
 
                 # Try to extract code block from markdown
                 code = self._extract_code_from_response(response, current_code)
+
+                # Check if code was truncated and retry with higher token limit
+                if self._is_truncated(code):
+                    print(f"   🔄 Code appears truncated, retrying with max_tokens=16384...")
+                    result = await self.multi_model_router.generate(
+                        task_description=f"[CRITICAL] Generate COMPLETE production Python code for: {insight.title}. Previous attempt was truncated. Output the FULL code.",
+                        prompt=prompt,
+                        max_tokens=16384,
+                        context={
+                            'code_length': 300,  # Force COMPLEX routing
+                            'task_type': 'code_generation',
+                            'priority': 'high'
+                        }
+                    )
+                    response = result.get('result', '') if isinstance(result, dict) else str(result)
+                    code = self._extract_code_from_response(response, current_code)
+
+                    if self._is_truncated(code):
+                        print(f"   ⚠️ Code still truncated after retry - proceeding with best effort")
+
                 explanation = f"AI-generated implementation of: {insight.title}"
 
                 return code, explanation
@@ -515,7 +576,7 @@ Return ONLY the corrected Python code in a code block. No explanations needed.
             result = await self.multi_model_router.generate(
                 task_description=f"[CRITICAL] Fix validation errors in Python code for: {insight_title}",
                 prompt=correction_prompt,
-                max_tokens=4000,  # Allow longer response for full code
+                max_tokens=8192,  # Must be large enough for complete corrected code
                 context={
                     'code_length': 200,  # Force COMPLEX routing
                     'task_type': 'code_correction',
@@ -910,7 +971,7 @@ Return ONLY the test code, no explanations.
             result = await self.multi_model_router.generate(
                 task_description=f"Generate tests for: {insight.title}",
                 prompt=prompt,
-                max_tokens=1000
+                max_tokens=4096
             )
             # Extract code from result
             response = result.get('result', '') if isinstance(result, dict) else str(result)

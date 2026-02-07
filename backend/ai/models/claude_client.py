@@ -38,7 +38,7 @@ class ClaudeClient(BaseModelClient):
         prompt: str,
         system_prompt: Optional[str] = None,
         temperature: float = 0.7,
-        max_tokens: int = 2000
+        max_tokens: int = 8192
     ) -> str:
         """Generate completion using Claude"""
         try:
@@ -59,10 +59,15 @@ class ClaudeClient(BaseModelClient):
             # Update latency
             self.avg_latency_ms = int((time.time() - start_time) * 1000)
 
+            # Check if response was truncated by token limit
+            self.last_truncated = getattr(response, 'stop_reason', None) == 'max_tokens'
+            if self.last_truncated:
+                logger.warning(f"⚠️ Claude response TRUNCATED (hit max_tokens={max_tokens}). Output is incomplete!")
+
             # Extract text
             result = response.content[0].text
 
-            logger.info(f"Claude generated response in {self.avg_latency_ms}ms")
+            logger.info(f"Claude generated {len(result)} chars in {self.avg_latency_ms}ms (truncated={self.last_truncated})")
             return result
 
         except Exception as e:

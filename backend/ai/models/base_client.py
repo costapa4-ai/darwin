@@ -26,6 +26,7 @@ class BaseModelClient(ABC):
         self.capabilities: List[ModelCapability] = []
         self.cost_per_1k_tokens = 0.0
         self.avg_latency_ms = 0
+        self.last_truncated = False  # True if last response hit token limit
 
     @abstractmethod
     async def generate(
@@ -33,7 +34,7 @@ class BaseModelClient(ABC):
         prompt: str,
         system_prompt: Optional[str] = None,
         temperature: float = 0.7,
-        max_tokens: int = 2000
+        max_tokens: int = 8192
     ) -> str:
         """
         Generate completion from model

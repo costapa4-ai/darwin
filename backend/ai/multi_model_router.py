@@ -111,18 +111,67 @@ class MultiModelRouter:
             except Exception as e:
                 logger.error(f"Failed to initialize OpenAI: {e}")
 
-        # Ollama (local LLM - FREE!)
+        # Ollama (local LLM - FREE!) - Dual model setup for code vs reasoning
         if self.config.get("ollama_enabled", True):  # Enabled by default
+            ollama_url = self.config.get("ollama_url", "http://ollama:11434")
+
+            # Ollama for REASONING tasks (general queries, thoughts, Moltbook)
             try:
-                ollama_url = self.config.get("ollama_url", "http://ollama:11434")
-                ollama_model = self.config.get("ollama_model", "llama3.2")
+                reasoning_model = self.config.get("ollama_reasoning_model", "qwen2.5:7b")
                 self.models["ollama"] = OllamaClient(
-                    model_name=ollama_model,
+                    model_name=reasoning_model,
                     base_url=ollama_url
                 )
-                logger.info(f"🦙 Ollama initialized: {ollama_model} @ {ollama_url} (FREE local LLM)")
+                logger.info(f"🦙 Ollama (reasoning): {reasoning_model} @ {ollama_url}")
             except Exception as e:
-                logger.warning(f"Ollama not available (optional): {e}")
+                logger.warning(f"Ollama reasoning model not available: {e}")
+
+            # Ollama for CODE tasks (generation, review, tool creation)
+            try:
+                code_model = self.config.get("ollama_code_model", "qwen2.5-coder:14b")
+                self.models["ollama_code"] = OllamaClient(
+                    model_name=code_model,
+                    base_url=ollama_url
+                )
+                logger.info(f"🦙 Ollama (code): {code_model} @ {ollama_url}")
+            except Exception as e:
+                logger.warning(f"Ollama code model not available: {e}")
+
+    def _is_code_task(
+        self,
+        task_description: str,
+        context: Optional[Dict[str, Any]] = None
+    ) -> bool:
+        """
+        Detect if task is code-related (should use code-specialized model).
+
+        Args:
+            task_description: Task description
+            context: Optional context with activity_type, file_path, etc.
+
+        Returns:
+            True if task is code-related
+        """
+        desc_lower = task_description.lower()
+        context = context or {}
+
+        # Context-based detection
+        if context.get('activity_type') in ['code_generation', 'code_review', 'tool_creation']:
+            return True
+
+        if context.get('file_path', '').endswith(('.py', '.js', '.ts', '.go', '.rs', '.java')):
+            return True
+
+        # Keyword-based detection
+        code_keywords = [
+            'code', 'function', 'class', 'method', 'implement', 'programming',
+            'python', 'javascript', 'typescript', 'rust', 'golang',
+            'debug', 'fix bug', 'refactor', 'optimize code', 'review code',
+            'generate code', 'write code', 'tool', 'script', 'api',
+            'algorithm', 'data structure', 'sql', 'query', 'database schema'
+        ]
+
+        return any(kw in desc_lower for kw in code_keywords)
 
     def analyze_task_complexity(
         self,
@@ -248,26 +297,35 @@ class MultiModelRouter:
             return min(capable_models.keys(), key=lambda k: capable_models[k].avg_latency_ms)
 
         elif self.routing_strategy == RoutingStrategy.TIERED:
-            # 🎯 TIERED: Smart 4-tier routing for optimal cost/quality
-            # SIMPLE → Ollama (FREE!) - chat, status, basic queries, curiosities
-            # SIMPLE (fallback) → Haiku ($0.001/1K) - if Ollama unavailable
+            # 🎯 TIERED: Smart routing with CODE vs REASONING split
+            # CODE tasks → ollama_code (qwen2.5-coder) - code gen, review, tools
+            # REASONING tasks → ollama (qwen2.5) - chat, thoughts, Moltbook
             # MODERATE → Gemini ($0.0005/1K) - research, analysis
-            # COMPLEX → Claude Sonnet ($0.015/1K) - code gen, architecture
+            # COMPLEX → Claude Sonnet ($0.015/1K) - architecture, critical tasks
+
+            # Detect if task is code-related
+            is_code_task = self._is_code_task(task_description, context)
 
             if complexity == TaskComplexity.SIMPLE:
-                # 🦙 Try Ollama first - it's FREE and local!
-                if "ollama" in capable_models:
-                    logger.info(f"🦙 SIMPLE task → Ollama (FREE local LLM)")
+                if is_code_task and "ollama_code" in capable_models:
+                    logger.info(f"🦙 SIMPLE CODE task → Ollama code model (FREE)")
+                    return "ollama_code"
+                elif "ollama" in capable_models:
+                    logger.info(f"🦙 SIMPLE task → Ollama qwen2.5 (FREE)")
                     return "ollama"
                 elif "haiku" in capable_models:
-                    logger.info(f"💚 SIMPLE task → Haiku (cheap cloud fallback)")
+                    logger.info(f"💚 SIMPLE task → Haiku (cloud fallback)")
                     return "haiku"
                 elif "gemini" in capable_models:
                     logger.info(f"💚 SIMPLE task → Gemini (fallback)")
                     return "gemini"
 
             elif complexity == TaskComplexity.MODERATE:
-                if "gemini" in capable_models:
+                # For moderate code tasks, use qwen2.5-coder
+                if is_code_task and "ollama_code" in capable_models:
+                    logger.info(f"🦙 MODERATE CODE task → Ollama code model (FREE)")
+                    return "ollama_code"
+                elif "gemini" in capable_models:
                     logger.info(f"💛 MODERATE task → Gemini (balanced)")
                     return "gemini"
                 elif "ollama" in capable_models:
@@ -344,6 +402,17 @@ class MultiModelRouter:
             if not model:
                 raise ValueError(f"Model {model_name} not available")
 
+            # Dynamic max_tokens: ensure code tasks get enough tokens
+            if 'max_tokens' in kwargs:
+                is_code = self._is_code_task(task_description, context)
+                complexity = self.analyze_task_complexity(task_description, context)
+                min_tokens = 4096  # Minimum for any code task
+                if complexity == TaskComplexity.COMPLEX:
+                    min_tokens = 8192
+                if is_code and kwargs['max_tokens'] < min_tokens:
+                    logger.info(f"📏 Boosting max_tokens from {kwargs['max_tokens']} to {min_tokens} for {complexity.value} code task")
+                    kwargs['max_tokens'] = min_tokens
+
             logger.info(f"🔀 Routing to {model_name} for task: {task_description[:50]}...")
 
             # Generate
@@ -352,6 +421,23 @@ class MultiModelRouter:
                 system_prompt=system_prompt,
                 **kwargs
             )
+
+            # Check if model flagged truncation and auto-retry with doubled tokens
+            truncated = getattr(model, 'last_truncated', False)
+            if truncated:
+                current_max = kwargs.get('max_tokens', 8192)
+                retry_max = min(current_max * 2, 32768)  # Double tokens, cap at 32K
+                if retry_max > current_max:
+                    logger.warning(f"🔄 Response truncated at {current_max} tokens, retrying with {retry_max}...")
+                    kwargs['max_tokens'] = retry_max
+                    result = await model.generate(
+                        prompt=prompt,
+                        system_prompt=system_prompt,
+                        **kwargs
+                    )
+                    truncated = getattr(model, 'last_truncated', False)
+                    if truncated:
+                        logger.warning(f"⚠️ Response still truncated after retry at {retry_max} tokens")
 
             # Update stats
             if model_name not in self.performance_stats:
@@ -373,7 +459,8 @@ class MultiModelRouter:
                 "result": result,
                 "model_used": model_name,
                 "latency_ms": model.avg_latency_ms,
-                "estimated_cost": estimated_cost
+                "estimated_cost": estimated_cost,
+                "truncated": truncated
             }
 
         except Exception as e:

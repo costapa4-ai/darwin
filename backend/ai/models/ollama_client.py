@@ -33,7 +33,7 @@ class OllamaClient(BaseModelClient):
 
     def __init__(
         self,
-        model_name: str = "llama3.2",
+        model_name: str = "qwen2.5:7b",
         base_url: str = "http://ollama:11434",
         api_key: str = ""  # Not used but required by interface
     ):
@@ -59,7 +59,7 @@ class OllamaClient(BaseModelClient):
         prompt: str,
         system_prompt: Optional[str] = None,
         temperature: float = 0.7,
-        max_tokens: int = 2000
+        max_tokens: int = 8192
     ) -> str:
         """Generate completion using local Ollama"""
         try:
@@ -72,7 +72,9 @@ class OllamaClient(BaseModelClient):
             messages.append({"role": "user", "content": prompt})
 
             # Call Ollama API
-            async with aiohttp.ClientSession() as session:
+            async with aiohttp.ClientSession(
+                read_bufsize=2**20  # 1MB read buffer for large responses
+            ) as session:
                 async with session.post(
                     f"{self.base_url}/api/chat",
                     json={
@@ -84,19 +86,31 @@ class OllamaClient(BaseModelClient):
                             "num_predict": max_tokens
                         }
                     },
-                    timeout=aiohttp.ClientTimeout(total=60)
+                    timeout=aiohttp.ClientTimeout(total=180)  # 3 min for large code generation
                 ) as response:
                     if response.status != 200:
                         error_text = await response.text()
                         raise Exception(f"Ollama error {response.status}: {error_text}")
 
-                    data = await response.json()
+                    # Read full response body before parsing
+                    raw_body = await response.read()
+                    data = json.loads(raw_body)
                     result = data.get("message", {}).get("content", "")
+
+                    # Check if response was truncated by token limit
+                    done_reason = data.get("done_reason", "")
+                    eval_count = data.get("eval_count", 0)
+                    self.last_truncated = done_reason == "length" or (eval_count >= max_tokens and eval_count > 0)
+                    if self.last_truncated:
+                        logger.warning(
+                            f"⚠️ Ollama response TRUNCATED (done_reason={done_reason}, "
+                            f"eval_count={eval_count}, num_predict={max_tokens}). Output is incomplete!"
+                        )
 
             # Update latency
             self.avg_latency_ms = int((time.time() - start_time) * 1000)
 
-            logger.info(f"Ollama ({self.model_name}) generated response in {self.avg_latency_ms}ms")
+            logger.info(f"Ollama ({self.model_name}) generated {len(result)} chars in {self.avg_latency_ms}ms (truncated={self.last_truncated})")
             return result
 
         except aiohttp.ClientError as e:

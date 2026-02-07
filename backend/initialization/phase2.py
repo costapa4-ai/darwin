@@ -85,6 +85,8 @@ async def init_phase2_services(core: Dict[str, Any]) -> Dict[str, Any]:
             router_config["ollama_enabled"] = settings.ollama_enabled
             router_config["ollama_url"] = settings.ollama_url
             router_config["ollama_model"] = settings.ollama_model
+            router_config["ollama_code_model"] = settings.ollama_code_model
+            router_config["ollama_reasoning_model"] = settings.ollama_reasoning_model
 
             services['multi_model_router'] = MultiModelRouter(router_config)
             logger.info(f"Multi-Model Router initialized ({settings.routing_strategy} strategy)")

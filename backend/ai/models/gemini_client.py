@@ -39,7 +39,7 @@ class GeminiClient(BaseModelClient):
         prompt: str,
         system_prompt: Optional[str] = None,
         temperature: float = 0.7,
-        max_tokens: int = 2000
+        max_tokens: int = 8192
     ) -> str:
         """Generate completion using Gemini"""
         try:
@@ -62,9 +62,21 @@ class GeminiClient(BaseModelClient):
             # Update latency
             self.avg_latency_ms = int((time.time() - start_time) * 1000)
 
+            # Check if response was truncated by token limit
+            self.last_truncated = False
+            try:
+                if response.candidates and hasattr(response.candidates[0], 'finish_reason'):
+                    finish_reason = response.candidates[0].finish_reason
+                    # Gemini uses enum: 1=STOP (normal), 2=MAX_TOKENS, 3=SAFETY, etc.
+                    self.last_truncated = finish_reason == 2 or str(finish_reason) == 'MAX_TOKENS'
+                    if self.last_truncated:
+                        logger.warning(f"⚠️ Gemini response TRUNCATED (hit max_output_tokens={max_tokens}). Output is incomplete!")
+            except Exception:
+                pass
+
             result = response.text
 
-            logger.info(f"Gemini generated response in {self.avg_latency_ms}ms")
+            logger.info(f"Gemini generated {len(result)} chars in {self.avg_latency_ms}ms (truncated={self.last_truncated})")
             return result
 
         except Exception as e:

@@ -39,7 +39,7 @@ class OpenAIClient(BaseModelClient):
         prompt: str,
         system_prompt: Optional[str] = None,
         temperature: float = 0.7,
-        max_tokens: int = 2000
+        max_tokens: int = 8192
     ) -> str:
         """Generate completion using OpenAI"""
         try:
@@ -62,9 +62,14 @@ class OpenAIClient(BaseModelClient):
             # Update latency
             self.avg_latency_ms = int((time.time() - start_time) * 1000)
 
+            # Check if response was truncated by token limit
+            self.last_truncated = getattr(response.choices[0], 'finish_reason', None) == 'length'
+            if self.last_truncated:
+                logger.warning(f"⚠️ OpenAI response TRUNCATED (hit max_tokens={max_tokens}). Output is incomplete!")
+
             result = response.choices[0].message.content
 
-            logger.info(f"OpenAI generated response in {self.avg_latency_ms}ms")
+            logger.info(f"OpenAI generated {len(result)} chars in {self.avg_latency_ms}ms (truncated={self.last_truncated})")
             return result
 
         except Exception as e:

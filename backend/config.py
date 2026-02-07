@@ -23,7 +23,9 @@ class Settings(BaseSettings):
     # Ollama (Local LLM - FREE!)
     ollama_enabled: bool = True
     ollama_url: str = "http://ollama:11434"
-    ollama_model: str = "llama3.2"  # or mistral, codellama, etc.
+    ollama_model: str = "qwen2.5:7b"  # Default/reasoning model
+    ollama_code_model: str = "qwen2.5-coder:14b"  # Best for pure code generation (MBPP: 84.7%)
+    ollama_reasoning_model: str = "qwen2.5:7b"  # General reasoning/chat
 
     # Phase 2: Semantic Memory & RAG
     enable_semantic_memory: bool = True
