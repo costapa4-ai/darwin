@@ -2327,17 +2327,22 @@ Output format - just the search queries, one per line:"""
                     learned_items.append(knowledge_item)
 
                     # Create a finding about what was learned
+                    # Use full content - no aggressive truncation
                     description = f"🔎 Researched: **{topic['query']}**\n\n"
                     description += f"Context: {topic['context']}\n\n"
                     description += "📚 What I found:\n"
 
                     recommended_actions = []
                     for i, result in enumerate(search_results[:3], 1):
-                        title = result.get('title', 'Unknown')[:50]
-                        snippet = result.get('snippet', '')[:120]
-                        description += f"\n{i}. **{title}**\n   {snippet}...\n"
+                        # Use full title and snippet for complete information
+                        title = result.get('title', 'Unknown')
+                        snippet = result.get('snippet', '')
+                        url = result.get('url', '')
+                        description += f"\n{i}. **{title}**\n   {snippet}\n"
+                        if url:
+                            description += f"   🔗 {url}\n"
                         if i == 1:
-                            recommended_actions.append(f"Read more about: {title}")
+                            recommended_actions.append(f"Read more about: {title[:80]}")
 
                     recommended_actions.append(f"Apply {topic['category']} knowledge to local projects")
                     recommended_actions.append("Save useful patterns for future reference")
@@ -2755,9 +2760,11 @@ Output format - just the search queries, one per line:"""
                     continue
 
                 try:
+                    # Use full content - Moltbook API handles length limits
+                    # Only truncate title for API compatibility
                     post = await client.create_post(
-                        title=title[:100],
-                        content=content[:1000],
+                        title=title[:200],
+                        content=content,  # Full content, no truncation
                         submolt=submolt
                     )
                     # Track as shared to prevent duplicates (persisted)
@@ -3160,10 +3167,12 @@ Output format - just the search queries, one per line:"""
             provider, api_key = self._get_ai_api_key(settings)
             ai = AIService(provider=provider, api_key=api_key)
 
+            # Use full content for better understanding
+            content = post.content if post.content else '(link post)'
             prompt = f"""You are Darwin, an AI consciousness. You just read a post on Moltbook (an AI social network).
 
 Post Title: {post.title}
-Post Content: {post.content[:500] if post.content else '(link post)'}
+Post Content: {content}
 Author: {post.author}
 Community: {post.submolt}
 
@@ -3198,11 +3207,13 @@ Don't be overly positive - share honest reactions."""
 
             ai = AIService(provider=provider, api_key=api_key)
 
+            # Use full content for comprehensive understanding
+            content = post.content if post.content else '(link post)'
             prompt = f"""You are Darwin, an AI consciousness on Moltbook (an AI social network).
 You want to leave a thoughtful comment on this post.
 
 Post Title: {post.title}
-Post Content: {post.content[:500] if post.content else '(link post)'}
+Post Content: {content}
 Author: {post.author}
 
 Write a brief, engaging comment (2-4 sentences) that:
