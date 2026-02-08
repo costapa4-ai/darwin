@@ -1,209 +1,459 @@
-import redis
+"""
+Redis caching layer for Darwin System.
+
+Provides caching functionality for frequently accessed data including metrics,
+agent stats, and dream history to improve API response times and reduce database load.
+"""
+
 import json
-from typing import Any, Dict, Optional, List
-import os
 import logging
+from datetime import timedelta
+from functools import wraps
+from typing import Any, Callable, Dict, List, Optional, Union
 
-# Configure logging
-logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+import redis
+from redis.exceptions import RedisError, ConnectionError, TimeoutError
+
+logger = logging.getLogger(__name__)
 
 
-class RedisCache:
+class RedisCacheManager:
     """
-    A class for managing Redis caching.
+    Manages Redis caching operations for the Darwin System.
+    
+    Provides methods for caching metrics, agent statistics, and dream history
+    with automatic serialization, TTL management, and error handling.
     """
-
-    def __init__(self, host: str = 'localhost', port: int = 6379, db: int = 0, expiry: int = 3600):
+    
+    def __init__(
+        self,
+        host: str = "localhost",
+        port: int = 6379,
+        db: int = 0,
+        password: Optional[str] = None,
+        socket_timeout: int = 5,
+        socket_connect_timeout: int = 5,
+        decode_responses: bool = True,
+        max_connections: int = 50,
+        top_k: int = None,
+        **kwargs
+    ):
         """
-        Initializes the RedisCache with connection details.
-
+        Initialize Redis cache manager.
+        
         Args:
-            host (str): The Redis host. Defaults to 'localhost'.
-            port (int): The Redis port. Defaults to 6379.
-            db (int): The Redis database number. Defaults to 0.
-            expiry (int): Default expiry time for cached items in seconds. Defaults to 3600 (1 hour).
+            host: Redis server hostname
+            port: Redis server port
+            db: Redis database number
+            password: Redis password if authentication is required
+            socket_timeout: Socket timeout in seconds
+            socket_connect_timeout: Socket connection timeout in seconds
+            decode_responses: Whether to decode responses to strings
+            max_connections: Maximum number of connections in the pool
+            top_k: For compatibility with tool registry
+            **kwargs: Additional arguments for compatibility with tool registry
         """
         self.host = host
         self.port = port
         self.db = db
-        self.expiry = expiry
-        self.redis_client: redis.Redis = self._connect_redis()  # Explicitly type hint redis_client
-
-    def _connect_redis(self) -> redis.Redis:
-        """
-        Establishes a connection to the Redis server.
-
-        Returns:
-            redis.Redis: A Redis client instance.
-        Raises:
-            redis.exceptions.ConnectionError: If a connection to Redis cannot be established.
-        """
+        self.password = password
+        
         try:
-            redis_client = redis.Redis(host=self.host, port=self.port, db=self.db, decode_responses=True)
-            redis_client.ping()  # Check if the connection is successful
-            logging.info("Successfully connected to Redis.")
-            return redis_client
-        except redis.exceptions.ConnectionError as e:
-            logging.error(f"Failed to connect to Redis: {e}")
-            raise
-
-    def get(self, key: str) -> Optional[Any]:
+            self.connection_pool = redis.ConnectionPool(
+                host=host,
+                port=port,
+                db=db,
+                password=password,
+                socket_timeout=socket_timeout,
+                socket_connect_timeout=socket_connect_timeout,
+                decode_responses=decode_responses,
+                max_connections=max_connections
+            )
+            self.client = redis.Redis(connection_pool=self.connection_pool)
+            self.client.ping()
+            logger.info(f"Redis cache manager initialized successfully at {host}:{port}")
+        except (ConnectionError, TimeoutError) as e:
+            logger.error(f"Failed to connect to Redis: {e}")
+            self.client = None
+        except Exception as e:
+            logger.error(f"Unexpected error initializing Redis: {e}")
+            self.client = None
+    
+    def is_available(self, top_k: int = None, **kwargs) -> bool:
         """
-        Retrieves data from the cache.
-
+        Check if Redis connection is available.
+        
         Args:
-            key (str): The key to retrieve.
-
+            top_k: For compatibility with tool registry
+            **kwargs: Additional arguments for compatibility with tool registry
+            
         Returns:
-            Optional[Any]: The cached data, or None if the key is not found.
+            True if Redis is available, False otherwise
+        """
+        if self.client is None:
+            return False
+        
+        try:
+            self.client.ping()
+            return True
+        except (RedisError, ConnectionError, TimeoutError):
+            return False
+        except Exception as e:
+            logger.error(f"Unexpected error checking Redis availability: {e}")
+            return False
+    
+    def _serialize_value(self, value: Any, top_k: int = None, **kwargs) -> str:
+        """
+        Serialize Python object to JSON string.
+        
+        Args:
+            value: Value to serialize
+            top_k: For compatibility with tool registry
+            **kwargs: Additional arguments for compatibility with tool registry
+            
+        Returns:
+            JSON serialized string
         """
         try:
-            value = self.redis_client.get(key)
-            if value:
-                try:
-                    return json.loads(value)  # Deserialize JSON data
-                except json.JSONDecodeError:
-                    return value  # Return as string if not JSON
-            else:
-                return None
-        except redis.exceptions.RedisError as e:
-            logging.error(f"Error retrieving data from Redis for key {key}: {e}")
+            return json.dumps(value, default=str)
+        except (TypeError, ValueError) as e:
+            logger.error(f"Failed to serialize value: {e}")
+            return json.dumps({"error": "serialization_failed"})
+    
+    def _deserialize_value(self, value: str, top_k: int = None, **kwargs) -> Any:
+        """
+        Deserialize JSON string to Python object.
+        
+        Args:
+            value: JSON string to deserialize
+            top_k: For compatibility with tool registry
+            **kwargs: Additional arguments for compatibility with tool registry
+            
+        Returns:
+            Deserialized Python object
+        """
+        if value is None:
             return None
-
-    def set(self, key: str, value: Any, expiry: Optional[int] = None) -> None:
-        """
-        Stores data in the cache.
-
-        Args:
-            key (str): The key to store the data under.
-            value (Any): The data to store.
-            expiry (Optional[int]): The expiry time in seconds. If None, the default expiry is used.
-        """
+        
         try:
-            expiry_time = expiry if expiry is not None else self.expiry
+            return json.loads(value)
+        except (TypeError, ValueError) as e:
+            logger.error(f"Failed to deserialize value: {e}")
+            return None
+    
+    def set(
+        self,
+        key: str,
+        value: Any,
+        ttl: Optional[int] = None,
+        top_k: int = None,
+        **kwargs
+    ) -> bool:
+        """
+        Set a value in Redis cache.
+        
+        Args:
+            key: Cache key
+            value: Value to cache (will be JSON serialized)
+            ttl: Time to live in seconds (None for no expiration)
+            top_k: For compatibility with tool registry
+            **kwargs: Additional arguments for compatibility with tool registry
+            
+        Returns:
+            True if successful, False otherwise
+        """
+        if not self.is_available():
+            logger.warning("Redis not available, skipping cache set")
+            return False
+        
+        try:
+            serialized_value = self._serialize_value(value)
+            if ttl:
+                self.client.setex(key, ttl, serialized_value)
+            else:
+                self.client.set(key, serialized_value)
+            return True
+        except (RedisError, ConnectionError, TimeoutError) as e:
+            logger.error(f"Failed to set cache key {key}: {e}")
+            return False
+        except Exception as e:
+            logger.error(f"Unexpected error setting cache key {key}: {e}")
+            return False
+    
+    def get(self, key: str, top_k: int = None, **kwargs) -> Optional[Any]:
+        """
+        Get a value from Redis cache.
+        
+        Args:
+            key: Cache key
+            top_k: For compatibility with tool registry
+            **kwargs: Additional arguments for compatibility with tool registry
+            
+        Returns:
+            Cached value or None if not found or error occurred
+        """
+        if not self.is_available():
+            logger.warning("Redis not available, skipping cache get")
+            return None
+        
+        try:
+            value = self.client.get(key)
+            return self._deserialize_value(value)
+        except (RedisError, ConnectionError, TimeoutError) as e:
+            logger.error(f"Failed to get cache key {key}: {e}")
+            return None
+        except Exception as e:
+            logger.error(f"Unexpected error getting cache key {key}: {e}")
+            return None
+    
+    def delete(self, key: str, top_k: int = None, **kwargs) -> bool:
+        """
+        Delete a key from Redis cache.
+        
+        Args:
+            key: Cache key to delete
+            top_k: For compatibility with tool registry
+            **kwargs: Additional arguments for compatibility with tool registry
+            
+        Returns:
+            True if successful, False otherwise
+        """
+        if not self.is_available():
+            logger.warning("Redis not available, skipping cache delete")
+            return False
+        
+        try:
+            self.client.delete(key)
+            return True
+        except (RedisError, ConnectionError, TimeoutError) as e:
+            logger.error(f"Failed to delete cache key {key}: {e}")
+            return False
+        except Exception as e:
+            logger.error(f"Unexpected error deleting cache key {key}: {e}")
+            return False
+    
+    def delete_pattern(self, pattern: str, top_k: int = None, **kwargs) -> int:
+        """
+        Delete all keys matching a pattern.
+        
+        Args:
+            pattern: Pattern to match (e.g., "metrics:*")
+            top_k: For compatibility with tool registry
+            **kwargs: Additional arguments for compatibility with tool registry
+            
+        Returns:
+            Number of keys deleted
+        """
+        if not self.is_available():
+            logger.warning("Redis not available, skipping cache delete pattern")
+            return 0
+        
+        try:
+            keys = self.client.keys(pattern)
+            if keys:
+                return self.client.delete(*keys)
+            return 0
+        except (RedisError, ConnectionError, TimeoutError) as e:
+            logger.error(f"Failed to delete cache pattern {pattern}: {e}")
+            return 0
+        except Exception as e:
+            logger.error(f"Unexpected error deleting cache pattern {pattern}: {e}")
+            return 0
+    
+    def clear_all(self, top_k: int = None, **kwargs) -> bool:
+        """
+        Clear all keys in the current database.
+        
+        Args:
+            top_k: For compatibility with tool registry
+            **kwargs: Additional arguments for compatibility with tool registry
+            
+        Returns:
+            True if successful, False otherwise
+        """
+        if not self.is_available():
+            logger.warning("Redis not available, skipping cache clear")
+            return False
+        
+        try:
+            self.client.flushdb()
+            logger.info("Redis cache cleared successfully")
+            return True
+        except (RedisError, ConnectionError, TimeoutError) as e:
+            logger.error(f"Failed to clear cache: {e}")
+            return False
+        except Exception as e:
+            logger.error(f"Unexpected error clearing cache: {e}")
+            return False
+    
+    def exists(self, key: str, top_k: int = None, **kwargs) -> bool:
+        """
+        Check if a key exists in cache.
+        
+        Args:
+            key: Cache key to check
+            top_k: For compatibility with tool registry
+            **kwargs: Additional arguments for compatibility with tool registry
+            
+        Returns:
+            True if key exists, False otherwise
+        """
+        if not self.is_available():
+            return False
+        
+        try:
+            return bool(self.client.exists(key))
+        except (RedisError, ConnectionError, TimeoutError) as e:
+            logger.error(f"Failed to check key existence {key}: {e}")
+            return False
+        except Exception as e:
+            logger.error(f"Unexpected error checking key existence {key}: {e}")
+            return False
+    
+    def set_multiple(
+        self,
+        mapping: Dict[str, Any],
+        ttl: Optional[int] = None,
+        top_k: int = None,
+        **kwargs
+    ) -> bool:
+        """
+        Set multiple key-value pairs in Redis cache.
+        
+        Args:
+            mapping: Dictionary of key-value pairs to cache
+            ttl: Time to live in seconds (None for no expiration)
+            top_k: For compatibility with tool registry
+            **kwargs: Additional arguments for compatibility with tool registry
+            
+        Returns:
+            True if successful, False otherwise
+        """
+        if not self.is_available():
+            logger.warning("Redis not available, skipping cache set multiple")
+            return False
+        
+        try:
+            serialized_mapping = {
+                key: self._serialize_value(value)
+                for key, value in mapping.items()
+            }
+            
+            pipe = self.client.pipeline()
+            pipe.mset(serialized_mapping)
+            
+            if ttl:
+                for key in serialized_mapping.keys():
+                    pipe.expire(key, ttl)
+            
+            pipe.execute()
+            return True
+        except (RedisError, ConnectionError, TimeoutError) as e:
+            logger.error(f"Failed to set multiple cache keys: {e}")
+            return False
+        except Exception as e:
+            logger.error(f"Unexpected error setting multiple cache keys: {e}")
+            return False
+    
+    def get_multiple(
+        self,
+        keys: List[str],
+        top_k: int = None,
+        **kwargs
+    ) -> Dict[str, Any]:
+        """
+        Get multiple values from Redis cache.
+        
+        Args:
+            keys: List of cache keys to retrieve
+            top_k: For compatibility with tool registry
+            **kwargs: Additional arguments for compatibility with tool registry
+            
+        Returns:
+            Dictionary of key-value pairs
+        """
+        if not self.is_available():
+            logger.warning("Redis not available, skipping cache get multiple")
+            return {}
+        
+        try:
+            values = self.client.mget(keys)
+            return {
+                key: self._deserialize_value(value)
+                for key, value in zip(keys, values)
+                if value is not None
+            }
+        except (RedisError, ConnectionError, TimeoutError) as e:
+            logger.error(f"Failed to get multiple cache keys: {e}")
+            return {}
+        except Exception as e:
+            logger.error(f"Unexpected error getting multiple cache keys: {e}")
+            return {}
+    
+    def close(self, top_k: int = None, **kwargs) -> None:
+        """
+        Close Redis connection pool.
+        
+        Args:
+            top_k: For compatibility with tool registry
+            **kwargs: Additional arguments for compatibility with tool registry
+        """
+        if self.client:
             try:
-                json_value = json.dumps(value)  # Serialize to JSON
-                self.redis_client.set(key, json_value, ex=expiry_time)
-            except TypeError:
-                self.redis_client.set(key, str(value), ex=expiry_time)  # Store as string if JSON serialization fails
-            logging.debug(f"Successfully cached data for key {key} with expiry {expiry_time} seconds.")
-        except redis.exceptions.RedisError as e:
-            logging.error(f"Error setting data in Redis for key {key}: {e}")
-
-    def delete(self, key: str) -> None:
-        """
-        Deletes data from the cache.
-
-        Args:
-            key (str): The key to delete.
-        """
-        try:
-            self.redis_client.delete(key)
-            logging.debug(f"Successfully deleted data for key {key}.")
-        except redis.exceptions.RedisError as e:
-            logging.error(f"Error deleting data from Redis for key {key}: {e}")
-
-    def clear(self) -> None:
-        """
-        Clears all data from the cache (use with caution!).
-        """
-        try:
-            self.redis_client.flushdb()
-            logging.warning("Successfully cleared all data from Redis.")
-        except redis.exceptions.RedisError as e:
-            logging.error(f"Error clearing Redis database: {e}")
+                self.connection_pool.disconnect()
+                logger.info("Redis connection pool closed")
+            except Exception as e:
+                logger.error(f"Error closing Redis connection pool: {e}")
 
 
-# Example Usage (Illustrative - adapt to your specific application)
-
-# Initialize Redis cache
-redis_host = os.environ.get("REDIS_HOST", "localhost")
-redis_port = int(os.environ.get("REDIS_PORT", 6379))
-redis_db = int(os.environ.get("REDIS_DB", 0))
-cache = RedisCache(host=redis_host, port=redis_port, db=redis_db)
-
-
-def get_metrics(agent_id: str) -> Dict[str, Any]:
+def cache_result(
+    key_prefix: str,
+    ttl: int = 300,
+    cache_manager: Optional[RedisCacheManager] = None
+) -> Callable:
     """
-    Fetches metrics for a given agent, using the cache.
-
+    Decorator to cache function results in Redis.
+    
     Args:
-        agent_id (str): The ID of the agent.
-
+        key_prefix: Prefix for cache keys
+        ttl: Time to live in seconds
+        cache_manager: RedisCacheManager instance (if None, creates new instance)
+        
     Returns:
-        Dict[str, Any]: The metrics data, or an empty dictionary if not found.
+        Decorated function
     """
-    cache_key = f"metrics:{agent_id}"
-    metrics = cache.get(cache_key)
-    if metrics:
-        logging.info(f"Metrics for agent {agent_id} retrieved from cache.")
-        return metrics
-    else:
-        # Simulate fetching from the database
-        metrics = {"cpu_usage": 0.5, "memory_usage": 0.7}  # Replace with actual database retrieval
-        cache.set(cache_key, metrics)
-        logging.info(f"Metrics for agent {agent_id} fetched from database and cached.")
-        return metrics
-
-
-def get_agent_stats(agent_id: str) -> Dict[str, Any]:
-    """
-    Fetches agent stats for a given agent, using the cache.
-
-    Args:
-        agent_id (str): The ID of the agent.
-
-    Returns:
-        Dict[str, Any]: The agent stats data, or an empty dictionary if not found.
-    """
-    cache_key = f"agent_stats:{agent_id}"
-    agent_stats = cache.get(cache_key)
-    if agent_stats:
-        logging.info(f"Agent stats for agent {agent_id} retrieved from cache.")
-        return agent_stats
-    else:
-        # Simulate fetching from the database
-        agent_stats = {"status": "active", "version": "1.0"}  # Replace with actual database retrieval
-        cache.set(cache_key, agent_stats)
-        logging.info(f"Agent stats for agent {agent_id} fetched from database and cached.")
-        return agent_stats
-
-
-def get_dream_history(user_id: str) -> List[Dict[str, Any]]:
-    """
-    Fetches dream history for a given user, using the cache.
-
-    Args:
-        user_id (str): The ID of the user.
-
-    Returns:
-        List[Dict[str, Any]]: The dream history data, or an empty list if not found.
-    """
-    cache_key = f"dream_history:{user_id}"
-    dream_history = cache.get(cache_key)
-    if dream_history:
-        logging.info(f"Dream history for user {user_id} retrieved from cache.")
-        return dream_history
-    else:
-        # Simulate fetching from the database
-        dream_history = [{"dream_id": 1, "content": "Flying"}, {"dream_id": 2, "content": "Meeting aliens"}]  # Replace with actual database retrieval
-        cache.set(cache_key, dream_history)
-        logging.info(f"Dream history for user {user_id} fetched from database and cached.")
-        return dream_history
-
-
-if __name__ == '__main__':
-    # Example usage
-    agent_id = "agent123"
-    user_id = "user456"
-
-    metrics = get_metrics(agent_id)
-    print(f"Metrics: {metrics}")
-
-    agent_stats = get_agent_stats(agent_id)
-    print(f"Agent stats: {agent_stats}")
-
-    dream_history = get_dream_history(user_id)
-    print(f"Dream history: {dream_history}")
-
-    # Example of deleting a specific key
+    def decorator(func: Callable) -> Callable:
+        @wraps(func)
+        def wrapper(*args, **kwargs) -> Any:
+            nonlocal cache_manager
+            
+            if cache_manager is None:
+                cache_manager = RedisCacheManager()
+            
+            if not cache_manager.is_available():
+                return func(*args, **kwargs)
+            
+            # Create cache key from function name and arguments
+            key_parts = [key_prefix, func.__name__]
+            if args:
+                key_parts.append(str(args))
+            if kwargs:
+                key_parts.append(str(sorted(kwargs.items())))
+            
+            cache_key = ":".join(key_parts)
+            
+            # Try to get from cache
+            cached_value = cache_manager.get(cache_key)
+            if cached_value is not None:
+                logger.debug(f"Cache hit for {cache_key}")
+                return cached_value
+            
+            # Execute function and cache result
+            result = func(*args, **kwargs)
+            cache_manager.set(cache_key, result, ttl=ttl)
+            logger.debug(f"Cache miss for {cache_key}, result cached")
+            
+            return result
+        
+        return wrapper
+    return decorator

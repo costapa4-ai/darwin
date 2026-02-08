@@ -42,13 +42,83 @@ class SystemMetrics:
 
 class SelfAnalyzer:
     """
-    Darwin's consciousness - the ability to analyze and improve itself
+    Darwin's consciousness - the ability to analyze and improve itself.
+
+    Tracks implemented improvements to avoid suggesting the same things repeatedly.
     """
+
+    IMPLEMENTED_FILE = "data/implemented_improvements.json"
 
     def __init__(self, project_root: str = "/app"):
         self.project_root = Path(project_root)
         self.insights: List[CodeInsight] = []
         self.metrics: Optional[SystemMetrics] = None
+        self.implemented: Dict[str, Any] = self._load_implemented()
+
+    def _load_implemented(self) -> Dict[str, Any]:
+        """Load list of already-implemented improvements."""
+        impl_file = self.project_root / self.IMPLEMENTED_FILE
+        try:
+            if impl_file.exists():
+                with open(impl_file, 'r') as f:
+                    return json.load(f)
+        except Exception as e:
+            print(f"Warning: Could not load implemented improvements: {e}")
+        return {"improvements": [], "titles": set()}
+
+    def _save_implemented(self):
+        """Save list of implemented improvements."""
+        impl_file = self.project_root / self.IMPLEMENTED_FILE
+        try:
+            impl_file.parent.mkdir(parents=True, exist_ok=True)
+            # Convert set to list for JSON serialization
+            data = {
+                "improvements": self.implemented.get("improvements", []),
+                "titles": list(self.implemented.get("titles", set())),
+                "last_updated": datetime.now().isoformat()
+            }
+            with open(impl_file, 'w') as f:
+                json.dump(data, f, indent=2)
+        except Exception as e:
+            print(f"Warning: Could not save implemented improvements: {e}")
+
+    def mark_implemented(self, title: str, details: Dict[str, Any] = None):
+        """Mark an improvement as implemented so it won't be suggested again."""
+        titles = self.implemented.get("titles", set())
+        if isinstance(titles, list):
+            titles = set(titles)
+
+        title_key = title.lower().strip()
+        if title_key not in titles:
+            titles.add(title_key)
+            self.implemented["titles"] = titles
+
+            # Track details
+            improvements = self.implemented.get("improvements", [])
+            improvements.append({
+                "title": title,
+                "implemented_at": datetime.now().isoformat(),
+                "details": details or {}
+            })
+            self.implemented["improvements"] = improvements
+
+            self._save_implemented()
+            print(f"✅ Marked as implemented: {title}")
+
+    def is_implemented(self, title: str) -> bool:
+        """Check if an improvement has already been implemented."""
+        titles = self.implemented.get("titles", set())
+        if isinstance(titles, list):
+            titles = set(titles)
+        return title.lower().strip() in titles
+
+    def _filter_implemented(self):
+        """Remove already-implemented insights from the list."""
+        original_count = len(self.insights)
+        self.insights = [i for i in self.insights if not self.is_implemented(i.title)]
+        filtered = original_count - len(self.insights)
+        if filtered > 0:
+            print(f"📋 Filtered {filtered} already-implemented improvements")
 
     def analyze_self(self) -> Dict[str, Any]:
         """
@@ -56,6 +126,9 @@ class SelfAnalyzer:
         Returns comprehensive insights about the system
         """
         print("🔍 Darwin is analyzing itself...")
+
+        # Reset insights for fresh analysis
+        self.insights = []
 
         # Collect metrics
         self.metrics = self._collect_system_metrics()
@@ -66,6 +139,9 @@ class SelfAnalyzer:
         self._analyze_performance_opportunities()
         self._analyze_feature_gaps()
         self._analyze_architecture_patterns()
+
+        # Filter out already-implemented improvements
+        self._filter_implemented()
 
         return {
             'timestamp': datetime.now().isoformat(),

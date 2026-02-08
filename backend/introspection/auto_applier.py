@@ -112,6 +112,9 @@ class AutoApplier:
                 if self.health_tracker:
                     self.health_tracker.record_change_applied(change['id'])
 
+                # NEW: Mark improvement as implemented so it won't be suggested again
+                self._mark_improvement_implemented(generated_code)
+
                 return {
                     'success': True,
                     'rollback_id': rollback_id,
@@ -315,3 +318,24 @@ class AutoApplier:
         except Exception as e:
             print(f"⚠️ Failed to load applied changes: {e}")
             self.applied_changes = {}
+
+    def _mark_improvement_implemented(self, generated_code: Dict):
+        """Mark an improvement as implemented so SelfAnalyzer won't suggest it again."""
+        try:
+            from introspection.self_analyzer import SelfAnalyzer
+
+            # Get the improvement title
+            title = generated_code.get('insight_title') or generated_code.get('title', '')
+
+            if not title:
+                return
+
+            analyzer = SelfAnalyzer(project_root=str(self.project_root))
+            analyzer.mark_implemented(title, details={
+                'file_path': generated_code.get('file_path'),
+                'applied_at': datetime.now().isoformat(),
+                'change_id': generated_code.get('insight_id')
+            })
+
+        except Exception as e:
+            print(f"⚠️ Could not mark improvement as implemented: {e}")

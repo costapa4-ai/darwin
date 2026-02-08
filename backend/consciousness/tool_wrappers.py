@@ -373,6 +373,58 @@ def register_all_tools(
     # learning tools (web_explorer, documentation_reader, repository_analyzer)
     # instead of the monolithic dream engine.
 
+    # ============================================================
+    # SECURITY & QUALITY TOOLS (WAKE)
+    # ============================================================
+
+    # Darwin Auditor - OWASP security and code quality assessment
+    try:
+        from tools.darwin_auditor import DarwinAuditor
+
+        async def run_security_audit(**kwargs) -> Dict[str, Any]:
+            """Run OWASP-focused security and quality audit on Darwin's codebase."""
+            try:
+                from tools.darwin_auditor.auditor import run_darwin_audit
+                result = await run_darwin_audit(
+                    project_root="/app",
+                    save_report=True
+                )
+
+                # Format for consciousness engine display
+                return {
+                    'success': True,
+                    'security_score': result['security_score'],
+                    'quality_score': result['quality_score'],
+                    'overall_score': result['overall_score'],
+                    'critical_issues': result['critical_issues'],
+                    'high_issues': result['high_issues'],
+                    'total_findings': result['total_findings'],
+                    'recommendations': result['recommendations'][:3],  # Top 3
+                    'report_path': result.get('report_path'),
+                    'summary': f"Security: {result['security_score']}/100, Quality: {result['quality_score']}/100"
+                }
+            except Exception as e:
+                return {'success': False, 'error': str(e)}
+
+        registry.register_tool(
+            name="darwin_auditor",
+            description="Run OWASP security audit and code quality analysis on Darwin's own codebase",
+            category=ToolCategory.ANALYSIS,
+            mode=ToolMode.WAKE,
+            execute_fn=run_security_audit,
+            cost=3,
+            cooldown_minutes=60,  # Once per hour
+            metadata={
+                'type': 'security_audit',
+                'owasp_coverage': 'A01-A10',
+                'checks': ['security', 'quality', 'complexity']
+            }
+        )
+        count += 1
+        logger.info("✅ Darwin Auditor tool registered (OWASP security + quality)")
+    except ImportError as e:
+        logger.warning(f"Could not register Darwin Auditor: {e}")
+
     logger.info(f"✅ Registered {count} tools in Tool Registry")
 
     return count
