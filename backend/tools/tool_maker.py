@@ -336,7 +336,7 @@ async def {specification.name}({params_str}) -> Dict[str, Any]:
 ```"""
 
         try:
-            response = await self.nucleus.generate(prompt)
+            response = await self.nucleus.generate(prompt, max_tokens=8192)
             text = response.get('text', response) if isinstance(response, dict) else str(response)
 
             # Extract code from response
@@ -437,7 +437,7 @@ async def {specification.name}(...) -> Dict[str, Any]:
 ```"""
 
         try:
-            response = await self.nucleus.generate(prompt)
+            response = await self.nucleus.generate(prompt, max_tokens=8192)
             text = response.get('text', response) if isinstance(response, dict) else str(response)
 
             # Extract code

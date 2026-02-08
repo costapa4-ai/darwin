@@ -16,7 +16,7 @@ logger = get_logger(__name__)
 class GeminiClient(BaseModelClient):
     """Gemini AI client implementation"""
 
-    def __init__(self, model_name: str = "gemini-2.0-flash-exp", api_key: str = ""):
+    def __init__(self, model_name: str = "gemini-2.0-flash", api_key: str = ""):
         super().__init__(model_name, api_key)
 
         # Configure Gemini

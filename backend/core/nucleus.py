@@ -39,8 +39,8 @@ class Nucleus:
         elif self.provider == "gemini":
             genai.configure(api_key=api_key)
             # Use Gemini 2.0 Flash (latest as of Oct 2025)
-            # Available models: gemini-2.0-flash-exp, gemini-1.5-flash, gemini-1.5-pro
-            self.model = model or "gemini-2.0-flash-exp"
+            # Available models: gemini-2.0-flash, gemini-1.5-flash, gemini-1.5-pro
+            self.model = model or "gemini-2.0-flash"
             self.client = genai.GenerativeModel(self.model)
         else:
             raise ValueError(f"Unknown AI provider: {provider}")
