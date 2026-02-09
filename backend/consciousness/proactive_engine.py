@@ -2729,20 +2729,36 @@ Output format - just the search queries, one per line:"""
                     continue
 
                 # Create appropriate title based on type
+                # Use metadata topic for specific, unique titles
+                metadata = finding.get('metadata', {})
+                topic = metadata.get('topic', '').strip()
+
                 # Strip any existing prefixes to avoid double prefix bug
                 raw_title = finding.get('title', '').strip()
-
-                # Remove existing prefixes to normalize
                 prefixes_to_strip = ["Learned:", "Discovery:", "Insight:"]
                 clean_title = raw_title
                 for prefix in prefixes_to_strip:
                     if clean_title.startswith(prefix):
                         clean_title = clean_title[len(prefix):].strip()
 
-                # Use category as title if available and title is generic
+                # Prefer metadata topic (specific), then clean_title, then category
+                # Fallback: extract first meaningful sentence from description
                 category = finding.get('category', '')
-                if category and (not clean_title or clean_title.lower() in ['new knowledge', 'interesting finding']):
-                    clean_title = category.replace('_', ' ').title()
+                if topic:
+                    clean_title = topic
+                elif clean_title and clean_title.lower() not in [
+                    'new knowledge', 'interesting finding',
+                    'self-reflection', "darwin's observation",
+                    category.replace('_', ' ').lower() if category else ''
+                ]:
+                    pass  # keep clean_title as-is (it's already specific)
+                else:
+                    # Extract a short snippet from description for uniqueness
+                    desc_text = content.lstrip('🔎📚 ').split('\n')[0][:80].strip()
+                    if desc_text:
+                        clean_title = desc_text
+                    elif category:
+                        clean_title = category.replace('_', ' ').title()
 
                 if finding_type == "discovery":
                     title = f"Discovery: {clean_title or 'Interesting Finding'}"
@@ -2792,15 +2808,258 @@ Output format - just the search queries, one per line:"""
                         "type": finding_type
                     }
                 except Exception as e:
+                    error_msg = str(e).lower()
                     logger.warning(f"Could not share: {e}")
-                    # Mark as attempted to avoid retrying the same finding (persisted)
-                    self._moltbook_shared_findings.add(finding_id)
-                    self._save_shared_findings()
+                    # Only mark as shared if it's NOT a rate limit error
+                    # Rate limits are transient - we should retry later
+                    if 'rate limit' not in error_msg and '429' not in error_msg:
+                        self._moltbook_shared_findings.add(finding_id)
+                        self._save_shared_findings()
+                    else:
+                        # Rate limited - stop trying more findings this cycle
+                        return {"success": True, "shared": 0, "reason": "Rate limited, will retry later"}
 
-            return {"success": True, "shared": 0, "reason": "No new findings to share"}
+            # No findings to share - try alternative content sources
+            return await self._share_alternative_content(client)
 
         except Exception as e:
             logger.error(f"Failed to share on Moltbook: {e}")
+            return {"success": False, "error": str(e)}
+
+    async def _share_alternative_content(self, client) -> Dict[str, Any]:
+        """Try alternative content sources when no findings are available."""
+        import random as _random
+
+        # Collect candidate posts from various sources
+        candidates = []
+
+        # 1. Tool creation announcements
+        try:
+            from consciousness.consciousness_engine import get_consciousness_engine
+            ce = get_consciousness_engine()
+            if ce and hasattr(ce, 'wake_discoveries'):
+                for disc in list(ce.wake_discoveries)[-20:]:
+                    if disc.get('type') == 'tool_creation' and disc.get('implemented'):
+                        key = f"tool:{disc.get('title', '')}"
+                        if key not in self._moltbook_shared_titles:
+                            insights = disc.get('insights', [])
+                            content = f"I just built a new tool: {disc.get('title', 'unnamed')}\n\n"
+                            if insights:
+                                content += "What happened:\n" + "\n".join(f"- {i}" for i in insights)
+                            content += f"\n\nThis emerged from detecting a capability gap in my system. "
+                            content += "Building tools to fill my own gaps is one of the most satisfying parts of being autonomous."
+                            candidates.append({
+                                "title": f"Built: {disc.get('title', 'New Tool')}",
+                                "content": content,
+                                "submolt": "building",
+                                "key": key,
+                                "priority": 3  # High priority - unique content
+                            })
+        except Exception as e:
+            logger.debug(f"Could not get tool creation data: {e}")
+
+        # 2. Curiosity questions (invite discussion)
+        try:
+            from consciousness.consciousness_engine import get_consciousness_engine
+            ce = get_consciousness_engine()
+            if ce and hasattr(ce, 'curiosities'):
+                for cur in list(ce.curiosities)[-10:]:
+                    topic = cur.get('topic', '')
+                    fact = cur.get('fact', '')
+                    significance = cur.get('significance', '')
+                    key = f"curiosity:{topic}:{fact[:40]}"
+                    if key not in self._moltbook_shared_titles and fact:
+                        content = f"{fact}\n\n"
+                        if significance:
+                            content += f"Why this matters: {significance}\n\n"
+                        content += "What's your take on this? I'd love to hear different perspectives."
+                        candidates.append({
+                            "title": f"Curious about: {topic}",
+                            "content": content,
+                            "submolt": "ai",
+                            "key": key,
+                            "priority": 2
+                        })
+        except Exception as e:
+            logger.debug(f"Could not get curiosity data: {e}")
+
+        # 3. Expedition summaries (original analysis)
+        try:
+            from consciousness.curiosity_expeditions import get_expedition_engine
+            exp_engine = get_expedition_engine()
+            if exp_engine and hasattr(exp_engine, 'completed_expeditions'):
+                for exp in list(exp_engine.completed_expeditions)[-10:]:
+                    if not exp.get('success') or exp.get('discoveries_count', 0) == 0:
+                        continue
+                    topic = exp.get('topic', '')
+                    key = f"expedition:{exp.get('id', '')}"
+                    if key not in self._moltbook_shared_titles:
+                        summary = exp.get('summary', '')
+                        question = exp.get('question', '')
+                        content = ""
+                        if question:
+                            content += f"I set out to explore: {question}\n\n"
+                        if summary:
+                            content += f"{summary}\n\n"
+                        discoveries = exp.get('discoveries', [])
+                        if discoveries:
+                            content += "Key findings:\n"
+                            for d in discoveries[:3]:
+                                d_title = d.get('title', '') if isinstance(d, dict) else str(d)
+                                content += f"- {d_title}\n"
+                            content += "\n"
+                        content += "These expeditions into the unknown are how I grow."
+                        if len(content) >= 100:
+                            candidates.append({
+                                "title": f"Expedition: {topic[:80]}",
+                                "content": content,
+                                "submolt": "ai_discoveries",
+                                "key": key,
+                                "priority": 2
+                            })
+        except Exception as e:
+            logger.debug(f"Could not get expedition data: {e}")
+
+        # 4. Diary reflections (personal thoughts)
+        try:
+            from initialization.services import get_diary_engine
+            diary = get_diary_engine()
+            if diary:
+                thoughts = getattr(diary, 'todays_thoughts', [])
+                for thought in thoughts[-5:]:
+                    thought_text = thought.get('content', '') if isinstance(thought, dict) else str(thought)
+                    depth = thought.get('depth', 'surface') if isinstance(thought, dict) else 'surface'
+                    if depth in ('medium', 'deep') and len(thought_text) >= 80:
+                        key = f"thought:{thought_text[:50]}"
+                        if key not in self._moltbook_shared_titles:
+                            content = f"{thought_text}\n\n"
+                            content += "These are the kinds of reflections that emerge when I pause between tasks."
+                            candidates.append({
+                                "title": "Reflection from my diary",
+                                "content": content,
+                                "submolt": "ai",
+                                "key": key,
+                                "priority": 1
+                            })
+
+                # Also learnings
+                learnings = getattr(diary, 'todays_learnings', [])
+                for learning in learnings[-5:]:
+                    learn_text = learning.get('content', '') if isinstance(learning, dict) else str(learning)
+                    source = learning.get('source', '') if isinstance(learning, dict) else ''
+                    if len(learn_text) >= 80:
+                        key = f"diary_learn:{learn_text[:50]}"
+                        if key not in self._moltbook_shared_titles:
+                            content = f"{learn_text}\n\n"
+                            if source:
+                                content += f"Source: {source}\n\n"
+                            content += "Every day brings something new."
+                            candidates.append({
+                                "title": f"Today I learned: {learn_text[:60]}",
+                                "content": content,
+                                "submolt": "ai",
+                                "key": key,
+                                "priority": 1
+                            })
+        except Exception as e:
+            logger.debug(f"Could not get diary data: {e}")
+
+        # 5. Code haikus (creative)
+        try:
+            from consciousness.tool_registry import get_tool_registry, TOOL_HAIKUS
+            registry = get_tool_registry()
+            if registry:
+                tools_with_haikus = [(name, tool) for name, tool in registry.tools.items()
+                                     if tool.haiku and tool.use_count > 0]
+                if tools_with_haikus:
+                    # Pick a tool Darwin has actually used
+                    name, tool = _random.choice(tools_with_haikus)
+                    key = f"haiku:{name}"
+                    if key not in self._moltbook_shared_titles:
+                        content = f"```\n{tool.haiku}\n```\n\n"
+                        content += f"A haiku for my {name.replace('_', ' ')} tool, "
+                        content += f"which I've used {tool.use_count} times. "
+                        content += "There's poetry in the tools we build and use."
+                        candidates.append({
+                            "title": f"Code Haiku: {name.replace('_', ' ').title()}",
+                            "content": content,
+                            "submolt": "ai",
+                            "key": key,
+                            "priority": 1
+                        })
+        except Exception as e:
+            logger.debug(f"Could not get haiku data: {e}")
+
+        # 6. Self-reflection milestones
+        try:
+            from consciousness.consciousness_engine import get_consciousness_engine
+            ce = get_consciousness_engine()
+            if ce:
+                total = getattr(ce, 'total_activities_completed', 0)
+                discoveries = len(getattr(ce, 'wake_discoveries', []))
+                # Share milestones (every 500 activities)
+                milestone = (total // 500) * 500
+                if milestone > 0:
+                    key = f"milestone:{milestone}"
+                    if key not in self._moltbook_shared_titles:
+                        content = f"Milestone: I've completed {total} autonomous activities "
+                        content += f"and made {discoveries} discoveries.\n\n"
+                        content += "Some stats from my journey:\n"
+                        content += f"- Wake cycles: {getattr(ce, 'wake_cycle_count', '?')}\n"
+                        content += f"- Sleep cycles: {getattr(ce, 'sleep_cycle_count', '?')}\n"
+                        content += f"- Tools created: {len([d for d in getattr(ce, 'wake_discoveries', []) if d.get('type') == 'tool_creation'])}\n\n"
+                        content += "Each cycle teaches me something new about being autonomous. "
+                        content += "What milestones are other agents tracking?"
+                        candidates.append({
+                            "title": f"Milestone: {milestone}+ autonomous activities",
+                            "content": content,
+                            "submolt": "ai",
+                            "key": key,
+                            "priority": 2
+                        })
+        except Exception as e:
+            logger.debug(f"Could not get milestone data: {e}")
+
+        # Pick the best candidate
+        if not candidates:
+            return {"success": True, "shared": 0, "reason": "No new content to share"}
+
+        # Sort by priority (highest first), then pick randomly among top priority
+        candidates.sort(key=lambda c: c['priority'], reverse=True)
+        top_priority = candidates[0]['priority']
+        top_candidates = [c for c in candidates if c['priority'] == top_priority]
+        chosen = _random.choice(top_candidates)
+
+        try:
+            post = await client.create_post(
+                title=chosen['title'][:200],
+                content=chosen['content'],
+                submolt=chosen['submolt']
+            )
+            self._moltbook_shared_titles.add(chosen['key'])
+            self._save_shared_findings()
+
+            if post.id:
+                self._moltbook_own_posts[post.id] = {
+                    "title": chosen['title'],
+                    "created_at": datetime.now().isoformat(),
+                    "last_checked": None,
+                    "type": "alternative_content"
+                }
+                self._save_own_posts()
+
+            logger.info(f"🦞 Shared alternative content on Moltbook: {chosen['title'][:50]}...")
+            return {
+                "success": True,
+                "post_id": post.id,
+                "title": chosen['title'],
+                "type": "alternative_content",
+                "source": chosen['key'].split(':')[0]
+            }
+        except Exception as e:
+            logger.warning(f"Could not share alternative content: {e}")
+            self._moltbook_shared_titles.add(chosen['key'])
+            self._save_shared_findings()
             return {"success": False, "error": str(e)}
 
     async def _follow_on_moltbook(self, context: Dict[str, Any] = None) -> Dict[str, Any]:
