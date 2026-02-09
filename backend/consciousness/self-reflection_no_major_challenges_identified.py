@@ -234,4 +234,121 @@ class SelfReflectionEngine:
         try:
             n = len(values)
             x = list(range(n))
-            mean_x = statistics
+            mean_x = statistics.mean(x)
+            mean_y = statistics.mean(values)
+            
+            numerator = sum((xi - mean_x) * (yi - mean_y) for xi, yi in zip(x, values))
+            denominator = sum((xi - mean_x) ** 2 for xi in x)
+            
+            if denominator == 0:
+                return 0.0
+            
+            slope = numerator / denominator
+            # Normalize by mean to get relative trend
+            if mean_y != 0:
+                return slope / abs(mean_y)
+            return slope
+            
+        except Exception:
+            return 0.0
+    
+    def _identify_stagnation_improvement(
+        self,
+        metric_name: str,
+        metrics_list: List[PerformanceMetric]
+    ) -> None:
+        """
+        Identify improvement opportunities when metrics are stagnating.
+        
+        Args:
+            metric_name: Name of the stagnating metric
+            metrics_list: List of recent metric values
+        """
+        values = [m.value for m in metrics_list]
+        avg_value = statistics.mean(values)
+        
+        improvement = MicroImprovement(
+            id=f"stagnation_{metric_name}_{datetime.now().strftime('%Y%m%d%H%M%S')}",
+            description=f"Metric '{metric_name}' has stagnated around {avg_value:.2f}. "
+                        f"Consider new optimization strategies.",
+            category=metrics_list[-1].category,
+            impact_score=0.5,
+            effort_score=0.3,
+            status=ImprovementStatus.IDENTIFIED.value,
+            identified_at=datetime.now().isoformat()
+        )
+        
+        self.improvements.append(improvement)
+        self.logger.info(f"Identified stagnation in {metric_name}")
+    
+    def _identify_degradation_improvement(
+        self,
+        metric_name: str,
+        metrics_list: List[PerformanceMetric]
+    ) -> None:
+        """
+        Identify improvement opportunities when metrics are degrading.
+        
+        Args:
+            metric_name: Name of the degrading metric
+            metrics_list: List of recent metric values
+        """
+        values = [m.value for m in metrics_list]
+        recent_avg = statistics.mean(values[-3:])
+        older_avg = statistics.mean(values[:3]) if len(values) >= 6 else values[0]
+        
+        improvement = MicroImprovement(
+            id=f"degradation_{metric_name}_{datetime.now().strftime('%Y%m%d%H%M%S')}",
+            description=f"Metric '{metric_name}' is degrading: {older_avg:.2f} -> {recent_avg:.2f}. "
+                        f"Investigate root cause and implement corrective action.",
+            category=metrics_list[-1].category,
+            impact_score=0.8,
+            effort_score=0.5,
+            status=ImprovementStatus.IDENTIFIED.value,
+            identified_at=datetime.now().isoformat()
+        )
+        
+        self.improvements.append(improvement)
+        self.logger.warning(f"Identified degradation in {metric_name}")
+    
+    def get_reflection_summary(self) -> Dict[str, Any]:
+        """
+        Generate a summary of the current reflection state.
+        
+        Returns:
+            Dictionary with reflection summary
+        """
+        pending = [i for i in self.improvements if i.status == ImprovementStatus.IDENTIFIED.value]
+        in_progress = [i for i in self.improvements if i.status == ImprovementStatus.IN_PROGRESS.value]
+        completed = [i for i in self.improvements if i.status == ImprovementStatus.COMPLETED.value]
+        
+        return {
+            "total_metrics_recorded": len(self.metrics),
+            "total_improvements_identified": len(self.improvements),
+            "improvements_pending": len(pending),
+            "improvements_in_progress": len(in_progress),
+            "improvements_completed": len(completed),
+            "top_priorities": [
+                {
+                    "id": i.id,
+                    "description": i.description,
+                    "priority": i.priority_score()
+                }
+                for i in sorted(pending, key=lambda x: x.priority_score(), reverse=True)[:5]
+            ],
+            "patterns_learned": len(self.patterns),
+            "timestamp": datetime.now().isoformat()
+        }
+    
+    def get_statistics(self, top_k: int = None, **kwargs) -> Dict[str, Any]:
+        """
+        Get self-reflection statistics.
+        
+        Args:
+            top_k: For compatibility with tool registry
+            **kwargs: Additional parameters
+            
+        Returns:
+            Dictionary with statistics
+        """
+        return self.get_reflection_summary()
