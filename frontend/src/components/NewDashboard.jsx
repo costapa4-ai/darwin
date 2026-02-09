@@ -6,7 +6,7 @@ import LanguageEvolutionPanel from './LanguageEvolutionPanel';
 import MonitorPanel from './MonitorPanel';
 import { API_BASE } from '../utils/config';
 
-export default function NewDashboard() {
+export default function NewDashboard({ onNavigate }) {
   const [status, setStatus] = useState(null);
   const [activities, setActivities] = useState([]);
   const [dreams, setDreams] = useState([]);
@@ -242,17 +242,27 @@ export default function NewDashboard() {
               </div>
             </div>
             {/* Switch to 3D Brain View */}
-            <button
-              onClick={() => {
-                const currentHost = window.location.hostname;
-                window.location.href = `http://${currentHost}:3051`;
-              }}
-              className="px-2 py-1 rounded-lg bg-white/20 hover:bg-white/30 transition-colors text-xs font-medium text-white flex items-center gap-1"
-              title="Switch to 3D Brain View"
-            >
-              <span>🧠</span>
-              3D
-            </button>
+            <div className="flex items-center gap-1">
+              <button
+                onClick={() => onNavigate && onNavigate('observatory')}
+                className="px-2 py-1 rounded-lg bg-white/20 hover:bg-white/30 transition-colors text-xs font-medium text-white flex items-center gap-1"
+                title="Open Observatory Dashboard"
+              >
+                <span>📊</span>
+                Stats
+              </button>
+              <button
+                onClick={() => {
+                  const currentHost = window.location.hostname;
+                  window.location.href = `http://${currentHost}:3051`;
+                }}
+                className="px-2 py-1 rounded-lg bg-white/20 hover:bg-white/30 transition-colors text-xs font-medium text-white flex items-center gap-1"
+                title="Switch to 3D Brain View"
+              >
+                <span>🧠</span>
+                3D
+              </button>
+            </div>
           </div>
         </div>
 
