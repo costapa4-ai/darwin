@@ -176,6 +176,15 @@ async def init_consciousness_engine(
         await services['feedback_manager'].initialize()
         logger.info("Feedback Loop Manager initialized")
 
+        # Prompt Evolution Engine
+        from consciousness.prompt_evolution import PromptEvolutionEngine
+        from consciousness.prompt_registry import get_prompt_registry
+        services['prompt_evolution_engine'] = PromptEvolutionEngine(
+            multi_model_router=phase2.get('multi_model_router'),
+            registry=get_prompt_registry(),
+        )
+        logger.info("Prompt Evolution Engine initialized")
+
         # Financial Consciousness
         from consciousness.financial_consciousness import FinancialConsciousness
         services['financial_consciousness'] = FinancialConsciousness(

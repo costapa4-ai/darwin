@@ -74,6 +74,81 @@ class CodeGenerator:
         self.multi_model_router = multi_model_router
         self.tool_registry = tool_registry
         self.project_root = Path("/app")
+        self._register_prompts()
+
+    def _register_prompts(self):
+        """Register evolvable prompts with the PromptRegistry."""
+        try:
+            from consciousness.prompt_registry import get_prompt_registry
+            registry = get_prompt_registry()
+            if not registry:
+                return
+
+            registry.register_prompt(
+                slot_id="code_generator.generation",
+                name="Code Generation Prompt",
+                module="introspection.code_generator",
+                function="_create_generation_prompt",
+                category="code_generation",
+                feedback_strength="strong",
+                placeholders=[
+                    "insight_title", "insight_type", "insight_priority",
+                    "insight_description", "current_code", "proposed_change",
+                    "benefits", "requirements_section",
+                ],
+                original_template=(
+                    "You are an expert Python developer improving the Darwin System codebase.\n\n"
+                    "## Task: Implement the following improvement\n\n"
+                    "### Insight Details:\n"
+                    "- **Title:** {insight_title}\n"
+                    "- **Type:** {insight_type}\n"
+                    "- **Priority:** {insight_priority}\n\n"
+                    "### Problem:\n{insight_description}\n\n"
+                    "### Current Code:\n```python\n{current_code}\n```\n\n"
+                    "### Proposed Solution:\n{proposed_change}\n\n"
+                    "### Expected Benefits:\n{benefits}\n\n"
+                    "{requirements_section}\n\n"
+                    "### Output Format:\n"
+                    "Return ONLY the complete Python code in a code block. "
+                    "No explanations, no TODO comments, no placeholders.\n"
+                    "The code must be immediately usable and functional.\n\n"
+                    "```python\n# Your complete implementation here\n```"
+                ),
+            )
+
+            registry.register_prompt(
+                slot_id="code_generator.correction",
+                name="Code Correction Prompt",
+                module="introspection.code_generator",
+                function="correct_code_with_ai",
+                category="code_generation",
+                feedback_strength="strong",
+                placeholders=["code", "errors_text", "warnings_text"],
+                original_template=(
+                    "You are an expert Python developer. The following code was generated "
+                    "but has validation errors that need to be fixed.\n\n"
+                    "## Original Code:\n```python\n{code}\n```\n\n"
+                    "## Validation Errors (MUST FIX):\n{errors_text}\n\n"
+                    "## Validation Warnings (should fix if possible):\n{warnings_text}\n\n"
+                    "## Task:\nFix ALL the validation errors in the code. The most common issues are:\n"
+                    "1. Syntax errors (unclosed parentheses, brackets, quotes)\n"
+                    "2. Import errors\n"
+                    "3. Indentation problems\n"
+                    "4. Missing function definitions\n\n"
+                    "## Requirements:\n"
+                    "1. Return the COMPLETE corrected Python code\n"
+                    "2. Preserve ALL functionality - do not remove features\n"
+                    "3. Fix ALL syntax errors\n"
+                    "4. Ensure all imports are valid\n"
+                    "5. Ensure all parentheses, brackets, and quotes are properly closed\n"
+                    "6. Double-check line endings and indentation\n\n"
+                    "## Output Format:\n"
+                    "Return ONLY the corrected Python code in a code block. No explanations needed.\n\n"
+                    "```python\n# Your corrected code here\n```"
+                ),
+            )
+        except Exception as e:
+            print(f"⚠️ Could not register code generator prompts: {e}")
 
     def _check_duplicate_tool(self, insight: CodeInsight) -> Optional[str]:
         """
@@ -536,7 +611,23 @@ class CodeGenerator:
         errors_text = "\n".join([f"  - {e}" for e in validation_errors]) if validation_errors else "None"
         warnings_text = "\n".join([f"  - {w}" for w in validation_warnings]) if validation_warnings else "None"
 
-        correction_prompt = f"""You are an expert Python developer. The following code was generated but has validation errors that need to be fixed.
+        # Try evolvable prompt from registry
+        correction_prompt = None
+        try:
+            from consciousness.prompt_registry import get_prompt_registry
+            registry = get_prompt_registry()
+            if registry:
+                correction_prompt = registry.get_prompt(
+                    "code_generator.correction",
+                    code=code,
+                    errors_text=errors_text,
+                    warnings_text=warnings_text,
+                )
+        except Exception as e:
+            print(f"⚠️ Prompt registry fallback for correction: {e}")
+
+        if not correction_prompt:
+            correction_prompt = f"""You are an expert Python developer. The following code was generated but has validation errors that need to be fixed.
 
 ## Original Code:
 ```python
@@ -692,6 +783,28 @@ Return ONLY the corrected Python code in a code block. No explanations needed.
 
             attempt += 1
 
+        # Record outcome for prompt evolution
+        # Score: 1.0 = passed first try, 0.7 = 1 correction, 0.4 = 2 corrections, 0.0 = failed
+        try:
+            from consciousness.prompt_registry import get_prompt_registry
+            registry = get_prompt_registry()
+            if registry:
+                passed = validation.valid and validation.score >= 70
+                if passed:
+                    gen_score = max(0.0, 1.0 - (attempt * 0.3))
+                else:
+                    gen_score = 0.0
+                registry.record_outcome("code_generator.generation", gen_score, passed)
+                # Record correction outcome if corrections were attempted
+                if attempt > 0:
+                    registry.record_outcome(
+                        "code_generator.correction",
+                        1.0 if passed else 0.0,
+                        passed,
+                    )
+        except Exception:
+            pass
+
         # Create final diffs
         file_path = self._determine_file_path(insight)
         diff_unified = self._create_unified_diff(original_code, new_code, file_path)
@@ -778,6 +891,28 @@ Return ONLY the corrected Python code in a code block. No explanations needed.
         else:
             requirements_section = base_requirements
 
+        benefits = ', '.join(insight.benefits) if insight.benefits else 'Improve code quality and functionality'
+
+        # Try evolvable prompt from registry
+        try:
+            from consciousness.prompt_registry import get_prompt_registry
+            registry = get_prompt_registry()
+            if registry:
+                return registry.get_prompt(
+                    "code_generator.generation",
+                    insight_title=insight.title,
+                    insight_type=insight.type,
+                    insight_priority=insight.priority,
+                    insight_description=insight.description,
+                    current_code=current_code,
+                    proposed_change=insight.proposed_change,
+                    benefits=benefits,
+                    requirements_section=requirements_section,
+                )
+        except Exception as e:
+            print(f"⚠️ Prompt registry fallback for generation: {e}")
+
+        # Fallback: original hardcoded prompt
         return f"""You are an expert Python developer improving the Darwin System codebase.
 
 ## Task: Implement the following improvement
@@ -799,7 +934,7 @@ Return ONLY the corrected Python code in a code block. No explanations needed.
 {insight.proposed_change}
 
 ### Expected Benefits:
-{', '.join(insight.benefits) if insight.benefits else 'Improve code quality and functionality'}
+{benefits}
 
 {requirements_section}
 

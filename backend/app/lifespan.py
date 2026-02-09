@@ -149,6 +149,13 @@ async def lifespan(app: FastAPI):
     set_service('findings_inbox', findings_inbox)
     logger.info(f"Findings Inbox initialized with {findings_inbox.get_unread_count()} unread findings")
 
+    # Initialize Prompt Registry
+    from consciousness.prompt_registry import PromptRegistry, set_prompt_registry
+    prompt_registry = PromptRegistry(storage_path="./data/prompt_evolution")
+    set_prompt_registry(prompt_registry)
+    set_service('prompt_registry', prompt_registry)
+    logger.info(f"Prompt Registry initialized with {len(prompt_registry.slots)} slots")
+
     # Initialize Safe Command Executor
     from tools.safe_command_executor import SafeCommandExecutor, set_safe_executor
     safe_executor = SafeCommandExecutor()

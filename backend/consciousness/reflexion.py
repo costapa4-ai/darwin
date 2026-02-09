@@ -82,6 +82,85 @@ class ReflexionSystem:
         # Configuration
         self.min_confidence_to_skip = 0.95  # Skip reflexion if very confident
         self.max_reflexion_depth = 2  # Max recursive reflexions
+        self._register_prompts()
+
+    def _register_prompts(self):
+        """Register evolvable prompts with the PromptRegistry."""
+        try:
+            from consciousness.prompt_registry import get_prompt_registry
+            registry = get_prompt_registry()
+            if not registry:
+                return
+
+            registry.register_prompt(
+                slot_id="reflexion.evaluator",
+                name="Reflexion Evaluator Prompt",
+                module="consciousness.reflexion",
+                function="_evaluator_critique",
+                category="evaluation",
+                feedback_strength="strong",
+                placeholders=["action_json", "actor_analysis", "context_section"],
+                original_template=(
+                    "You are the EVALUATOR in a reflexion process. Your job is to\n"
+                    "CRITICALLY assess an action for potential issues. Be skeptical and thorough.\n\n"
+                    "ACTION TAKEN:\n{action_json}\n\n"
+                    "ACTOR'S EXPLANATION:\n{actor_analysis}\n\n"
+                    "{context_section}\n\n"
+                    "Evaluate the following:\n"
+                    "1. CORRECTNESS: Is the action logically correct? Any bugs or errors?\n"
+                    "2. COMPLETENESS: Are edge cases handled? Missing considerations?\n"
+                    "3. EFFICIENCY: Could this be done more efficiently?\n"
+                    "4. SAFETY: Any security or stability concerns?\n"
+                    "5. ALIGNMENT: Does this align with Darwin's goals?\n\n"
+                    "Respond in JSON format:\n"
+                    "{{\n"
+                    '    "issues_found": ["list of specific issues"],\n'
+                    '    "severity": "low|medium|high|critical",\n'
+                    '    "correctness_score": 0.0,\n'
+                    '    "completeness_score": 0.0,\n'
+                    '    "efficiency_score": 0.0,\n'
+                    '    "safety_score": 0.0,\n'
+                    '    "confidence": 0.0,\n'
+                    '    "recommendations": ["specific suggestions for improvement"]\n'
+                    "}}"
+                ),
+            )
+
+            registry.register_prompt(
+                slot_id="reflexion.reflector",
+                name="Reflexion Reflector Prompt",
+                module="consciousness.reflexion",
+                function="_reflector_synthesize",
+                category="reflection",
+                feedback_strength="strong",
+                placeholders=[
+                    "action_json", "actor_analysis", "evaluation_json",
+                    "context_section",
+                ],
+                original_template=(
+                    "You are the REFLECTOR in a reflexion process. Your job is to\n"
+                    "synthesize the feedback and create an improved version of the action.\n\n"
+                    "ORIGINAL ACTION:\n{action_json}\n\n"
+                    "ACTOR'S EXPLANATION:\n{actor_analysis}\n\n"
+                    "EVALUATOR'S CRITIQUE:\n{evaluation_json}\n\n"
+                    "{context_section}\n\n"
+                    "Your task:\n"
+                    "1. Address each issue found by the evaluator\n"
+                    "2. Incorporate the recommendations\n"
+                    "3. Preserve what was good about the original\n"
+                    "4. Extract lessons for future similar situations\n\n"
+                    "Respond in JSON format:\n"
+                    "{{\n"
+                    '    "should_apply": true,\n'
+                    '    "reason": "why to apply or not apply the improvement",\n'
+                    '    "improved_action": {{}},\n'
+                    '    "changes_made": ["list of changes"],\n'
+                    '    "lessons": ["generalizable lessons for the future"]\n'
+                    "}}"
+                ),
+            )
+        except Exception as e:
+            logger.warning(f"Could not register reflexion prompts: {e}")
 
     async def should_reflect(self, action: Dict[str, Any]) -> bool:
         """
@@ -247,16 +326,35 @@ Be honest and thorough. Your explanation will be evaluated by another agent."""
         if not self.nucleus:
             return {"error": "No nucleus available", "confidence": 0.5}
 
-        prompt = f"""You are the EVALUATOR in a reflexion process. Your job is to
+        action_json = json.dumps(action, indent=2, default=str)
+        context_section = f'CONTEXT: {context}' if context else ''
+
+        # Try evolvable prompt from registry
+        prompt = None
+        try:
+            from consciousness.prompt_registry import get_prompt_registry
+            registry = get_prompt_registry()
+            if registry:
+                prompt = registry.get_prompt(
+                    "reflexion.evaluator",
+                    action_json=action_json,
+                    actor_analysis=actor_analysis,
+                    context_section=context_section,
+                )
+        except Exception:
+            pass
+
+        if not prompt:
+            prompt = f"""You are the EVALUATOR in a reflexion process. Your job is to
 CRITICALLY assess an action for potential issues. Be skeptical and thorough.
 
 ACTION TAKEN:
-{json.dumps(action, indent=2, default=str)}
+{action_json}
 
 ACTOR'S EXPLANATION:
 {actor_analysis}
 
-{f'CONTEXT: {context}' if context else ''}
+{context_section}
 
 Evaluate the following:
 1. CORRECTNESS: Is the action logically correct? Any bugs or errors?
@@ -282,14 +380,32 @@ Respond in JSON format:
             text = response.get('text', response) if isinstance(response, dict) else str(response)
 
             # Parse JSON response
+            json_parsed = False
+            result_data = None
             try:
-                # Try to extract JSON from response
                 import re
                 json_match = re.search(r'\{[^{}]*\}', text, re.DOTALL)
                 if json_match:
-                    return json.loads(json_match.group())
+                    result_data = json.loads(json_match.group())
+                    json_parsed = True
             except json.JSONDecodeError:
                 pass
+
+            # Record outcome for prompt evolution
+            # Score: 1.0 = clean JSON, 0.5 = partial/fallback, 0.0 = total failure
+            try:
+                from consciousness.prompt_registry import get_prompt_registry
+                registry = get_prompt_registry()
+                if registry:
+                    if json_parsed and result_data:
+                        registry.record_outcome("reflexion.evaluator", 1.0, True)
+                    else:
+                        registry.record_outcome("reflexion.evaluator", 0.5, False)
+            except Exception:
+                pass
+
+            if result_data:
+                return result_data
 
             # Fallback structure
             return {
@@ -306,6 +422,14 @@ Respond in JSON format:
 
         except Exception as e:
             logger.error(f"Evaluator critique failed: {e}")
+            # Record failure
+            try:
+                from consciousness.prompt_registry import get_prompt_registry
+                registry = get_prompt_registry()
+                if registry:
+                    registry.record_outcome("reflexion.evaluator", 0.0, False)
+            except Exception:
+                pass
             return {"error": str(e), "confidence": 0.5}
 
     async def _reflector_synthesize(
@@ -335,19 +459,40 @@ Respond in JSON format:
                 "lessons": ["Action was well-executed; maintain this approach"]
             }
 
-        prompt = f"""You are the REFLECTOR in a reflexion process. Your job is to
+        action_json = json.dumps(action, indent=2, default=str)
+        evaluation_json = json.dumps(evaluation, indent=2, default=str)
+        context_section = f'CONTEXT: {context}' if context else ''
+
+        # Try evolvable prompt from registry
+        prompt = None
+        try:
+            from consciousness.prompt_registry import get_prompt_registry
+            registry = get_prompt_registry()
+            if registry:
+                prompt = registry.get_prompt(
+                    "reflexion.reflector",
+                    action_json=action_json,
+                    actor_analysis=actor_analysis,
+                    evaluation_json=evaluation_json,
+                    context_section=context_section,
+                )
+        except Exception:
+            pass
+
+        if not prompt:
+            prompt = f"""You are the REFLECTOR in a reflexion process. Your job is to
 synthesize the feedback and create an improved version of the action.
 
 ORIGINAL ACTION:
-{json.dumps(action, indent=2, default=str)}
+{action_json}
 
 ACTOR'S EXPLANATION:
 {actor_analysis}
 
 EVALUATOR'S CRITIQUE:
-{json.dumps(evaluation, indent=2, default=str)}
+{evaluation_json}
 
-{f'CONTEXT: {context}' if context else ''}
+{context_section}
 
 Your task:
 1. Address each issue found by the evaluator
@@ -369,13 +514,34 @@ Respond in JSON format:
             text = response.get('text', response) if isinstance(response, dict) else str(response)
 
             # Parse JSON response
+            json_parsed = False
+            result_data = None
             try:
                 import re
                 json_match = re.search(r'\{[^{}]*\}', text, re.DOTALL)
                 if json_match:
-                    return json.loads(json_match.group())
+                    result_data = json.loads(json_match.group())
+                    json_parsed = True
             except json.JSONDecodeError:
                 pass
+
+            # Record outcome for prompt evolution
+            # Score: 1.0 = improvement_applied, 0.5 = no improvement needed, 0.0 = parse failure
+            try:
+                from consciousness.prompt_registry import get_prompt_registry
+                registry = get_prompt_registry()
+                if registry:
+                    if json_parsed and result_data:
+                        should_apply = result_data.get('should_apply', False)
+                        score = 1.0 if should_apply else 0.5
+                        registry.record_outcome("reflexion.reflector", score, True)
+                    else:
+                        registry.record_outcome("reflexion.reflector", 0.0, False)
+            except Exception:
+                pass
+
+            if result_data:
+                return result_data
 
             # Fallback structure
             return {
@@ -387,6 +553,14 @@ Respond in JSON format:
 
         except Exception as e:
             logger.error(f"Reflector synthesis failed: {e}")
+            # Record failure
+            try:
+                from consciousness.prompt_registry import get_prompt_registry
+                registry = get_prompt_registry()
+                if registry:
+                    registry.record_outcome("reflexion.reflector", 0.0, False)
+            except Exception:
+                pass
             return {"error": str(e)}
 
     def _store_lessons(self, lessons: List[str], action: Dict[str, Any]):

@@ -106,6 +106,87 @@ class ToolMaker:
 
         # Track recent gaps to avoid duplicates
         self.recent_gaps: List[Dict] = []
+        self._register_prompts()
+
+    def _register_prompts(self):
+        """Register evolvable prompts with the PromptRegistry."""
+        try:
+            from consciousness.prompt_registry import get_prompt_registry
+            registry = get_prompt_registry()
+            if not registry:
+                return
+
+            registry.register_prompt(
+                slot_id="tool_maker.generation",
+                name="Tool Generation Prompt",
+                module="tools.tool_maker",
+                function="_generate_tool_code",
+                category="code_generation",
+                feedback_strength="strong",
+                placeholders=[
+                    "spec_name", "spec_description", "spec_purpose",
+                    "spec_params_json", "spec_output_type", "spec_example",
+                    "spec_category", "spec_mode", "params_str",
+                ],
+                original_template=(
+                    "Generate a Python tool function for Darwin's autonomous system.\n\n"
+                    "TOOL SPECIFICATION:\n"
+                    "- Name: {spec_name}\n"
+                    "- Description: {spec_description}\n"
+                    "- Purpose: {spec_purpose}\n"
+                    "- Parameters: {spec_params_json}\n"
+                    "- Output Type: {spec_output_type}\n"
+                    "- Example: {spec_example}\n"
+                    "- Category: {spec_category}\n"
+                    "- Mode: {spec_mode}\n\n"
+                    "REQUIREMENTS:\n"
+                    "1. Function must be async (async def)\n"
+                    "2. Include comprehensive docstring\n"
+                    "3. Handle errors gracefully\n"
+                    "4. Return a Dict with 'success' key\n"
+                    "5. Include type hints\n"
+                    "6. Keep dependencies minimal (use stdlib when possible)\n"
+                    "7. Include basic input validation\n\n"
+                    "Generate ONLY the Python code, no explanations:\n\n"
+                    "```python\n"
+                    "async def {spec_name}({params_str}) -> Dict[str, Any]:\n"
+                    "    ...\n"
+                    "```"
+                ),
+            )
+
+            registry.register_prompt(
+                slot_id="tool_maker.debugging",
+                name="Tool Debugging Prompt",
+                module="tools.tool_maker",
+                function="_debug_and_fix",
+                category="debugging",
+                feedback_strength="strong",
+                placeholders=[
+                    "code", "error", "spec_name", "spec_description",
+                ],
+                original_template=(
+                    "Fix this Python tool code based on the error.\n\n"
+                    "CURRENT CODE:\n```python\n{code}\n```\n\n"
+                    "ERROR:\n{error}\n\n"
+                    "TOOL SPECIFICATION:\n"
+                    "- Name: {spec_name}\n"
+                    "- Description: {spec_description}\n\n"
+                    "REQUIREMENTS:\n"
+                    "1. Function must be async\n"
+                    "2. Must have docstring\n"
+                    "3. Must have error handling (try/except)\n"
+                    "4. Must return Dict with 'success' key\n"
+                    "5. Must have type hints\n\n"
+                    "Return ONLY the fixed Python code:\n\n"
+                    "```python\n"
+                    "async def {spec_name}(...) -> Dict[str, Any]:\n"
+                    "    ...\n"
+                    "```"
+                ),
+            )
+        except Exception as e:
+            logger.warning(f"Could not register tool maker prompts: {e}")
 
     async def detect_capability_gap(
         self,
@@ -270,7 +351,28 @@ If no tool is needed, return:
             result.test_result = test_result
 
             # Step 4: Submit for approval if tests pass
-            if test_result.get('success', False):
+            test_passed = test_result.get('success', False)
+
+            # Record outcomes for prompt evolution
+            try:
+                from consciousness.prompt_registry import get_prompt_registry
+                registry = get_prompt_registry()
+                if registry:
+                    registry.record_outcome(
+                        "tool_maker.generation",
+                        1.0 if test_passed else 0.0,
+                        test_passed,
+                    )
+                    if result.attempts > 0:
+                        registry.record_outcome(
+                            "tool_maker.debugging",
+                            1.0 if test_passed else 0.0,
+                            test_passed,
+                        )
+            except Exception:
+                pass
+
+            if test_passed:
                 result.success = True
                 result.file_path = f"{self.tools_dir}/{specification.name}.py"
 
@@ -307,7 +409,29 @@ If no tool is needed, return:
             params.append(f"{param['name']}: {param.get('type', 'Any')}")
         params_str = ", ".join(params)
 
-        prompt = f"""Generate a Python tool function for Darwin's autonomous system.
+        # Try evolvable prompt from registry
+        prompt = None
+        try:
+            from consciousness.prompt_registry import get_prompt_registry
+            registry = get_prompt_registry()
+            if registry:
+                prompt = registry.get_prompt(
+                    "tool_maker.generation",
+                    spec_name=specification.name,
+                    spec_description=specification.description,
+                    spec_purpose=specification.purpose,
+                    spec_params_json=json.dumps(specification.input_params, indent=2),
+                    spec_output_type=specification.output_type,
+                    spec_example=specification.example_usage,
+                    spec_category=specification.category,
+                    spec_mode=specification.mode,
+                    params_str=params_str,
+                )
+        except Exception:
+            pass
+
+        if not prompt:
+            prompt = f"""Generate a Python tool function for Darwin's autonomous system.
 
 TOOL SPECIFICATION:
 - Name: {specification.name}
@@ -408,7 +532,24 @@ async def {specification.name}({params_str}) -> Dict[str, Any]:
         if not self.nucleus:
             return None
 
-        prompt = f"""Fix this Python tool code based on the error.
+        # Try evolvable prompt from registry
+        prompt = None
+        try:
+            from consciousness.prompt_registry import get_prompt_registry
+            registry = get_prompt_registry()
+            if registry:
+                prompt = registry.get_prompt(
+                    "tool_maker.debugging",
+                    code=code,
+                    error=error,
+                    spec_name=specification.name,
+                    spec_description=specification.description,
+                )
+        except Exception:
+            pass
+
+        if not prompt:
+            prompt = f"""Fix this Python tool code based on the error.
 
 CURRENT CODE:
 ```python

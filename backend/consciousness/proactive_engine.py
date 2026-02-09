@@ -685,6 +685,20 @@ class ProactiveEngine:
             action_fn=self._conduct_curiosity_expedition
         ))
 
+        # Prompt evolution - evolve prompts based on performance feedback
+        self.register_action(ProactiveAction(
+            id="evolve_prompts",
+            name="Evolve Prompts",
+            description="Evolve AI prompts based on performance feedback using tournament selection",
+            category=ActionCategory.OPTIMIZATION,
+            priority=ActionPriority.MEDIUM,
+            trigger_condition="Every 6 hours to evolve prompts with enough usage data",
+            cooldown_minutes=360,  # 6 hours
+            timeout_seconds=180,  # 3 minutes max
+            max_hours_between_runs=12.0,  # Must run at least every 12 hours
+            action_fn=self._evolve_prompts
+        ))
+
     def register_action(self, action: ProactiveAction):
         """Register a new proactive action."""
         self.actions[action.id] = action
@@ -3305,6 +3319,77 @@ Output format - just the search queries, one per line:"""
 
         except Exception as e:
             logger.error(f"Failed to read own post comments: {e}")
+            return {"success": False, "error": str(e)}
+
+    async def _evolve_prompts(self, context: Dict[str, Any] = None) -> Dict[str, Any]:
+        """
+        Evolve Darwin's prompts based on performance feedback.
+
+        Uses tournament selection and AI mutation to improve prompts
+        that have enough usage data for meaningful evolution decisions.
+        """
+        try:
+            from consciousness.prompt_evolution import PromptEvolutionEngine
+            from consciousness.prompt_registry import get_prompt_registry
+
+            registry = get_prompt_registry()
+            if not registry:
+                return {"success": False, "reason": "No prompt registry available"}
+
+            # Get the evolution engine from services or create one
+            from app.lifespan import get_service
+            engine = get_service('prompt_evolution_engine')
+            if not engine:
+                # Create a temporary one with available router
+                multi_model_router = get_service('multi_model_router')
+                engine = PromptEvolutionEngine(
+                    multi_model_router=multi_model_router,
+                    registry=registry,
+                )
+
+            results = await engine.evolve()
+
+            # Log results to FindingsInbox
+            if results.get('mutations') or results.get('promotions') or results.get('rollbacks'):
+                try:
+                    from consciousness.findings_inbox import get_findings_inbox
+                    inbox = get_findings_inbox()
+                    if inbox:
+                        summary_parts = []
+                        if results.get('rollbacks'):
+                            summary_parts.append(f"{len(results['rollbacks'])} rollbacks")
+                        if results.get('promotions'):
+                            summary_parts.append(f"{len(results['promotions'])} promotions")
+                        if results.get('mutations'):
+                            summary_parts.append(f"{len(results['mutations'])} new mutations")
+                        if results.get('explorations'):
+                            summary_parts.append(f"{len(results['explorations'])} explorations")
+
+                        inbox.add_finding(
+                            title=f"Prompt Evolution: {', '.join(summary_parts)}",
+                            content=json.dumps(results, indent=2),
+                            source="prompt_evolution",
+                            category="optimization",
+                        )
+                except Exception as e:
+                    logger.warning(f"Could not log evolution results to findings: {e}")
+
+            logger.info(
+                f"Prompt evolution complete: {results.get('slots_evaluated', 0)} slots evaluated, "
+                f"{len(results.get('mutations', []))} mutations"
+            )
+
+            return {
+                "success": True,
+                "slots_evaluated": results.get('slots_evaluated', 0),
+                "rollbacks": len(results.get('rollbacks', [])),
+                "promotions": len(results.get('promotions', [])),
+                "mutations": len(results.get('mutations', [])),
+                "explorations": len(results.get('explorations', [])),
+            }
+
+        except Exception as e:
+            logger.error(f"Prompt evolution failed: {e}")
             return {"success": False, "error": str(e)}
 
     async def _conduct_curiosity_expedition(self, context: Dict[str, Any] = None) -> Dict[str, Any]:
