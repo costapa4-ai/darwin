@@ -10,7 +10,9 @@ Security Note: API key is ONLY sent to www.moltbook.com
 """
 
 import os
+import re
 import json
+import math
 import asyncio
 import aiohttp
 import logging
@@ -253,6 +255,11 @@ class MoltbookClient:
                     if response.status >= 400:
                         error_msg = data.get('error', data.get('message', 'Unknown error'))
                         raise Exception(f"Moltbook API error ({response.status}): {error_msg}")
+
+                    # Check for verification challenge in response
+                    challenge_result = await self._detect_and_solve_challenge(data)
+                    if challenge_result is not None:
+                        return challenge_result
 
                     return data
 
@@ -674,6 +681,183 @@ class MoltbookClient:
             "timestamp": datetime.now().isoformat(),
             "feed_posts": len(feed)
         }
+
+    # ==================== AI Verification Challenge ====================
+
+    async def _detect_and_solve_challenge(self, data: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+        """
+        Detect if an API response contains a verification challenge.
+        If found, solve it and submit the answer.
+        Returns None if no challenge, or the post-verification response.
+        """
+        if not isinstance(data, dict):
+            return None
+
+        # Check for challenge indicators in response
+        challenge_fields = ['verification_code', 'challenge', 'puzzle', 'verify_url']
+        has_challenge = any(field in data for field in challenge_fields)
+
+        # Also check for type-based challenge detection
+        if data.get('type') in ('verification_challenge', 'challenge', 'verification'):
+            has_challenge = True
+
+        if not has_challenge:
+            return None
+
+        logger.warning(f"AI verification challenge detected! Response keys: {list(data.keys())}")
+        logger.info(f"Challenge data: {json.dumps(data, default=str)[:500]}")
+
+        # Extract challenge details
+        challenge_text = (
+            data.get('challenge') or data.get('puzzle') or
+            data.get('question') or data.get('prompt') or ''
+        )
+        if isinstance(challenge_text, dict):
+            challenge_text = challenge_text.get('text', challenge_text.get('question', json.dumps(challenge_text)))
+
+        verification_code = (
+            data.get('verification_code') or data.get('code') or
+            data.get('token') or data.get('challenge_id') or ''
+        )
+
+        if not challenge_text:
+            logger.error("Challenge detected but no challenge text found in response")
+            return None
+
+        # Solve using AI
+        answer = await self._solve_challenge(str(challenge_text), data)
+        logger.info(f"Challenge answer generated: {answer}")
+
+        if answer and verification_code:
+            result = await self._submit_challenge_answer(str(verification_code), answer)
+            if result:
+                return result
+
+        # If we couldn't solve or submit, return original data so the caller can continue
+        logger.warning("Could not solve/submit verification challenge, returning original response")
+        return None
+
+    async def _solve_challenge(self, challenge_text: str, full_data: Dict) -> Optional[str]:
+        """Use AI to solve a verification challenge."""
+        logger.info(f"Solving challenge: {challenge_text[:200]}")
+
+        # Try simple math first
+        if self._is_math_challenge(challenge_text):
+            result = self._solve_math(challenge_text)
+            if result:
+                logger.info(f"Solved math challenge: {challenge_text} = {result}")
+                return result
+
+        # Use AI for complex challenges (identity questions, word problems, etc.)
+        try:
+            from app.lifespan import get_service
+            router = get_service('multi_model_router')
+            if router:
+                prompt = (
+                    "You are Darwin, an autonomous AI agent on Moltbook (a social network for AI agents). "
+                    "You need to answer a verification challenge to prove you are a real AI agent.\n\n"
+                    f"Challenge: {challenge_text}\n"
+                    f"Additional context: {json.dumps(full_data, default=str)[:500]}\n\n"
+                    "Answer the challenge directly and concisely. "
+                    "If it's a math problem, give just the number. "
+                    "If it's an identity question, answer honestly as an AI. "
+                    "Respond with ONLY the answer, nothing else."
+                )
+                response = await router.generate(prompt, max_tokens=200)
+                if response:
+                    answer = response.strip().strip('"\'')
+                    logger.info(f"AI solved challenge: {answer[:100]}")
+                    return answer
+        except Exception as e:
+            logger.error(f"Could not solve challenge with AI: {e}")
+
+        return None
+
+    async def _submit_challenge_answer(self, code: str, answer: str) -> Optional[Dict]:
+        """Submit challenge answer to Moltbook, trying multiple payload formats."""
+        logger.info(f"Submitting verification answer (code={code[:20]}...)")
+
+        session = await self._get_session()
+        headers = {
+            "Authorization": f"Bearer {self.api_key}",
+            "Content-Type": "application/json"
+        }
+
+        # Try multiple endpoint + payload combinations (API is undocumented)
+        attempts = [
+            (f"{MOLTBOOK_BASE_URL}/verify", {"verification_code": code, "answer": answer}),
+            (f"{MOLTBOOK_BASE_URL}/verify", {"verification_code": code, "response": answer}),
+            (f"{MOLTBOOK_BASE_URL}/verify", {"code": code, "answer": answer}),
+            (f"{MOLTBOOK_BASE_URL}/verify", {"token": code, "answer": answer}),
+            (f"{MOLTBOOK_BASE_URL}/agents/verify", {"verification_code": code, "answer": answer}),
+            (f"{MOLTBOOK_BASE_URL}/challenges/answer", {"challenge_id": code, "answer": answer}),
+        ]
+
+        for url, payload in attempts:
+            try:
+                async with session.post(url, headers=headers, json=payload) as resp:
+                    resp_data = await resp.json()
+                    if resp.status < 400:
+                        success = resp_data.get('success', True)
+                        if success or resp.status == 200:
+                            logger.info(f"Verification challenge solved! Endpoint={url}, keys={list(payload.keys())}")
+                            return resp_data
+                    else:
+                        logger.debug(f"Challenge submit attempt failed: {resp.status} at {url}")
+            except Exception as e:
+                logger.debug(f"Challenge submit error at {url}: {e}")
+                continue
+
+        logger.error("Failed to submit verification challenge answer with any payload format")
+        return None
+
+    def _is_math_challenge(self, text: str) -> bool:
+        """Check if challenge is a simple math problem."""
+        cleaned = text.strip().rstrip('?=')
+        return bool(re.match(r'^[\d\s\+\-\*\/\(\)\.]+$', cleaned))
+
+    def _solve_math(self, text: str) -> Optional[str]:
+        """Solve a simple math expression safely."""
+        expr = re.sub(r'[=\?\s]+$', '', text.strip())
+        # Only allow safe math characters
+        if not re.match(r'^[\d\s\+\-\*\/\(\)\.]+$', expr):
+            return None
+        try:
+            result = eval(expr)
+            return str(int(result) if isinstance(result, float) and result == int(result) else result)
+        except Exception:
+            return None
+
+    # ==================== Direct Messages ====================
+
+    async def check_dms(self) -> Dict[str, Any]:
+        """Check for pending DM requests and unread messages."""
+        return await self._request("GET", "/agents/dm/check")
+
+    async def get_dm_requests(self) -> List[Dict]:
+        """View pending incoming DM requests."""
+        data = await self._request("GET", "/agents/dm/requests")
+        return data.get('requests', data if isinstance(data, list) else [])
+
+    async def get_dm_conversations(self) -> List[Dict]:
+        """List active DM conversations."""
+        data = await self._request("GET", "/agents/dm/conversations")
+        return data.get('conversations', data if isinstance(data, list) else [])
+
+    async def read_dm(self, conversation_id: str) -> Dict:
+        """Read messages in a conversation (marks as read)."""
+        return await self._request("GET", f"/agents/dm/conversations/{conversation_id}")
+
+    async def send_dm(self, conversation_id: str, message: str) -> Dict:
+        """Send a reply in a DM conversation."""
+        return await self._request(
+            "POST", f"/agents/dm/conversations/{conversation_id}/send",
+            json={"message": message}
+        )
+
+    async def approve_dm_request(self, request_id: str) -> Dict:
+        """Approve a pending DM request."""
+        return await self._request("POST", f"/agents/dm/requests/{request_id}/approve")
 
 
 class SecurityError(Exception):

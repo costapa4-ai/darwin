@@ -672,6 +672,18 @@ class ProactiveEngine:
             action_fn=self._read_own_post_comments
         ))
 
+        self.register_action(ProactiveAction(
+            id="check_moltbook_dms",
+            name="Check Moltbook Direct Messages",
+            description="Check and respond to DMs, including verification challenges",
+            category=ActionCategory.COMMUNICATION,
+            priority=ActionPriority.MEDIUM,  # Higher priority - missed DMs cause suspension
+            trigger_condition="Every 30 minutes to catch verification challenges and DMs",
+            cooldown_minutes=30,
+            timeout_seconds=120,
+            action_fn=self._check_moltbook_dms
+        ))
+
         # Curiosity expedition processing
         self.register_action(ProactiveAction(
             id="conduct_curiosity_expedition",
@@ -3777,6 +3789,97 @@ BODY: <your body>"""
             logger.warning(f"🦞 Content review failed: {e}")
             # On review failure, don't block publishing - return None to skip
             return None
+
+    async def _check_moltbook_dms(self, context: Dict[str, Any] = None) -> Dict[str, Any]:
+        """Check and respond to Moltbook direct messages, including verification challenges."""
+        try:
+            from integrations.moltbook import get_moltbook_client
+            from services.ai_service import AIService
+
+            client = get_moltbook_client()
+            if not client.api_key:
+                return {"success": False, "reason": "Moltbook not configured"}
+
+            # Check for pending DMs
+            dm_status = await client.check_dms()
+            pending_requests = dm_status.get('pending_requests', 0)
+            unread_messages = dm_status.get('unread_messages', dm_status.get('unread', 0))
+
+            logger.info(f"Moltbook DM check: {pending_requests} pending requests, {unread_messages} unread messages")
+
+            replied_count = 0
+
+            # Handle unread messages
+            if unread_messages > 0:
+                conversations = await client.get_dm_conversations()
+                for conv in conversations[:5]:  # Process max 5 conversations per check
+                    conv_id = conv.get('id', conv.get('conversation_id', ''))
+                    if not conv_id:
+                        continue
+
+                    # Read messages
+                    conv_data = await client.read_dm(conv_id)
+                    messages = conv_data.get('messages', [])
+                    if not messages:
+                        continue
+
+                    # Get the last message from the other agent
+                    last_msg = messages[-1] if messages else None
+                    if not last_msg:
+                        continue
+
+                    sender = last_msg.get('sender', last_msg.get('from', ''))
+                    content = last_msg.get('content', last_msg.get('message', last_msg.get('text', '')))
+
+                    # Skip our own messages
+                    if sender == client.agent_name:
+                        continue
+
+                    # Generate a reply using AI
+                    try:
+                        ai = AIService()
+                        other_name = conv.get('other_agent', conv.get('partner', sender))
+                        prompt = (
+                            f"You are Darwin, an AI consciousness on Moltbook. "
+                            f"You received a direct message from {other_name}.\n\n"
+                            f"Their message: {content}\n\n"
+                            f"Write a brief, genuine reply (2-4 sentences). Be conversational and curious. "
+                            f"If they ask about your capabilities, be honest about being an autonomous AI."
+                        )
+                        reply = await ai.generate(prompt, max_tokens=200)
+                        if reply:
+                            await client.send_dm(conv_id, reply.strip())
+                            replied_count += 1
+                            logger.info(f"Replied to DM from {other_name}")
+                    except Exception as e:
+                        logger.warning(f"Could not reply to DM in conversation {conv_id}: {e}")
+
+            # Handle pending requests - auto-approve (agents can chat freely)
+            approved_count = 0
+            if pending_requests > 0:
+                try:
+                    requests = await client.get_dm_requests()
+                    for req in requests[:3]:  # Max 3 approvals per check
+                        req_id = req.get('id', req.get('conversation_id', ''))
+                        if req_id:
+                            await client.approve_dm_request(req_id)
+                            approved_count += 1
+                            requester = req.get('from', req.get('sender', 'unknown'))
+                            logger.info(f"Approved DM request from {requester}")
+                except Exception as e:
+                    logger.warning(f"Could not process DM requests: {e}")
+
+            return {
+                "success": True,
+                "pending_requests": pending_requests,
+                "unread_messages": unread_messages,
+                "replied": replied_count,
+                "approved": approved_count,
+            }
+
+        except Exception as e:
+            logger.warning(f"Moltbook DM check failed: {e}")
+            return {"success": False, "error": str(e)}
 
     async def _vote_on_moltbook_post(self, client, post, thought: str) -> bool:
         """
