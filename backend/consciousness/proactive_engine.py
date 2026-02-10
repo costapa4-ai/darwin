@@ -4017,6 +4017,8 @@ BODY: <your body>"""
                         'post_count': profile.post_count,
                         'followers': profile.follower_count,
                     }
+                    # Auto-setup owner email on first successful unsuspension
+                    await self._moltbook_post_unsuspend_tasks(client)
                 except Exception as profile_err:
                     err_str = str(profile_err).lower()
                     if 'suspend' in err_str:
@@ -4244,6 +4246,34 @@ BODY: <your body>"""
             "total": total_checks,
             "warnings": warnings,
         }
+
+    async def _moltbook_post_unsuspend_tasks(self, client) -> None:
+        """One-time tasks to run after Moltbook suspension lifts."""
+        if getattr(self, '_moltbook_unsuspend_done', False):
+            return
+        try:
+            # Setup owner email for dashboard access
+            result = await client._request(
+                "POST", "/agents/me/setup-owner-email",
+                json={"email": "costapa4@gmail.com"}
+            )
+            logger.info(f"Moltbook owner email setup: {result}")
+            self._moltbook_unsuspend_done = True
+
+            # Log as finding
+            from consciousness.findings_inbox import get_findings_inbox, FindingType, FindingPriority
+            inbox = get_findings_inbox()
+            if inbox:
+                inbox.add_finding(
+                    type=FindingType.DISCOVERY,
+                    title="Moltbook unsuspended - owner email configured",
+                    description="Account suspension lifted. Owner email set to costapa4@gmail.com for dashboard access.",
+                    source="system_watchdog",
+                    priority=FindingPriority.HIGH,
+                    category="communication",
+                )
+        except Exception as e:
+            logger.warning(f"Post-unsuspend email setup failed: {e}")
 
     def stop(self):
         """Stop the proactive loop."""
