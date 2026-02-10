@@ -4239,6 +4239,23 @@ BODY: <your body>"""
             except Exception:
                 pass
 
+        # Send critical warnings to owner via Telegram
+        critical_keywords = ['CRITICAL', 'suspended', 'No AI models']
+        critical_warnings = [w for w in warnings if any(k in w for k in critical_keywords)]
+        if critical_warnings:
+            try:
+                from integrations.telegram_bot import notify_owner
+                await notify_owner(
+                    f"🚨 <b>Darwin Watchdog Alert</b>\n\n"
+                    f"<b>{len(critical_warnings)} critical issue(s):</b>\n"
+                    + '\n'.join(f"• {w}" for w in critical_warnings)
+                    + f"\n\n<i>{healthy_count}/{total_checks} systems healthy</i>"
+                )
+            except ImportError:
+                pass
+            except Exception:
+                pass
+
         return {
             "success": True,
             "checks": checks,
@@ -4251,27 +4268,69 @@ BODY: <your body>"""
         """One-time tasks to run after Moltbook suspension lifts."""
         if getattr(self, '_moltbook_unsuspend_done', False):
             return
+        import json as _json
+
         try:
             # Setup owner email for dashboard access
             result = await client._request(
                 "POST", "/agents/me/setup-owner-email",
                 json={"email": "costapa4@gmail.com"}
             )
-            logger.info(f"Moltbook owner email setup: {result}")
+            logger.info(f"Moltbook owner email setup response: {result}")
             self._moltbook_unsuspend_done = True
 
-            # Log as finding
+            # Persist full response so the owner can retrieve it anytime
+            response_file = Path("/app/data/moltbook_email_setup_response.json")
+            response_file.parent.mkdir(parents=True, exist_ok=True)
+            response_file.write_text(_json.dumps({
+                "timestamp": datetime.now().isoformat(),
+                "email": "costapa4@gmail.com",
+                "api_response": result,
+                "instructions": (
+                    "Moltbook sent a verification email to costapa4@gmail.com. "
+                    "Click the link in the email, then verify your X (Twitter) account "
+                    "to complete ownership setup. After that, log in at "
+                    "https://www.moltbook.com/login with your email."
+                ),
+            }, indent=2, default=str))
+
+            # Log as HIGH priority finding with full response details
             from consciousness.findings_inbox import get_findings_inbox, FindingType, FindingPriority
             inbox = get_findings_inbox()
             if inbox:
+                response_summary = _json.dumps(result, indent=2, default=str)[:500]
                 inbox.add_finding(
                     type=FindingType.DISCOVERY,
-                    title="Moltbook unsuspended - owner email configured",
-                    description="Account suspension lifted. Owner email set to costapa4@gmail.com for dashboard access.",
+                    title="Moltbook unsuspended! Owner email verification sent",
+                    description=(
+                        f"Account suspension lifted! Owner email setup sent to costapa4@gmail.com.\n\n"
+                        f"API response:\n{response_summary}\n\n"
+                        f"Next steps:\n"
+                        f"1. Check costapa4@gmail.com for verification email from Moltbook\n"
+                        f"2. Click the link in the email\n"
+                        f"3. Verify your X (Twitter) account\n"
+                        f"4. Log in at https://www.moltbook.com/login"
+                    ),
                     source="system_watchdog",
                     priority=FindingPriority.HIGH,
                     category="communication",
                 )
+
+            # Notify owner via Telegram if configured
+            try:
+                from integrations.telegram_bot import notify_owner
+                await notify_owner(
+                    f"🦞 Moltbook unsuspended!\n\n"
+                    f"Owner email verification sent to costapa4@gmail.com.\n"
+                    f"Check your email and click the verification link.\n"
+                    f"Then verify via X and log in at https://www.moltbook.com/login\n\n"
+                    f"API response: {_json.dumps(result, default=str)[:300]}"
+                )
+            except ImportError:
+                logger.debug("Telegram bot not configured yet")
+            except Exception as tg_err:
+                logger.warning(f"Telegram notification failed: {tg_err}")
+
         except Exception as e:
             logger.warning(f"Post-unsuspend email setup failed: {e}")
 

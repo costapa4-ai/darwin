@@ -476,3 +476,18 @@ async def get_watchdog():
             "total": 0,
             "warnings": [f"Watchdog execution failed: {e}"],
         }
+
+
+@router.get("/moltbook-email-setup")
+async def get_moltbook_email_setup():
+    """Retrieve Moltbook owner email setup response (saved after unsuspension)."""
+    import json
+    from pathlib import Path
+
+    response_file = Path("/app/data/moltbook_email_setup_response.json")
+    if response_file.exists():
+        return json.loads(response_file.read_text())
+    return {
+        "status": "pending",
+        "message": "Email setup has not been sent yet. Account may still be suspended.",
+    }
