@@ -711,6 +711,19 @@ class ProactiveEngine:
             action_fn=self._evolve_prompts
         ))
 
+        # System watchdog - monitors critical subsystem health
+        self.register_action(ProactiveAction(
+            id="system_watchdog",
+            name="System Watchdog",
+            description="Monitor critical subsystems: memory persistence, ChromaDB, consolidation, Moltbook",
+            category=ActionCategory.MAINTENANCE,
+            priority=ActionPriority.HIGH,
+            trigger_condition="Every 2 hours to verify all subsystems are operational",
+            cooldown_minutes=120,
+            timeout_seconds=60,
+            action_fn=self._system_watchdog
+        ))
+
     def register_action(self, action: ProactiveAction):
         """Register a new proactive action."""
         self.actions[action.id] = action
@@ -3921,6 +3934,170 @@ BODY: <your body>"""
         except Exception as e:
             logger.debug(f"Could not vote on post: {e}")
             return False
+
+    async def _system_watchdog(self, context: Dict[str, Any] = None) -> Dict[str, Any]:
+        """
+        System watchdog - monitors critical subsystem health.
+
+        Checks:
+        1. ChromaDB persistence (semantic memory survives restarts)
+        2. Memory consolidation (hierarchical memory has data)
+        3. Moltbook account status (not suspended)
+        4. Findings inbox (not overflowing)
+        5. Data directory health (writable, not full)
+        """
+        from app.lifespan import get_service
+        import os
+
+        checks = {}
+        warnings = []
+
+        # 1. ChromaDB persistence check
+        try:
+            semantic_mem = get_service('semantic_memory')
+            if semantic_mem:
+                count = semantic_mem.executions_collection.count()
+                chroma_path = semantic_mem.persist_directory
+                persisted = os.path.exists(chroma_path) and os.listdir(chroma_path)
+                checks['chromadb'] = {
+                    'status': 'healthy' if persisted else 'degraded',
+                    'items': count,
+                    'persisted': bool(persisted),
+                }
+                if not persisted:
+                    warnings.append("ChromaDB not persisting to disk")
+            else:
+                checks['chromadb'] = {'status': 'offline'}
+                warnings.append("SemanticMemory service not available")
+        except Exception as e:
+            checks['chromadb'] = {'status': 'error', 'error': str(e)}
+            warnings.append(f"ChromaDB check failed: {e}")
+
+        # 2. Hierarchical memory / consolidation check
+        try:
+            engine = get_service('consciousness_engine')
+            if engine and hasattr(engine, 'hierarchical_memory') and engine.hierarchical_memory:
+                hm = engine.hierarchical_memory
+                episodic_count = len(hm.episodic_memory)
+                semantic_count = len(hm.semantic_memory)
+                consolidation_stats = getattr(hm, 'consolidation_stats', {})
+                total_consolidations = consolidation_stats.get('total_consolidations', 0)
+                checks['hierarchical_memory'] = {
+                    'status': 'healthy' if total_consolidations > 0 or episodic_count > 0 else 'idle',
+                    'episodic_count': episodic_count,
+                    'semantic_count': semantic_count,
+                    'total_consolidations': total_consolidations,
+                    'last_consolidation': consolidation_stats.get('last_consolidation', 'never'),
+                }
+                if total_consolidations == 0 and engine.sleep_cycles_completed > 5:
+                    warnings.append(f"Memory consolidation has never run despite {engine.sleep_cycles_completed} sleep cycles")
+            else:
+                checks['hierarchical_memory'] = {'status': 'not_initialized'}
+                warnings.append("HierarchicalMemory not initialized on ConsciousnessEngine")
+        except Exception as e:
+            checks['hierarchical_memory'] = {'status': 'error', 'error': str(e)}
+
+        # 3. Moltbook account status
+        try:
+            from integrations.moltbook import get_moltbook_client
+            client = get_moltbook_client()
+            if client and client.api_key:
+                status = await client.check_status()
+                is_suspended = 'suspend' in str(status).lower()
+                checks['moltbook'] = {
+                    'status': 'suspended' if is_suspended else 'healthy',
+                    'claimed': status.get('status') == 'claimed',
+                    'raw_status': status.get('status', 'unknown'),
+                }
+                if is_suspended:
+                    warnings.append("Moltbook account is suspended")
+            else:
+                checks['moltbook'] = {'status': 'not_configured'}
+        except Exception as e:
+            error_str = str(e)
+            if 'suspend' in error_str.lower():
+                checks['moltbook'] = {'status': 'suspended', 'error': error_str}
+                warnings.append(f"Moltbook suspended: {error_str}")
+            else:
+                checks['moltbook'] = {'status': 'error', 'error': error_str}
+
+        # 4. Data directory health
+        try:
+            data_dir = '/app/data'
+            if os.path.exists(data_dir):
+                total_size = 0
+                file_count = 0
+                for root, dirs, files in os.walk(data_dir):
+                    file_count += len(files)
+                    for f in files:
+                        try:
+                            total_size += os.path.getsize(os.path.join(root, f))
+                        except OSError:
+                            pass
+                total_mb = total_size / (1024 * 1024)
+                checks['data_storage'] = {
+                    'status': 'healthy' if total_mb < 500 else 'warning',
+                    'total_mb': round(total_mb, 1),
+                    'file_count': file_count,
+                }
+                if total_mb > 500:
+                    warnings.append(f"Data directory is {total_mb:.0f}MB (>500MB threshold)")
+            else:
+                checks['data_storage'] = {'status': 'missing'}
+                warnings.append("Data directory /app/data does not exist")
+        except Exception as e:
+            checks['data_storage'] = {'status': 'error', 'error': str(e)}
+
+        # 5. Findings inbox overflow check
+        try:
+            from consciousness.findings_inbox import get_findings_inbox
+            inbox = get_findings_inbox()
+            if inbox:
+                stats = inbox.get_statistics()
+                total_active = stats.get('total_active', 0)
+                checks['findings_inbox'] = {
+                    'status': 'healthy' if total_active < 100 else 'warning',
+                    'total_active': total_active,
+                    'total_unread': stats.get('total_unread', 0),
+                }
+                if total_active > 100:
+                    warnings.append(f"Findings inbox has {total_active} active items (>100)")
+        except Exception as e:
+            checks['findings_inbox'] = {'status': 'error', 'error': str(e)}
+
+        # Log results
+        healthy_count = sum(1 for c in checks.values() if c.get('status') == 'healthy')
+        total_checks = len(checks)
+
+        if warnings:
+            logger.warning(f"System watchdog: {healthy_count}/{total_checks} healthy. Warnings: {'; '.join(warnings)}")
+        else:
+            logger.info(f"System watchdog: {healthy_count}/{total_checks} healthy. All systems operational.")
+
+        # Store watchdog results as a finding if there are warnings
+        if warnings:
+            try:
+                from consciousness.findings_inbox import get_findings_inbox, FindingType, FindingPriority
+                inbox = get_findings_inbox()
+                if inbox:
+                    inbox.add_finding(
+                        type=FindingType.ANOMALY,
+                        title=f"Watchdog: {len(warnings)} issue(s) detected",
+                        description='\n'.join(f"- {w}" for w in warnings),
+                        source="system_watchdog",
+                        priority=FindingPriority.MEDIUM if len(warnings) > 1 else FindingPriority.LOW,
+                        category="maintenance",
+                    )
+            except Exception:
+                pass
+
+        return {
+            "success": True,
+            "checks": checks,
+            "healthy": healthy_count,
+            "total": total_checks,
+            "warnings": warnings,
+        }
 
     def stop(self):
         """Stop the proactive loop."""

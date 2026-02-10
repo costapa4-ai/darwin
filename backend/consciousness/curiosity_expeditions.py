@@ -406,8 +406,11 @@ class CuriosityExpeditions:
             # Store in semantic memory
             if self.semantic_memory and expedition.success:
                 try:
-                    await self.semantic_memory.store(
-                        content=expedition.summary,
+                    await self.semantic_memory.store_execution(
+                        task_id=f"expedition_{expedition.id}",
+                        task_description=f"Curiosity expedition: {expedition.topic}",
+                        code=expedition.summary or '',
+                        result={"success": True, "topic": expedition.topic},
                         metadata={
                             'type': 'expedition',
                             'topic': expedition.topic,

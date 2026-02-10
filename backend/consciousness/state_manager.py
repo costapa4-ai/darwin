@@ -229,6 +229,9 @@ class StateManager:
         # Print activity summary
         self._print_wake_summary()
 
+        # Run memory consolidation during sleep transition
+        await self._consolidate_memories()
+
         # Trim wake activities (keep last 50)
         self._trim_activities()
 
@@ -471,6 +474,20 @@ class StateManager:
             insights_count = len(dream.insights) if hasattr(dream, 'insights') and dream.insights else 0
             description = dream.description if hasattr(dream, 'description') else 'Unknown'
             print(f"   • {description} ({insights_count} insights)")
+
+    async def _consolidate_memories(self) -> None:
+        """Run hierarchical memory consolidation during sleep transition."""
+        if not hasattr(self.engine, 'hierarchical_memory') or not self.engine.hierarchical_memory:
+            return
+        try:
+            stats = await self.engine.hierarchical_memory.consolidate_memories()
+            logger.info(
+                f"Memory consolidation: {stats.get('episodes_reviewed', 0)} reviewed, "
+                f"{stats.get('knowledge_created', 0)} knowledge items created, "
+                f"{stats.get('episodes_pruned', 0)} pruned"
+            )
+        except Exception as e:
+            logger.warning(f"Memory consolidation failed: {e}")
 
     def _trim_activities(self) -> None:
         """Trim wake activities to keep last 50."""

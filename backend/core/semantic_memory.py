@@ -32,11 +32,13 @@ class SemanticMemory:
         """
         self.persist_directory = persist_directory
 
-        # Initialize ChromaDB client
-        self.client = chromadb.Client(Settings(
-            persist_directory=persist_directory,
-            anonymized_telemetry=False
-        ))
+        # Initialize ChromaDB with persistent storage
+        import os
+        os.makedirs(persist_directory, exist_ok=True)
+        self.client = chromadb.PersistentClient(
+            path=persist_directory,
+            settings=Settings(anonymized_telemetry=False)
+        )
 
         # Initialize embedding model
         logger.info("Loading sentence-transformers model...")
