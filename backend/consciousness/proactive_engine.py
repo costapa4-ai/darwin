@@ -3940,11 +3940,17 @@ BODY: <your body>"""
         System watchdog - monitors critical subsystem health.
 
         Checks:
-        1. ChromaDB persistence (semantic memory survives restarts)
-        2. Memory consolidation (hierarchical memory has data)
-        3. Moltbook account status (not suspended)
-        4. Findings inbox (not overflowing)
-        5. Data directory health (writable, not full)
+         1. ChromaDB persistence (semantic memory survives restarts)
+         2. Memory consolidation (hierarchical memory has data)
+         3. Moltbook account status (not suspended)
+         4. Data directory health (writable, not full)
+         5. Findings inbox (not overflowing)
+         6. Multi-model router + Ollama connectivity
+         7. Error tracker (critical error spikes)
+         8. Prompt registry (self-evolution health)
+         9. Tool registry (tool discovery/execution)
+        10. Activity monitor (overall error rates)
+        11. Approval queue (pending overflow)
         """
         from app.lifespan import get_service
         import os
@@ -4064,6 +4070,143 @@ BODY: <your body>"""
                     warnings.append(f"Findings inbox has {total_active} active items (>100)")
         except Exception as e:
             checks['findings_inbox'] = {'status': 'error', 'error': str(e)}
+
+        # 6. Multi-model router + Ollama connectivity
+        try:
+            router = get_service('multi_model_router')
+            if router:
+                router_stats = router.get_router_stats()
+                available = router_stats.get('available_models', [])
+                has_ollama = any('ollama' in m for m in available)
+                checks['ai_router'] = {
+                    'status': 'healthy' if len(available) >= 2 else ('degraded' if available else 'offline'),
+                    'available_models': available,
+                    'model_count': len(available),
+                    'ollama_connected': has_ollama,
+                    'routing_strategy': router_stats.get('routing_strategy', 'unknown'),
+                }
+                if not available:
+                    warnings.append("CRITICAL: No AI models available - Darwin cannot think")
+                elif not has_ollama:
+                    warnings.append("Ollama models unavailable (primary free tier offline)")
+                elif len(available) < 2:
+                    warnings.append(f"Only {len(available)} AI model(s) available: {available}")
+            else:
+                checks['ai_router'] = {'status': 'offline'}
+                warnings.append("Multi-model router service not available")
+        except Exception as e:
+            checks['ai_router'] = {'status': 'error', 'error': str(e)}
+            warnings.append(f"AI router check failed: {e}")
+
+        # 7. Error tracker - critical error spike detection
+        try:
+            from utils.error_tracker import error_store
+            summary = error_store.get_error_summary()
+            total_errors = summary.get('total_errors', 0)
+            critical = error_store.get_critical_errors()
+            recent_critical = [e for e in critical
+                               if e.get('timestamp', '') > (datetime.now() - timedelta(hours=2)).isoformat()]
+            checks['error_tracker'] = {
+                'status': 'healthy' if len(recent_critical) < 5 else 'warning',
+                'total_errors_in_buffer': total_errors,
+                'critical_last_2h': len(recent_critical),
+                'top_components': dict(list(summary.get('by_component', {}).items())[:5]),
+            }
+            if len(recent_critical) >= 10:
+                warnings.append(f"CRITICAL error spike: {len(recent_critical)} critical errors in last 2h")
+            elif len(recent_critical) >= 5:
+                warnings.append(f"Elevated critical errors: {len(recent_critical)} in last 2h")
+        except Exception as e:
+            checks['error_tracker'] = {'status': 'error', 'error': str(e)}
+
+        # 8. Prompt registry - self-evolution health
+        try:
+            from consciousness.prompt_registry import get_prompt_registry
+            registry = get_prompt_registry()
+            if registry:
+                pstats = registry.get_stats()
+                total_slots = pstats.get('total_slots', 0)
+                active_mutations = pstats.get('active_mutations', 0)
+                # Check if any slot has very low avg_score
+                low_score_slots = []
+                for slot_id, slot_info in pstats.get('slots', {}).items():
+                    if slot_info.get('active_uses', 0) > 10 and slot_info.get('active_avg_score', 1.0) < 0.3:
+                        low_score_slots.append(slot_id)
+                checks['prompt_registry'] = {
+                    'status': 'healthy' if total_slots >= 6 else 'degraded',
+                    'total_slots': total_slots,
+                    'active_mutations': active_mutations,
+                    'low_score_slots': low_score_slots,
+                }
+                if total_slots < 6:
+                    warnings.append(f"Prompt registry has only {total_slots}/6 slots registered")
+                if low_score_slots:
+                    warnings.append(f"Low-performing prompt slots: {', '.join(low_score_slots)}")
+            else:
+                checks['prompt_registry'] = {'status': 'not_initialized'}
+        except Exception as e:
+            checks['prompt_registry'] = {'status': 'error', 'error': str(e)}
+
+        # 9. Tool registry - tool discovery and execution health
+        try:
+            registry = get_service('tool_registry')
+            if registry:
+                total_tools = len(registry.tools)
+                failed_tools = [name for name, tool in registry.tools.items()
+                                if getattr(tool, 'fail_count', 0) > getattr(tool, 'use_count', 1) * 0.5
+                                and getattr(tool, 'use_count', 0) > 3]
+                checks['tool_registry'] = {
+                    'status': 'healthy' if total_tools >= 10 else 'degraded',
+                    'total_tools': total_tools,
+                    'high_failure_tools': failed_tools[:5],
+                }
+                if total_tools < 10:
+                    warnings.append(f"Tool registry has only {total_tools} tools (expected 40+)")
+                if failed_tools:
+                    warnings.append(f"Tools with high failure rate: {', '.join(failed_tools[:3])}")
+            else:
+                checks['tool_registry'] = {'status': 'not_initialized'}
+        except Exception as e:
+            checks['tool_registry'] = {'status': 'error', 'error': str(e)}
+
+        # 10. Activity monitor - overall system activity and error rates
+        try:
+            from consciousness.activity_monitor import get_activity_monitor
+            monitor = get_activity_monitor()
+            astats = monitor.get_stats()
+            total = astats.get('total_activities', 0)
+            failed = astats.get('failed', 0)
+            successful = astats.get('successful', 0)
+            errors_last_hour = astats.get('errors_last_hour', 0)
+            error_rate = failed / total if total > 0 else 0
+            checks['activity_monitor'] = {
+                'status': 'healthy' if error_rate < 0.3 and errors_last_hour < 10 else 'warning',
+                'total_activities': total,
+                'successful': successful,
+                'failed': failed,
+                'error_rate': round(error_rate, 3),
+                'errors_last_hour': errors_last_hour,
+            }
+            if errors_last_hour >= 10:
+                warnings.append(f"High activity error rate: {errors_last_hour} errors in last hour")
+            elif error_rate > 0.3 and total > 20:
+                warnings.append(f"Overall activity error rate is {error_rate:.0%} ({failed}/{total})")
+        except Exception as e:
+            checks['activity_monitor'] = {'status': 'error', 'error': str(e)}
+
+        # 11. Approval queue - pending overflow
+        try:
+            from introspection.approval_system import ApprovalQueue
+            aq = ApprovalQueue()
+            pending_count = aq.get_pending_count()
+            checks['approval_queue'] = {
+                'status': 'healthy' if pending_count < 50 else 'warning',
+                'pending_count': pending_count,
+            }
+            if pending_count >= 50:
+                warnings.append(f"Approval queue has {pending_count} pending items (>50)")
+        except Exception as e:
+            checks['approval_queue'] = {'status': 'error', 'error': str(e)}
 
         # Log results
         healthy_count = sum(1 for c in checks.values() if c.get('status') == 'healthy')

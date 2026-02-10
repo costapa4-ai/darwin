@@ -1,11 +1,12 @@
 """
 Observatory API Routes - Comprehensive monitoring dashboard aggregation.
 
-Provides 4 aggregation endpoints for the Darwin Observatory frontend:
+Provides 5 aggregation endpoints for the Darwin Observatory frontend:
 - /overview: System health summary
 - /ai-routing: Multi-model router stats
 - /evolution: Prompt evolution + code generation stats
 - /subsystems: Per-subsystem health cards
+- /watchdog: System watchdog results (last run + on-demand trigger)
 """
 
 from fastapi import APIRouter
@@ -443,3 +444,35 @@ async def get_subsystems():
         subsystems.append({"name": "Communicator", "icon": "\U0001f4e1", "status": "offline", "last_activity": "n/a", "key_metric": "not loaded", "details": {}})
 
     return {"subsystems": subsystems}
+
+
+@router.get("/watchdog")
+async def get_watchdog():
+    """Run the system watchdog on-demand and return results for all 11 checks."""
+    from consciousness.proactive_engine import get_proactive_engine
+
+    proactive = _safe_get(get_proactive_engine)
+    if not proactive:
+        return {
+            "status": "unavailable",
+            "message": "Proactive engine not running",
+            "checks": {},
+            "healthy": 0,
+            "total": 0,
+            "warnings": ["Proactive engine offline"],
+        }
+
+    try:
+        result = await proactive._system_watchdog()
+        result["ran_at"] = datetime.now().isoformat()
+        return result
+    except Exception as e:
+        logger.error(f"Watchdog on-demand failed: {e}")
+        return {
+            "status": "error",
+            "message": str(e),
+            "checks": {},
+            "healthy": 0,
+            "total": 0,
+            "warnings": [f"Watchdog execution failed: {e}"],
+        }
