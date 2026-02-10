@@ -478,6 +478,47 @@ async def get_watchdog():
         }
 
 
+@router.post("/moltbook-pause")
+async def pause_moltbook(until: str = None, hours: float = None):
+    """
+    Pause all Moltbook actions until a specific time.
+    Args:
+        until: ISO datetime string (e.g. '2026-02-11T08:00:00')
+        hours: Alternative - pause for N hours from now
+    """
+    from consciousness.proactive_engine import get_proactive_engine
+
+    proactive = _safe_get(get_proactive_engine)
+    if not proactive:
+        return {"status": "error", "message": "Proactive engine not running"}
+
+    if until:
+        pause_until = datetime.fromisoformat(until)
+    elif hours:
+        pause_until = datetime.now() + timedelta(hours=hours)
+    else:
+        return {"status": "error", "message": "Provide 'until' (ISO datetime) or 'hours'"}
+
+    moltbook_actions = [
+        'read_moltbook_feed', 'comment_on_moltbook', 'share_on_moltbook',
+        'follow_on_moltbook', 'read_own_post_comments', 'check_moltbook_dms'
+    ]
+
+    paused = []
+    for action_id in moltbook_actions:
+        action = proactive.actions.get(action_id)
+        if action:
+            action.disabled_until = pause_until
+            action.disable_reason = f"Owner-requested pause until {pause_until.isoformat()}"
+            paused.append(action_id)
+
+    return {
+        "status": "paused",
+        "paused_actions": paused,
+        "until": pause_until.isoformat(),
+    }
+
+
 @router.get("/moltbook-email-setup")
 async def get_moltbook_email_setup():
     """Retrieve Moltbook owner email setup response (saved after unsuspension)."""
