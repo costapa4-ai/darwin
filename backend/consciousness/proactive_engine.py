@@ -3430,7 +3430,7 @@ Output format - just the search queries, one per line:"""
             # Log results to FindingsInbox
             if results.get('mutations') or results.get('promotions') or results.get('rollbacks'):
                 try:
-                    from consciousness.findings_inbox import get_findings_inbox
+                    from consciousness.findings_inbox import get_findings_inbox, FindingType, FindingPriority
                     inbox = get_findings_inbox()
                     if inbox:
                         summary_parts = []
@@ -3444,9 +3444,11 @@ Output format - just the search queries, one per line:"""
                             summary_parts.append(f"{len(results['explorations'])} explorations")
 
                         inbox.add_finding(
+                            type=FindingType.INSIGHT,
                             title=f"Prompt Evolution: {', '.join(summary_parts)}",
-                            content=json.dumps(results, indent=2),
+                            description=json.dumps(results, indent=2),
                             source="prompt_evolution",
+                            priority=FindingPriority.LOW,
                             category="optimization",
                         )
                 except Exception as e:
@@ -3507,15 +3509,15 @@ Output format - just the search queries, one per line:"""
                 # Create findings from discoveries
                 findings_created = 0
                 try:
-                    from consciousness.findings_inbox import get_findings_inbox
+                    from consciousness.findings_inbox import get_findings_inbox, FindingType, FindingPriority
                     findings_inbox = get_findings_inbox()
 
                     for discovery in result.discoveries[:3]:  # Max 3 findings per expedition
                         findings_inbox.add_finding(
-                            type="discovery",
+                            type=FindingType.DISCOVERY,
                             title=f"Expedition: {discovery.get('title', result.topic)[:50]}",
                             description=discovery.get('content', '')[:500],
-                            priority="medium",
+                            priority=FindingPriority.MEDIUM,
                             source="curiosity_expedition",
                             metadata={
                                 "expedition_id": result.id,
