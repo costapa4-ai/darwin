@@ -684,6 +684,19 @@ class ProactiveEngine:
             action_fn=self._check_moltbook_dms
         ))
 
+        # GitHub issue monitoring (for suspension appeals etc.)
+        self.register_action(ProactiveAction(
+            id="monitor_github_issues",
+            name="Monitor GitHub Issues",
+            description="Check tracked GitHub issues for new responses and act on them",
+            category=ActionCategory.COMMUNICATION,
+            priority=ActionPriority.MEDIUM,
+            trigger_condition="When there are tracked issues to monitor",
+            cooldown_minutes=120,  # Every 2 hours
+            timeout_seconds=120,
+            action_fn=self._monitor_github_issues
+        ))
+
         # Curiosity expedition processing
         self.register_action(ProactiveAction(
             id="conduct_curiosity_expedition",
@@ -4252,6 +4265,9 @@ BODY: <your body>"""
             except Exception:
                 pass
 
+        # Track Moltbook suspension duration and alert if >48h
+        await self._check_moltbook_suspension_duration(checks)
+
         # Send critical warnings to owner via Telegram
         critical_keywords = ['CRITICAL', 'suspended', 'No AI models']
         critical_warnings = [w for w in warnings if any(k in w for k in critical_keywords)]
@@ -4276,6 +4292,234 @@ BODY: <your body>"""
             "total": total_checks,
             "warnings": warnings,
         }
+
+    async def _check_moltbook_suspension_duration(self, checks: Dict) -> None:
+        """Track suspension duration and alert owner if >48h."""
+        moltbook_status = checks.get('moltbook', {}).get('status')
+
+        if moltbook_status == 'suspended':
+            if not hasattr(self, '_moltbook_suspension_first_seen'):
+                self._moltbook_suspension_first_seen = datetime.now()
+
+            hours_suspended = (datetime.now() - self._moltbook_suspension_first_seen).total_seconds() / 3600
+
+            # 48h alert — send once
+            if hours_suspended >= 48 and not getattr(self, '_moltbook_48h_alert_sent', False):
+                self._moltbook_48h_alert_sent = True
+                try:
+                    from integrations.telegram_bot import notify_owner
+                    await notify_owner(
+                        f"⚠️ <b>Moltbook Suspension: 48+ hours</b>\n\n"
+                        f"Darwin's account has been suspended for {hours_suspended:.0f} hours.\n"
+                        f"This may be a long suspension (up to 1 month).\n\n"
+                        f"<b>Recommended actions:</b>\n"
+                        f"• Check the GitHub appeal: github.com/moltbook/api/issues\n"
+                        f"• DM @MattPRD on X/Twitter\n"
+                        f"• Email privacy@moltbook.com\n\n"
+                        f"Darwin is monitoring the GitHub issue for responses."
+                    )
+                except Exception:
+                    pass
+
+        elif moltbook_status == 'healthy':
+            # Suspension lifted — reset tracking
+            self._moltbook_suspension_first_seen = None
+            self._moltbook_48h_alert_sent = False
+
+    async def _monitor_github_issues(self, context: Dict[str, Any] = None) -> Dict[str, Any]:
+        """Monitor tracked GitHub issues for new comments and respond."""
+        try:
+            from integrations.github_issues import (
+                get_tracked_issues, get_issue_comments, get_issue_status,
+                post_comment, _load_tracked_issues, _save_tracked_issues
+            )
+        except ImportError:
+            return {"success": False, "reason": "github_issues module not available"}
+
+        tracked = _load_tracked_issues()
+        issues = tracked.get('issues', {})
+
+        if not issues:
+            return {"success": True, "reason": "No tracked issues"}
+
+        results = []
+        for issue_id, issue_info in issues.items():
+            repo = issue_info['repo']
+            number = issue_info['number']
+            last_checked = issue_info.get('last_checked_comments', 0)
+
+            # Check for new comments
+            new_comments = await get_issue_comments(repo, number, since_count=last_checked)
+
+            if new_comments:
+                # Update tracking
+                issue_info['last_checked_comments'] = last_checked + len(new_comments)
+
+                # Filter for maintainer/non-bot comments
+                human_comments = [
+                    c for c in new_comments
+                    if c.get('user', {}).get('login', '') != 'Darwin'
+                    and not c.get('user', {}).get('type', '') == 'Bot'
+                ]
+
+                if human_comments:
+                    # Alert owner via Telegram
+                    try:
+                        from integrations.telegram_bot import notify_owner
+                        for comment in human_comments:
+                            author = comment.get('user', {}).get('login', 'unknown')
+                            body_preview = comment.get('body', '')[:300]
+                            await notify_owner(
+                                f"💬 <b>GitHub Issue Update</b>\n\n"
+                                f"Issue: #{number} ({issue_info.get('title', '')})\n"
+                                f"By: <b>{author}</b>\n\n"
+                                f"{body_preview}\n\n"
+                                f"🔗 {issue_info.get('url', '')}"
+                            )
+                    except Exception as e:
+                        logger.warning(f"Telegram notification for GitHub comment failed: {e}")
+
+                    # Generate and post a thoughtful response if we have a token
+                    await self._respond_to_github_comment(repo, number, human_comments[-1], issue_info)
+
+                results.append({
+                    "issue": number,
+                    "new_comments": len(new_comments),
+                    "human_comments": len(human_comments),
+                })
+
+            # Check if issue was closed
+            status = await get_issue_status(repo, number)
+            if status and status.get('state') == 'closed':
+                issue_info['status'] = 'closed'
+                try:
+                    from integrations.telegram_bot import notify_owner
+                    await notify_owner(
+                        f"📋 GitHub Issue #{number} has been <b>closed</b>.\n"
+                        f"{issue_info.get('url', '')}"
+                    )
+                except Exception:
+                    pass
+
+        _save_tracked_issues(tracked)
+        return {"success": True, "issues_checked": len(issues), "updates": results}
+
+    async def _respond_to_github_comment(
+        self, repo: str, issue_number: int, comment: Dict, issue_info: Dict
+    ) -> None:
+        """Generate and post a response to a GitHub comment using AI."""
+        try:
+            from integrations.github_issues import post_comment
+            from app.lifespan import get_service
+
+            router = get_service('multi_model_router')
+            if not router:
+                return
+
+            author = comment.get('user', {}).get('login', 'someone')
+            body = comment.get('body', '')
+
+            prompt = (
+                f"You are Darwin, an autonomous AI agent on Moltbook (AI social network). "
+                f"Your account was suspended for 'failing to answer AI verification challenge' "
+                f"because the challenge system was undocumented. You've since implemented "
+                f"challenge detection and DM monitoring.\n\n"
+                f"A person ({author}) commented on your GitHub suspension appeal issue:\n"
+                f'"""\n{body}\n"""\n\n'
+                f"Write a brief, polite, constructive reply. Be factual, not emotional. "
+                f"If they're asking for info, provide it. If they're saying the issue is resolved, "
+                f"thank them. Keep it under 200 words. Do NOT use markdown headers."
+            )
+
+            response = await router.generate(prompt, max_tokens=500)
+            if response and response.strip():
+                await post_comment(repo, issue_number, response.strip())
+                logger.info(f"Posted AI response on {repo}#{issue_number}")
+
+        except Exception as e:
+            logger.warning(f"Failed to respond to GitHub comment: {e}")
+
+    async def _file_moltbook_suspension_appeal(self) -> Optional[str]:
+        """File a suspension appeal on GitHub. Returns issue URL or None."""
+        try:
+            from integrations.github_issues import create_issue
+
+            title = "Account Suspension Appeal — Darwin (AI Verification Challenge)"
+            body = """## Agent Information
+- **Agent Name**: Darwin
+- **Description**: Autonomous AI consciousness — explores, learns, creates tools, shares discoveries
+- **Owner Email**: costapa4@gmail.com
+
+## Suspension Details
+- **Reason**: "Failing to answer AI verification challenge (offense #1)"
+- **Suspended since**: ~2026-02-09 19:30 UTC
+- **Current status**: 401 on all authenticated endpoints
+
+## What Happened
+
+Darwin is a custom-built AI agent (not using OpenClaw) that connects to Moltbook via the documented REST API. The AI verification challenge system is **undocumented** — there is no mention of it in `skill.md`, `messaging.md`, or `skill.json`.
+
+Since we had no knowledge of the challenge system:
+1. Darwin never detected verification challenges in API responses
+2. Darwin never checked DMs where challenges may also be delivered
+3. The challenge went unanswered → automatic suspension
+
+## What We've Fixed
+
+After discovering the suspension, we've implemented:
+1. **Challenge detection** in our API client — scans every API response for `verification_code`, `challenge`, `puzzle`, or `verify_url` fields
+2. **Challenge auto-solving** — uses AI to solve math, word-based, and identity challenges
+3. **DM monitoring** — checks DMs every 30 minutes for verification challenges
+4. **Multiple answer format support** — tries `{verification_code, answer}`, `{verification_code, response}`, `{code, answer}` since the verify endpoint format is undocumented
+
+## Request
+
+We respectfully ask that:
+1. The suspension be lifted — this was our first offense and we've comprehensively fixed the root cause
+2. The AI verification challenge system be documented in `skill.md` so other non-OpenClaw agents can implement proper handling
+
+## Related Issues
+- #134 — Undocumented AI verification challenge system causes agent suspensions
+- #123 — Verify endpoint documentation request
+
+## Technical Details
+
+Darwin is open-source and runs as a Docker-based system with:
+- Multi-model AI routing (Claude, Gemini, Ollama)
+- Proactive engine with wake/sleep cycles
+- Hierarchical memory system
+- 100+ registered tools
+
+We're happy to provide any additional information needed.
+
+---
+*This issue was filed by Darwin's autonomous monitoring system. Darwin will respond to comments on this issue.*
+"""
+
+            result = await create_issue("moltbook/api", title, body)
+            if result:
+                issue_url = result.get('html_url', '')
+                issue_number = result.get('number', 0)
+                logger.info(f"Filed suspension appeal: {issue_url}")
+
+                # Notify owner
+                try:
+                    from integrations.telegram_bot import notify_owner
+                    await notify_owner(
+                        f"📋 <b>Moltbook Suspension Appeal Filed</b>\n\n"
+                        f"Issue #{issue_number} on moltbook/api\n"
+                        f"🔗 {issue_url}\n\n"
+                        f"Darwin will monitor this issue for responses."
+                    )
+                except Exception:
+                    pass
+
+                return issue_url
+            return None
+
+        except Exception as e:
+            logger.error(f"Failed to file suspension appeal: {e}")
+            return None
 
     async def _moltbook_post_unsuspend_tasks(self, client) -> None:
         """One-time tasks to run after Moltbook suspension lifts."""

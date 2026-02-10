@@ -532,3 +532,28 @@ async def get_moltbook_email_setup():
         "status": "pending",
         "message": "Email setup has not been sent yet. Account may still be suspended.",
     }
+
+
+@router.post("/file-moltbook-appeal")
+async def file_moltbook_appeal():
+    """File a suspension appeal on moltbook/api GitHub repo."""
+    from consciousness.proactive_engine import get_proactive_engine
+
+    proactive = _safe_get(get_proactive_engine)
+    if not proactive:
+        return {"status": "error", "message": "Proactive engine not running"}
+
+    url = await proactive._file_moltbook_suspension_appeal()
+    if url:
+        return {"status": "filed", "url": url}
+    return {"status": "error", "message": "Failed to file appeal. Check GITHUB_TOKEN is configured."}
+
+
+@router.get("/github-issues")
+async def get_github_issues():
+    """Get tracked GitHub issues and their status."""
+    try:
+        from integrations.github_issues import get_tracked_issues
+        return get_tracked_issues()
+    except Exception as e:
+        return {"status": "error", "message": str(e)}

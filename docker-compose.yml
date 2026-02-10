@@ -40,6 +40,8 @@ services:
       - TELEGRAM_OWNER_CHAT_ID=${TELEGRAM_OWNER_CHAT_ID:-}
       - ENABLE_CHANNELS=${ENABLE_CHANNELS:-false}
       - TELEGRAM_CHAT_IDS=${TELEGRAM_OWNER_CHAT_ID:-}
+      # GitHub (for issue monitoring and appeals)
+      - GITHUB_TOKEN=${GITHUB_TOKEN:-}
     volumes:
       - ./data:/app/data
       - ./logs:/app/logs
