@@ -479,8 +479,17 @@ class StateManager:
         """Run hierarchical memory consolidation during sleep transition."""
         if not hasattr(self.engine, 'hierarchical_memory') or not self.engine.hierarchical_memory:
             return
+
+        hm = self.engine.hierarchical_memory
+
+        # Bridge: convert wake activities into episodic memories
+        activities_converted = self._convert_activities_to_episodes(hm)
+        if activities_converted > 0:
+            logger.info(f"Converted {activities_converted} activities → episodic memories")
+            hm._save_state()
+
         try:
-            stats = await self.engine.hierarchical_memory.consolidate_memories()
+            stats = await hm.consolidate_memories()
             logger.info(
                 f"Memory consolidation: {stats.get('episodes_reviewed', 0)} reviewed, "
                 f"{stats.get('knowledge_created', 0)} knowledge items created, "
@@ -488,6 +497,68 @@ class StateManager:
             )
         except Exception as e:
             logger.warning(f"Memory consolidation failed: {e}")
+
+    def _convert_activities_to_episodes(self, hm) -> int:
+        """Convert wake activities into episodic memories for consolidation."""
+        from core.hierarchical_memory import EpisodeCategory
+
+        category_map = {
+            'code_optimization': EpisodeCategory.CODE_GENERATION,
+            'self_improvement': EpisodeCategory.CODE_GENERATION,
+            'apply_changes': EpisodeCategory.CODE_GENERATION,
+            'tool_creation': EpisodeCategory.TOOL_EXECUTION,
+            'dynamic_tool': EpisodeCategory.TOOL_EXECUTION,
+            'idea_implementation': EpisodeCategory.PROBLEM_SOLVING,
+            'curiosity_share': EpisodeCategory.WEB_DISCOVERY,
+            'curiosity': EpisodeCategory.WEB_DISCOVERY,
+            'poetry': EpisodeCategory.REFLECTION,
+            'learning': EpisodeCategory.LEARNING,
+        }
+
+        converted = 0
+        for activity in self.engine.wake_activities:
+            if not activity.completed_at:
+                continue
+
+            # Unique ID from activity type + timestamp
+            episode_id = f"act_{activity.type}_{activity.started_at.strftime('%Y%m%d_%H%M%S')}"
+            if episode_id in hm.episodic_memory:
+                continue
+
+            category = category_map.get(activity.type, EpisodeCategory.INTERACTION)
+            success = bool(activity.result and activity.result.get('success', False))
+
+            # Importance: base 0.6, +0.2 for success, +0.1 per insight (max 2)
+            importance = 0.6
+            if success:
+                importance += 0.2
+            if activity.insights:
+                importance += 0.1 * min(len(activity.insights), 2)
+
+            valence = 0.6 if success else -0.4
+            tags = {activity.type, category.value}
+            if activity.insights:
+                tags.add('has_insights')
+
+            episode = hm.add_episode(
+                episode_id=episode_id,
+                category=category,
+                description=activity.description,
+                content={
+                    'type': activity.type,
+                    'result_summary': str(activity.result)[:200] if activity.result else '',
+                    'insights': activity.insights,
+                },
+                success=success,
+                emotional_valence=valence,
+                importance=importance,
+                tags=tags,
+            )
+            # Use actual activity time so older activities can consolidate immediately
+            episode.timestamp = activity.started_at
+            converted += 1
+
+        return converted
 
     def _trim_activities(self) -> None:
         """Trim wake activities to keep last 50."""
