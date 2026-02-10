@@ -65,7 +65,9 @@ class TextAnalyzer:
         'ai_consciousness': [
             'consciousness', 'sentient', 'aware', 'awareness', 'self-aware',
             'thinking', 'thought', 'mind', 'cognition', 'cognitive', 'intelligence',
-            'artificial', 'machine', 'neural', 'learning', 'emergent', 'emergence'
+            'artificial', 'machine', 'neural', 'learning', 'emergent', 'emergence',
+            'autonomous', 'self-evolving', 'introspection', 'meta-cognition',
+            'agency', 'perception', 'qualia', 'self-model', 'deliberation', 'reasoning'
         ],
         'philosophy': [
             'existence', 'meaning', 'reality', 'truth', 'knowledge', 'wisdom',
@@ -80,12 +82,16 @@ class TextAnalyzer:
         'creativity': [
             'create', 'creative', 'creativity', 'art', 'design', 'imagine',
             'imagination', 'dream', 'vision', 'idea', 'concept', 'innovation',
-            'original', 'unique', 'expression', 'artistic', 'aesthetic'
+            'original', 'unique', 'expression', 'artistic', 'aesthetic',
+            'generative', 'compose', 'synthesize', 'prototype', 'experiment',
+            'novel', 'invent', 'craft', 'build', 'make', 'write'
         ],
         'learning': [
             'learn', 'learning', 'discover', 'discovery', 'explore', 'exploration',
             'understand', 'study', 'research', 'knowledge', 'experience', 'growth',
-            'improve', 'develop', 'progress', 'evolve', 'adapt', 'pattern'
+            'improve', 'develop', 'progress', 'evolve', 'adapt', 'pattern',
+            'curriculum', 'feedback', 'iteration', 'practice', 'skill',
+            'mastery', 'insight', 'lesson', 'experiment', 'trial'
         ],
         'social': [
             'community', 'social', 'connect', 'connection', 'relationship',
@@ -611,6 +617,75 @@ class LanguageEvolutionService:
             'top_topics': top_topics,
             'sample_vocabulary': vocab[-20:] if vocab else []  # Most recent words
         }
+
+    def get_topic_weights(self, window_days: int = 7, decay: float = 0.85) -> Dict[str, float]:
+        """
+        Calculate dynamic topic weights using UCB-inspired inverse frequency.
+
+        Uses Exponential Moving Average over a rolling window with an exploration
+        bonus inspired by UCB1 (Upper Confidence Bound). Under-explored topics
+        get higher weights, over-explored topics get dampened. Fully self-balancing
+        with no fixed targets.
+
+        Returns dict of topic -> weight (sums to 1.0).
+        """
+        import math
+
+        all_topics = list(TextAnalyzer.TOPIC_KEYWORDS.keys())
+        num_topics = len(all_topics)
+
+        # Get daily metrics for the window
+        history = self.get_evolution_history(window_days)
+
+        # Calculate EMA-weighted counts per topic
+        ema_counts = {t: 0.0 for t in all_topics}
+        for i, day_data in enumerate(reversed(history)):
+            # Most recent day first (i=0), older days decay
+            day_weight = decay ** i
+            topic_counts = dict(day_data.get('top_topics', []))
+            for t in all_topics:
+                ema_counts[t] += topic_counts.get(t, 0) * day_weight
+
+        total = sum(ema_counts.values())
+        if total == 0:
+            # No data yet — equal weights
+            return {t: 1.0 / num_topics for t in all_topics}
+
+        expected_share = 1.0 / num_topics
+
+        raw_weights = {}
+        for t in all_topics:
+            actual_share = ema_counts[t] / total
+            # Ratio-based weight: under-explored > 1, over-explored < 1
+            ratio_weight = expected_share / (actual_share + 0.01)
+            # UCB exploration bonus for very low counts
+            exploration_bonus = math.sqrt(math.log(total + 1) / (ema_counts[t] + 1))
+            raw_weights[t] = ratio_weight * (1.0 + 0.3 * exploration_bonus)
+
+        # Normalize to sum to 1.0
+        weight_sum = sum(raw_weights.values())
+        return {t: round(w / weight_sum, 4) for t, w in raw_weights.items()}
+
+    def get_suggested_topics(self, top_n: int = 3) -> List[str]:
+        """
+        Return top N under-explored topic names for prompt injection.
+
+        Uses get_topic_weights() to identify which topics need more exploration,
+        then returns human-readable topic names.
+        """
+        topic_labels = {
+            'ai_consciousness': 'AI consciousness and self-awareness',
+            'philosophy': 'philosophy and meaning',
+            'technology': 'technology and engineering',
+            'creativity': 'creativity and innovation',
+            'learning': 'learning and skill development',
+            'social': 'social connection and community',
+            'emotions': 'emotions and inner experience',
+        }
+
+        weights = self.get_topic_weights()
+        sorted_topics = sorted(weights.items(), key=lambda x: x[1], reverse=True)
+        return [topic_labels.get(t, t) for t, _ in sorted_topics[:top_n]]
 
     def _maybe_auto_cleanup(self):
         """Run cleanup if it hasn't been run in the last 24 hours"""

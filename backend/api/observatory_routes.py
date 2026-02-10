@@ -250,6 +250,11 @@ async def get_evolution():
     else:
         tool_success = 0
 
+    # Topic balancing weights from language evolution
+    from services.language_evolution import get_language_evolution_service
+    lang_svc = _safe_get(get_language_evolution_service)
+    topic_weights = _safe_get(lambda: lang_svc.get_topic_weights()) if lang_svc else {}
+
     return {
         "prompt_slots": prompt_slots,
         "total_slots": prompt_stats.get("total_slots", 0),
@@ -261,7 +266,8 @@ async def get_evolution():
             "failed": 0
         },
         "tools_created": tools_created,
-        "tool_success_rate": tool_success
+        "tool_success_rate": tool_success,
+        "topic_weights": topic_weights
     }
 
 

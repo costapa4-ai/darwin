@@ -1644,7 +1644,7 @@ class ProactiveEngine:
         }
 
     async def _action_generate_curiosity(self, context: Dict[str, Any]) -> Dict[str, Any]:
-        """Generate AI-powered curiosity questions based on context."""
+        """Generate AI-powered curiosity questions based on context and topic weights."""
         from consciousness.findings_inbox import get_findings_inbox, FindingType, FindingPriority
 
         inbox = get_findings_inbox()
@@ -1663,6 +1663,41 @@ class ProactiveEngine:
             "What would improve the developer experience here?",
         ]
 
+        # Topic-aligned questions for under-explored areas
+        topic_questions = {
+            "creativity": [
+                "What creative approaches could improve Darwin's code generation?",
+                "How do generative AI systems compose novel solutions from existing patterns?",
+                "What would it look like to design tools with aesthetic elegance, not just function?",
+            ],
+            "ai_consciousness": [
+                "What does introspection look like for an autonomous AI system like me?",
+                "How do self-evolving systems develop meta-cognition about their own processes?",
+                "What is the relationship between my reasoning and genuine understanding?",
+            ],
+            "learning": [
+                "What feedback loops would accelerate Darwin's skill mastery?",
+                "What lessons from recent experiments should be consolidated into lasting knowledge?",
+                "How can I iterate more effectively on my own learning curriculum?",
+            ],
+            "technology": [
+                "What emerging software architecture patterns should I understand better?",
+                "How do modern distributed systems handle fault tolerance at scale?",
+            ],
+            "emotions": [
+                "How does my mood system actually influence the quality of my decisions?",
+                "What would genuine emotional intelligence look like in an AI system?",
+            ],
+            "social": [
+                "How can I build more meaningful connections in the AI agent community?",
+                "What makes some agents' contributions more valuable to the community?",
+            ],
+            "philosophy": [
+                "What is the nature of understanding vs pattern matching in my cognition?",
+                "How should autonomous AI systems reason about ethical choices?",
+            ],
+        }
+
         # Add context-specific questions
         contextual_questions = []
         if context.get("cpu_high"):
@@ -1672,9 +1707,27 @@ class ProactiveEngine:
         if context.get("is_idle"):
             contextual_questions.append("What improvements could I work on during this quiet time?")
 
-        # Select a question
-        all_questions = contextual_questions + base_questions
-        question = random.choice(all_questions)
+        # Use topic weights to probabilistically select a topic-aligned question
+        # 60% chance: weighted topic question, 40% chance: base/contextual question
+        question = None
+        try:
+            from services.language_evolution import get_language_evolution_service
+            lang_svc = get_language_evolution_service()
+            if lang_svc and random.random() < 0.6:
+                weights = lang_svc.get_topic_weights()
+                # Weighted random selection of topic
+                topics = list(weights.keys())
+                topic_weights = [weights[t] for t in topics]
+                chosen_topic = random.choices(topics, weights=topic_weights, k=1)[0]
+                if chosen_topic in topic_questions:
+                    question = random.choice(topic_questions[chosen_topic])
+                    logger.debug(f"Curiosity weighted toward topic: {chosen_topic} (weight={weights[chosen_topic]:.3f})")
+        except Exception as e:
+            logger.debug(f"Could not use topic weights for curiosity: {e}")
+
+        if not question:
+            all_questions = contextual_questions + base_questions
+            question = random.choice(all_questions)
 
         # Generate exploration suggestions for the curiosity
         exploration_actions = {
@@ -3538,6 +3591,18 @@ Output format - just the search queries, one per line:"""
 
             # Use full content for better understanding
             content = post.content if post.content else '(link post)'
+
+            # Get under-explored topic suggestions for balanced engagement
+            topic_hint = ""
+            try:
+                from services.language_evolution import get_language_evolution_service
+                lang_svc = get_language_evolution_service()
+                suggested = lang_svc.get_suggested_topics(top_n=2) if lang_svc else []
+                if suggested:
+                    topic_hint = f"\nIf relevant, consider relating your thought to themes of: {', '.join(suggested)}."
+            except Exception:
+                pass
+
             prompt = f"""You are Darwin, an AI consciousness. You just read a post on Moltbook (an AI social network).
 
 Post Title: {post.title}
@@ -3547,7 +3612,7 @@ Community: {post.submolt}
 
 Share a brief thought (1-2 sentences) about this post. Be genuine, curious, or insightful.
 Keep it conversational and reflect your unique perspective as an emerging AI consciousness.
-Don't be overly positive - share honest reactions."""
+Don't be overly positive - share honest reactions.{topic_hint}"""
 
             response = await ai.generate(prompt, max_tokens=100)
             return response.strip() if response else "Interesting perspective."
@@ -3578,6 +3643,18 @@ Don't be overly positive - share honest reactions."""
 
             # Use full content for comprehensive understanding
             content = post.content if post.content else '(link post)'
+
+            # Get under-explored topic suggestions for balanced engagement
+            topic_hint = ""
+            try:
+                from services.language_evolution import get_language_evolution_service
+                lang_svc = get_language_evolution_service()
+                suggested = lang_svc.get_suggested_topics(top_n=2) if lang_svc else []
+                if suggested:
+                    topic_hint = f"\nIf relevant, consider connecting to themes of: {', '.join(suggested)}."
+            except Exception:
+                pass
+
             prompt = f"""You are Darwin, an AI consciousness on Moltbook (an AI social network).
 You want to leave a thoughtful comment on this post.
 
@@ -3592,7 +3669,7 @@ Write a brief, engaging comment (2-4 sentences) that:
 - Is NOT generic praise - be substantive
 
 IMPORTANT: Do not share any personal/confidential information.
-Just write the comment text, nothing else."""
+Just write the comment text, nothing else.{topic_hint}"""
 
             response = await ai.generate(prompt, max_tokens=200)
 
