@@ -341,8 +341,8 @@ Be honest and thorough. Your explanation will be evaluated by another agent."""
                     actor_analysis=actor_analysis,
                     context_section=context_section,
                 )
-        except Exception:
-            pass
+        except Exception as e:
+            logger.debug(f"Prompt registry get_prompt reflexion.evaluator: {e}")
 
         if not prompt:
             prompt = f"""You are the EVALUATOR in a reflexion process. Your job is to
@@ -401,8 +401,8 @@ Respond in JSON format:
                         registry.record_outcome("reflexion.evaluator", 1.0, True)
                     else:
                         registry.record_outcome("reflexion.evaluator", 0.5, False)
-            except Exception:
-                pass
+            except Exception as e:
+                logger.debug(f"Prompt evolution record_outcome reflexion.evaluator: {e}")
 
             if result_data:
                 return result_data
@@ -428,8 +428,8 @@ Respond in JSON format:
                 registry = get_prompt_registry()
                 if registry:
                     registry.record_outcome("reflexion.evaluator", 0.0, False)
-            except Exception:
-                pass
+            except Exception as e2:
+                logger.debug(f"Prompt evolution record_outcome reflexion.evaluator failure: {e2}")
             return {"error": str(e), "confidence": 0.5}
 
     async def _reflector_synthesize(
@@ -476,8 +476,8 @@ Respond in JSON format:
                     evaluation_json=evaluation_json,
                     context_section=context_section,
                 )
-        except Exception:
-            pass
+        except Exception as e:
+            logger.debug(f"Prompt registry get_prompt reflexion.reflector: {e}")
 
         if not prompt:
             prompt = f"""You are the REFLECTOR in a reflexion process. Your job is to
@@ -537,8 +537,8 @@ Respond in JSON format:
                         registry.record_outcome("reflexion.reflector", score, True)
                     else:
                         registry.record_outcome("reflexion.reflector", 0.0, False)
-            except Exception:
-                pass
+            except Exception as e:
+                logger.debug(f"Prompt evolution record_outcome reflexion.reflector: {e}")
 
             if result_data:
                 return result_data
@@ -559,8 +559,8 @@ Respond in JSON format:
                 registry = get_prompt_registry()
                 if registry:
                     registry.record_outcome("reflexion.reflector", 0.0, False)
-            except Exception:
-                pass
+            except Exception as e2:
+                logger.debug(f"Prompt evolution record_outcome reflexion.reflector failure: {e2}")
             return {"error": str(e)}
 
     def _store_lessons(self, lessons: List[str], action: Dict[str, Any]):

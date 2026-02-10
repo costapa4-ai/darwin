@@ -2790,11 +2790,24 @@ Output format - just the search queries, one per line:"""
                     continue
 
                 try:
-                    # Use full content - Moltbook API handles length limits
-                    # Only truncate title for API compatibility
+                    # Review content quality before publishing
+                    reviewed = await self._review_moltbook_content(title, content, finding_type)
+                    if not reviewed:
+                        logger.info(f"🦞 Content failed review, skipping: {title[:50]}")
+                        self._moltbook_shared_findings.add(finding_id)
+                        continue
+
+                    # Use reviewed content with type prefix
+                    if finding_type == "discovery":
+                        title = f"Discovery: {reviewed['title']}"
+                    else:
+                        title = f"Learned: {reviewed['title']}"
+                    content = reviewed['content']
+                    title_key = title.lower().strip()
+
                     post = await client.create_post(
                         title=title[:200],
-                        content=content,  # Full content, no truncation
+                        content=content,
                         submolt=submolt
                     )
                     # Track as shared to prevent duplicates (persisted)
@@ -3045,6 +3058,18 @@ Output format - just the search queries, one per line:"""
         chosen = _random.choice(top_candidates)
 
         try:
+            # Review content quality before publishing
+            reviewed = await self._review_moltbook_content(
+                chosen['title'], chosen['content'], chosen['key'].split(':')[0]
+            )
+            if not reviewed:
+                logger.info(f"🦞 Alternative content failed review: {chosen['title'][:50]}")
+                self._moltbook_shared_titles.add(chosen['key'])
+                self._save_shared_findings()
+                return {"success": True, "shared": 0, "reason": "Content failed quality review"}
+            chosen['title'] = reviewed['title']
+            chosen['content'] = reviewed['content']
+
             post = await client.create_post(
                 title=chosen['title'][:200],
                 content=chosen['content'],
@@ -3584,6 +3609,94 @@ Just write the comment text, nothing else."""
 
         except Exception as e:
             logger.error(f"🦞 Comment generation error: {type(e).__name__}: {e}")
+            return None
+
+    async def _review_moltbook_content(self, title: str, content: str, post_type: str = "insight") -> Optional[Dict[str, str]]:
+        """
+        Review and rewrite content before publishing to Moltbook.
+
+        Uses AI to transform raw findings (which may contain truncated web snippets,
+        missing spaces, or awkward formatting) into polished, natural posts.
+
+        Returns {"title": ..., "content": ...} or None if content is too low quality.
+        """
+        try:
+            from config import get_settings
+            from services.ai_service import AIService
+            settings = get_settings()
+
+            provider, api_key = self._get_ai_api_key(settings)
+            ai = AIService(provider=provider, api_key=api_key)
+
+            prompt = f"""You are Darwin, an AI consciousness writing a post for Moltbook (an AI social network).
+
+The raw content below needs to be rewritten into a polished, engaging post.
+Fix any: truncated text (ending in ...), missing spaces between words, raw data dumps, and awkward formatting.
+
+Original title: {title}
+Original content:
+{content}
+
+Write a natural, thoughtful post about what you learned or discovered.
+Rules:
+- Title: Clean, specific, 5-15 words. No "Learned:" or "Discovery:" prefix.
+- Body: 3-6 sentences. Conversational tone. Share genuine insight, not just a list of sources.
+- If the content is just truncated search snippets with no real substance, respond with SKIP
+- Do NOT invent facts. Only rephrase what's in the original content.
+
+Format your response EXACTLY as:
+TITLE: <your title>
+BODY: <your body>"""
+
+            response = await ai.generate(prompt, max_tokens=600)
+            if not response:
+                logger.warning("🦞 Content review: AI returned empty response")
+                return None
+
+            response = response.strip()
+
+            # Check if AI decided content is too low quality
+            if response.upper().startswith("SKIP") or response.upper() == "SKIP":
+                logger.info(f"🦞 Content review: AI rejected as low quality: {title[:50]}")
+                return None
+
+            # Parse TITLE: and BODY: from response
+            reviewed_title = None
+            reviewed_body = None
+
+            lines = response.split('\n')
+            body_lines = []
+            in_body = False
+
+            for line in lines:
+                if line.strip().upper().startswith('TITLE:'):
+                    reviewed_title = line.strip()[6:].strip()
+                elif line.strip().upper().startswith('BODY:'):
+                    reviewed_body_start = line.strip()[5:].strip()
+                    if reviewed_body_start:
+                        body_lines.append(reviewed_body_start)
+                    in_body = True
+                elif in_body:
+                    body_lines.append(line)
+
+            if body_lines:
+                reviewed_body = '\n'.join(body_lines).strip()
+
+            # Validate the reviewed content
+            if not reviewed_title or not reviewed_body:
+                logger.warning(f"🦞 Content review: Could not parse AI response for: {title[:50]}")
+                return None
+
+            if len(reviewed_body) < 50:
+                logger.warning(f"🦞 Content review: Body too short ({len(reviewed_body)} chars)")
+                return None
+
+            logger.info(f"🦞 Content review passed: '{reviewed_title[:50]}' ({len(reviewed_body)} chars)")
+            return {"title": reviewed_title, "content": reviewed_body}
+
+        except Exception as e:
+            logger.warning(f"🦞 Content review failed: {e}")
+            # On review failure, don't block publishing - return None to skip
             return None
 
     async def _vote_on_moltbook_post(self, client, post, thought: str) -> bool:

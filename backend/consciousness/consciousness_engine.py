@@ -62,7 +62,8 @@ class ConsciousnessEngine:
         communicator=None,  # NEW: Proactive communication system
         code_narrator=None,  # NEW: Poetry generation
         diary_writer=None,  # Legacy: Daily diary
-        diary_engine=None  # NEW: Memory diary engine
+        diary_engine=None,  # NEW: Memory diary engine
+        tool_maker=None  # NEW: Autonomous tool creation with evolvable prompts
     ):
         self.coordinator = agent_coordinator
         self.web_researcher = web_researcher
@@ -80,6 +81,7 @@ class ConsciousnessEngine:
         self.code_narrator = code_narrator  # NEW: Poetry generation
         self.diary_writer = diary_writer  # Legacy: Daily diary
         self.diary_engine = diary_engine  # NEW: Memory diary engine
+        self.tool_maker = tool_maker  # NEW: Autonomous tool creation
         self.config = config or {}
 
         # Multi-Agent Reflexion System (reduces confirmation bias)

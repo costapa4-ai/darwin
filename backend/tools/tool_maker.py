@@ -369,8 +369,8 @@ If no tool is needed, return:
                             1.0 if test_passed else 0.0,
                             test_passed,
                         )
-            except Exception:
-                pass
+            except Exception as e:
+                logger.debug(f"Prompt evolution record_outcome tool_maker: {e}")
 
             if test_passed:
                 result.success = True
@@ -427,8 +427,8 @@ If no tool is needed, return:
                     spec_mode=specification.mode,
                     params_str=params_str,
                 )
-        except Exception:
-            pass
+        except Exception as e:
+            logger.debug(f"Prompt registry get_prompt tool_maker.generation: {e}")
 
         if not prompt:
             prompt = f"""Generate a Python tool function for Darwin's autonomous system.
@@ -545,8 +545,8 @@ async def {specification.name}({params_str}) -> Dict[str, Any]:
                     spec_name=specification.name,
                     spec_description=specification.description,
                 )
-        except Exception:
-            pass
+        except Exception as e:
+            logger.debug(f"Prompt registry get_prompt tool_maker.debugging: {e}")
 
         if not prompt:
             prompt = f"""Fix this Python tool code based on the error.

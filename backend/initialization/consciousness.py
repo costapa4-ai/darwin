@@ -95,6 +95,16 @@ async def init_consciousness_engine(
         tool_manager.load_all_tools()
         services['tool_manager'] = tool_manager
 
+        # ToolMaker - Autonomous tool creation with evolvable prompts
+        from tools.tool_maker import ToolMaker
+        tool_maker = ToolMaker(
+            nucleus=nucleus,
+            tool_manager=tool_manager,
+            approval_queue=approval_queue
+        )
+        services['tool_maker'] = tool_maker
+        logger.info("ToolMaker initialized (prompt slots: tool_maker.generation, tool_maker.debugging)")
+
         # Integrate ToolManager with ToolRegistry
         if tool_registry:
             print("Connecting ToolManager to ToolRegistry...")
@@ -230,7 +240,8 @@ async def init_consciousness_engine(
             communicator=services['communicator'],
             code_narrator=phase3.get('code_narrator') if settings.enable_code_poetry else None,
             diary_writer=phase3.get('diary_writer') if settings.enable_daily_diary else None,
-            diary_engine=services['diary_engine']
+            diary_engine=services['diary_engine'],
+            tool_maker=tool_maker
         )
 
         # Link diary engine back to consciousness engine

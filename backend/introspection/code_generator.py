@@ -3,6 +3,7 @@ Code Generator: Generates code to implement Self-Analysis insights
 Uses AI to create code changes based on improvement suggestions
 """
 import difflib
+import logging
 from typing import Dict, Any, Optional, List
 from dataclasses import dataclass, asdict
 from pathlib import Path
@@ -10,6 +11,8 @@ from datetime import datetime
 import json
 
 from introspection.self_analyzer import CodeInsight
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -802,8 +805,8 @@ Return ONLY the corrected Python code in a code block. No explanations needed.
                         1.0 if passed else 0.0,
                         passed,
                     )
-        except Exception:
-            pass
+        except Exception as e:
+            logger.debug(f"Prompt evolution record_outcome: {e}")
 
         # Create final diffs
         file_path = self._determine_file_path(insight)
