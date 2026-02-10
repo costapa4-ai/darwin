@@ -4003,29 +4003,32 @@ BODY: <your body>"""
         except Exception as e:
             checks['hierarchical_memory'] = {'status': 'error', 'error': str(e)}
 
-        # 3. Moltbook account status
+        # 3. Moltbook account status (probe /agents/me since /agents/status doesn't reflect suspension)
         try:
             from integrations.moltbook import get_moltbook_client
             client = get_moltbook_client()
             if client and client.api_key:
-                status = await client.check_status()
-                is_suspended = 'suspend' in str(status).lower()
-                checks['moltbook'] = {
-                    'status': 'suspended' if is_suspended else 'healthy',
-                    'claimed': status.get('status') == 'claimed',
-                    'raw_status': status.get('status', 'unknown'),
-                }
-                if is_suspended:
-                    warnings.append("Moltbook account is suspended")
+                try:
+                    profile = await client.get_profile()
+                    checks['moltbook'] = {
+                        'status': 'healthy',
+                        'agent_name': profile.name,
+                        'karma': profile.karma,
+                        'post_count': profile.post_count,
+                        'followers': profile.follower_count,
+                    }
+                except Exception as profile_err:
+                    err_str = str(profile_err).lower()
+                    if 'suspend' in err_str:
+                        checks['moltbook'] = {'status': 'suspended', 'error': str(profile_err)}
+                        warnings.append("Moltbook account is suspended")
+                    else:
+                        checks['moltbook'] = {'status': 'error', 'error': str(profile_err)}
+                        warnings.append(f"Moltbook API error: {profile_err}")
             else:
                 checks['moltbook'] = {'status': 'not_configured'}
         except Exception as e:
-            error_str = str(e)
-            if 'suspend' in error_str.lower():
-                checks['moltbook'] = {'status': 'suspended', 'error': error_str}
-                warnings.append(f"Moltbook suspended: {error_str}")
-            else:
-                checks['moltbook'] = {'status': 'error', 'error': error_str}
+            checks['moltbook'] = {'status': 'error', 'error': str(e)}
 
         # 4. Data directory health
         try:
