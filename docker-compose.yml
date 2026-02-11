@@ -32,9 +32,9 @@ services:
       # Ollama (local LLM - FREE!)
       - OLLAMA_ENABLED=${OLLAMA_ENABLED:-true}
       - OLLAMA_URL=${OLLAMA_URL:-http://ollama:11434}
-      - OLLAMA_MODEL=${OLLAMA_MODEL:-qwen2.5:7b}
-      - OLLAMA_CODE_MODEL=${OLLAMA_CODE_MODEL:-qwen2.5-coder:14b}
-      - OLLAMA_REASONING_MODEL=${OLLAMA_REASONING_MODEL:-qwen2.5:7b}
+      - OLLAMA_MODEL=${OLLAMA_MODEL:-qwen3:8b}
+      - OLLAMA_CODE_MODEL=${OLLAMA_CODE_MODEL:-qwen3:14b}
+      - OLLAMA_REASONING_MODEL=${OLLAMA_REASONING_MODEL:-qwen3:8b}
       # Telegram Bot (Darwin → Owner notifications)
       - TELEGRAM_BOT_TOKEN=${TELEGRAM_BOT_TOKEN:-}
       - TELEGRAM_OWNER_CHAT_ID=${TELEGRAM_OWNER_CHAT_ID:-}

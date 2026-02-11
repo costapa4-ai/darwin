@@ -1,17 +1,21 @@
 """
 Observatory API Routes - Comprehensive monitoring dashboard aggregation.
 
-Provides 5 aggregation endpoints for the Darwin Observatory frontend:
+Provides aggregation endpoints for the Darwin Observatory frontend:
 - /overview: System health summary
 - /ai-routing: Multi-model router stats
 - /evolution: Prompt evolution + code generation stats
 - /subsystems: Per-subsystem health cards
 - /watchdog: System watchdog results (last run + on-demand trigger)
+- /ollama-models: List/pull/remove Ollama models
 """
 
-from fastapi import APIRouter
+from fastapi import APIRouter, HTTPException
 from datetime import datetime, timedelta
+from typing import Optional
+from pydantic import BaseModel
 from utils.logger import setup_logger
+import aiohttp
 
 logger = setup_logger(__name__)
 
@@ -555,5 +559,146 @@ async def get_github_issues():
     try:
         from integrations.github_issues import get_tracked_issues
         return get_tracked_issues()
+    except Exception as e:
+        return {"status": "error", "message": str(e)}
+
+
+# ==================== OLLAMA MODEL MANAGEMENT ====================
+
+def _get_ollama_url() -> str:
+    """Get the Ollama API URL from config."""
+    from config import get_settings
+    return get_settings().ollama_url
+
+
+class OllamaModelRequest(BaseModel):
+    """Request body for pulling an Ollama model."""
+    name: str  # e.g. "qwen3:8b", "deepseek-r1:14b"
+
+
+@router.get("/ollama-models")
+async def list_ollama_models():
+    """List all Ollama models with sizes and details."""
+    ollama_url = _get_ollama_url()
+    try:
+        async with aiohttp.ClientSession() as session:
+            async with session.get(
+                f"{ollama_url}/api/tags",
+                timeout=aiohttp.ClientTimeout(total=10)
+            ) as resp:
+                if resp.status != 200:
+                    return {"status": "error", "message": f"Ollama returned {resp.status}"}
+                data = await resp.json()
+
+        models = []
+        total_size = 0
+        for m in data.get("models", []):
+            size = m.get("size", 0)
+            total_size += size
+            details = m.get("details", {})
+            models.append({
+                "name": m["name"],
+                "size_gb": round(size / 1e9, 1),
+                "family": details.get("family", "unknown"),
+                "parameters": details.get("parameter_size", "unknown"),
+                "quantization": details.get("quantization_level", "unknown"),
+                "modified": m.get("modified_at", ""),
+            })
+
+        # Mark which models are active in config
+        from config import get_settings
+        settings = get_settings()
+        active_models = {
+            settings.ollama_model,
+            settings.ollama_code_model,
+            settings.ollama_reasoning_model,
+        }
+        for m in models:
+            m["active"] = m["name"] in active_models
+
+        return {
+            "status": "ok",
+            "models": models,
+            "total_count": len(models),
+            "total_size_gb": round(total_size / 1e9, 1),
+            "active_config": {
+                "reasoning": settings.ollama_reasoning_model,
+                "code": settings.ollama_code_model,
+                "default": settings.ollama_model,
+            },
+        }
+    except aiohttp.ClientError as e:
+        return {"status": "error", "message": f"Cannot reach Ollama: {e}"}
+    except Exception as e:
+        return {"status": "error", "message": str(e)}
+
+
+@router.post("/ollama-models/pull")
+async def pull_ollama_model(req: OllamaModelRequest):
+    """
+    Start pulling/downloading an Ollama model.
+    Returns immediately — the download happens in the background on Ollama's side.
+    """
+    ollama_url = _get_ollama_url()
+    try:
+        async with aiohttp.ClientSession() as session:
+            async with session.post(
+                f"{ollama_url}/api/pull",
+                json={"name": req.name, "stream": False},
+                timeout=aiohttp.ClientTimeout(total=600)  # 10 min for large models
+            ) as resp:
+                if resp.status != 200:
+                    error = await resp.text()
+                    return {"status": "error", "message": f"Pull failed ({resp.status}): {error}"}
+                data = await resp.json()
+
+        logger.info(f"Ollama model pulled: {req.name}")
+        return {
+            "status": "pulled",
+            "model": req.name,
+            "details": data,
+        }
+    except aiohttp.ClientError as e:
+        return {"status": "error", "message": f"Cannot reach Ollama: {e}"}
+    except Exception as e:
+        return {"status": "error", "message": str(e)}
+
+
+@router.delete("/ollama-models/{model_name}")
+async def remove_ollama_model(model_name: str):
+    """
+    Remove an Ollama model. Prevents removing models currently active in config.
+    """
+    # Safety: prevent removing active models
+    from config import get_settings
+    settings = get_settings()
+    active_models = {
+        settings.ollama_model,
+        settings.ollama_code_model,
+        settings.ollama_reasoning_model,
+    }
+    if model_name in active_models:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Cannot remove '{model_name}' — it's currently active in config. "
+                   f"Active models: {', '.join(active_models)}"
+        )
+
+    ollama_url = _get_ollama_url()
+    try:
+        async with aiohttp.ClientSession() as session:
+            async with session.delete(
+                f"{ollama_url}/api/delete",
+                json={"name": model_name},
+                timeout=aiohttp.ClientTimeout(total=30)
+            ) as resp:
+                if resp.status != 200:
+                    error = await resp.text()
+                    return {"status": "error", "message": f"Delete failed ({resp.status}): {error}"}
+
+        logger.info(f"Ollama model removed: {model_name}")
+        return {"status": "removed", "model": model_name}
+    except aiohttp.ClientError as e:
+        return {"status": "error", "message": f"Cannot reach Ollama: {e}"}
     except Exception as e:
         return {"status": "error", "message": str(e)}

@@ -4,6 +4,7 @@ Local LLM integration for cost-free, low-latency tasks
 """
 import aiohttp
 import json
+import re
 import time
 from typing import Dict, Any, Optional, List
 
@@ -31,9 +32,12 @@ class OllamaClient(BaseModelClient):
     - Always available (no rate limits)
     """
 
+    # Regex to strip <think>...</think> blocks from qwen3 responses
+    _THINK_RE = re.compile(r'<think>.*?</think>\s*', re.DOTALL)
+
     def __init__(
         self,
-        model_name: str = "qwen2.5:7b",
+        model_name: str = "qwen3:8b",
         base_url: str = "http://ollama:11434",
         api_key: str = ""  # Not used but required by interface
     ):
@@ -59,7 +63,8 @@ class OllamaClient(BaseModelClient):
         prompt: str,
         system_prompt: Optional[str] = None,
         temperature: float = 0.7,
-        max_tokens: int = 8192
+        max_tokens: int = 8192,
+        **kwargs
     ) -> str:
         """Generate completion using local Ollama"""
         try:
@@ -96,6 +101,10 @@ class OllamaClient(BaseModelClient):
                     raw_body = await response.read()
                     data = json.loads(raw_body)
                     result = data.get("message", {}).get("content", "")
+
+                    # Strip <think>...</think> blocks from qwen3 responses
+                    if '<think>' in result:
+                        result = self._THINK_RE.sub('', result).strip()
 
                     # Check if response was truncated by token limit
                     done_reason = data.get("done_reason", "")

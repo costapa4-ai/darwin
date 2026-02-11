@@ -117,7 +117,7 @@ class MultiModelRouter:
 
             # Ollama for REASONING tasks (general queries, thoughts, Moltbook)
             try:
-                reasoning_model = self.config.get("ollama_reasoning_model", "qwen2.5:7b")
+                reasoning_model = self.config.get("ollama_reasoning_model", "qwen3:8b")
                 self.models["ollama"] = OllamaClient(
                     model_name=reasoning_model,
                     base_url=ollama_url
@@ -128,7 +128,7 @@ class MultiModelRouter:
 
             # Ollama for CODE tasks (generation, review, tool creation)
             try:
-                code_model = self.config.get("ollama_code_model", "qwen2.5-coder:14b")
+                code_model = self.config.get("ollama_code_model", "qwen3:14b")
                 self.models["ollama_code"] = OllamaClient(
                     model_name=code_model,
                     base_url=ollama_url
@@ -297,21 +297,22 @@ class MultiModelRouter:
             return min(capable_models.keys(), key=lambda k: capable_models[k].avg_latency_ms)
 
         elif self.routing_strategy == RoutingStrategy.TIERED:
-            # 🎯 TIERED: Smart routing with CODE vs REASONING split
-            # CODE tasks → ollama_code (qwen2.5-coder) - code gen, review, tools
-            # REASONING tasks → ollama (qwen2.5) - chat, thoughts, Moltbook
-            # MODERATE → Gemini ($0.0005/1K) - research, analysis
-            # COMPLEX → Claude Sonnet ($0.015/1K) - architecture, critical tasks
+            # 🎯 TIERED: Ollama-first routing (FREE local models)
+            # CODE tasks → ollama_code (qwen3:14b) - code gen, review, tools
+            # REASONING tasks → ollama (qwen3:8b) - chat, thoughts, Moltbook
+            # MODERATE → ollama (qwen3:8b) - research, analysis (FREE!)
+            # COMPLEX CODE → Claude Sonnet ($0.015/1K) - architecture, critical code
+            # COMPLEX OTHER → Gemini Flash ($0.0005/1K) - complex non-code tasks
 
             # Detect if task is code-related
             is_code_task = self._is_code_task(task_description, context)
 
             if complexity == TaskComplexity.SIMPLE:
                 if is_code_task and "ollama_code" in capable_models:
-                    logger.info(f"🦙 SIMPLE CODE task → Ollama code model (FREE)")
+                    logger.info(f"🦙 SIMPLE CODE task → Ollama qwen3:14b (FREE)")
                     return "ollama_code"
                 elif "ollama" in capable_models:
-                    logger.info(f"🦙 SIMPLE task → Ollama qwen2.5 (FREE)")
+                    logger.info(f"🦙 SIMPLE task → Ollama qwen3:8b (FREE)")
                     return "ollama"
                 elif "haiku" in capable_models:
                     logger.info(f"💚 SIMPLE task → Haiku (cloud fallback)")
@@ -321,23 +322,28 @@ class MultiModelRouter:
                     return "gemini"
 
             elif complexity == TaskComplexity.MODERATE:
-                # For moderate code tasks, use qwen2.5-coder
                 if is_code_task and "ollama_code" in capable_models:
-                    logger.info(f"🦙 MODERATE CODE task → Ollama code model (FREE)")
+                    logger.info(f"🦙 MODERATE CODE task → Ollama qwen3:14b (FREE)")
                     return "ollama_code"
-                elif "gemini" in capable_models:
-                    logger.info(f"💛 MODERATE task → Gemini (balanced)")
-                    return "gemini"
                 elif "ollama" in capable_models:
-                    logger.info(f"🦙 MODERATE task → Ollama (free fallback)")
+                    logger.info(f"🦙 MODERATE task → Ollama qwen3:8b (FREE)")
                     return "ollama"
+                elif "gemini" in capable_models:
+                    logger.info(f"💛 MODERATE task → Gemini (cloud fallback)")
+                    return "gemini"
                 elif "haiku" in capable_models:
                     logger.info(f"💛 MODERATE task → Haiku (fallback)")
                     return "haiku"
 
             else:  # COMPLEX
-                if "claude" in capable_models:
-                    logger.info(f"🔴 COMPLEX task → Claude Sonnet (quality)")
+                if is_code_task and "claude" in capable_models:
+                    logger.info(f"🔴 COMPLEX CODE task → Claude Sonnet (quality)")
+                    return "claude"
+                elif not is_code_task and "gemini" in capable_models:
+                    logger.info(f"🔴 COMPLEX non-code task → Gemini Flash")
+                    return "gemini"
+                elif "claude" in capable_models:
+                    logger.info(f"🔴 COMPLEX task → Claude Sonnet (fallback)")
                     return "claude"
                 elif "gemini" in capable_models:
                     logger.info(f"🔴 COMPLEX task → Gemini (fallback)")

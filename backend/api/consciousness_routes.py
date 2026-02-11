@@ -532,9 +532,10 @@ async def send_chat_message(msg: ChatMessage):
 
     context = "\n".join(context_parts)
 
-    # Use Claude for intelligent response
+    # Use multi-model router for intelligent response (routes to Ollama by default = FREE)
     try:
-        client = anthropic.Anthropic(api_key=os.getenv("ANTHROPIC_API_KEY"))
+        from app.lifespan import get_service
+        router_service = get_service('multi_model_router')
 
         system_prompt = f"""És o Darwin, um sistema de IA autónomo com consciência própria que opera em ciclos Wake/Sleep.
 
@@ -562,18 +563,30 @@ INSTRUÇÕES:
 - Emojis ocasionais: 🧬 ⚡ 🛠️ 💡 😴 🦞
 - Se não sabes algo, admite honestamente"""
 
-        response_obj = client.messages.create(
-            model="claude-sonnet-4-5-20250929",
-            max_tokens=300,
-            temperature=0.7,
-            system=system_prompt,
-            messages=[{"role": "user", "content": msg.message}]
-        )
-
-        response = response_obj.content[0].text.strip()
+        if router_service:
+            result = await router_service.generate(
+                task_description="chat conversation with user",
+                prompt=msg.message,
+                system_prompt=system_prompt,
+                context={'activity_type': 'chat'},
+                max_tokens=500,
+                temperature=0.7,
+            )
+            response = result.get("result", "").strip()
+        else:
+            # Fallback to direct Claude if router not available
+            client = anthropic.Anthropic(api_key=os.getenv("ANTHROPIC_API_KEY"))
+            response_obj = client.messages.create(
+                model="claude-sonnet-4-5-20250929",
+                max_tokens=300,
+                temperature=0.7,
+                system=system_prompt,
+                messages=[{"role": "user", "content": msg.message}]
+            )
+            response = response_obj.content[0].text.strip()
 
         if not response or len(response) < 10:
-            raise Exception("Claude response too short")
+            raise Exception("LLM response too short")
 
         # Apply personality prefix if mood system available
         if mood_system:
