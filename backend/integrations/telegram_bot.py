@@ -235,7 +235,7 @@ async def _handle_update(update: dict):
     # Route to consciousness chat for intelligent response
     try:
         from api.consciousness_routes import send_chat_message, ChatMessage
-        result = await send_chat_message(ChatMessage(message=text))
+        result = await send_chat_message(ChatMessage(message=text, channel='telegram'))
         reply_text = result.get('content', str(result)) if isinstance(result, dict) else str(result)
     except Exception as e:
         logger.error(f"Telegram chat error: {e}")

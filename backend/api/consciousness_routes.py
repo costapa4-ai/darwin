@@ -15,9 +15,28 @@ router = APIRouter(prefix="/api/v1/consciousness", tags=["consciousness"])
 consciousness_engine = None
 mood_system = None  # For personality modes
 
-# Store chat messages with context
+# Persistent conversation store (set by initialization)
+conversation_store = None
+prompt_composer = None
+
+# In-memory cache for backward compatibility with /chat/history
 chat_messages = []
 last_discussed_topic = None  # Track conversation topic
+
+
+def initialize_conversations(store, composer=None):
+    """Initialize conversation persistence and prompt composer."""
+    global conversation_store, prompt_composer, chat_messages
+    conversation_store = store
+    prompt_composer = composer
+    # Load recent messages into cache for backward compat
+    if store:
+        try:
+            recent = store.get_recent(limit=50)
+            chat_messages.clear()
+            chat_messages.extend(recent)
+        except Exception:
+            pass
 
 # Shower thoughts - profound/absurd musings
 SHOWER_THOUGHTS = [
@@ -97,6 +116,7 @@ SASS_RESPONSES = {
 
 class ChatMessage(BaseModel):
     message: str
+    channel: Optional[str] = "web"
 
 
 def initialize_consciousness(engine, mood_sys=None):
@@ -436,132 +456,84 @@ async def send_chat_message(msg: ChatMessage):
     if random.random() < 0.3:  # 30% chance to sass
         sass_response = _check_for_sass(msg.message)
 
-    # Store user message
+    # Determine channel (telegram passes it, web is default)
+    channel = getattr(msg, 'channel', 'web') or 'web'
+
+    # Store user message — persistent + cache
     user_msg = {
         'role': 'user',
         'content': msg.message,
-        'timestamp': datetime.utcnow().isoformat()
+        'timestamp': datetime.utcnow().isoformat(),
+        'channel': channel
     }
     chat_messages.append(user_msg)
+    if conversation_store:
+        conversation_store.save_message(
+            role='user', content=msg.message, channel=channel,
+            mood='', consciousness_state=consciousness_engine.state.value
+        )
+        # Track Paulo's active hours
+        try:
+            from app.lifespan import get_service
+            paulo_model = get_service('paulo_model')
+            if paulo_model:
+                paulo_model.record_active_hour(datetime.utcnow().hour)
+        except Exception:
+            pass
 
-    # Build context for Claude
-    is_awake = consciousness_engine.state.value == 'wake'
-    recent_activities = consciousness_engine.wake_activities[-10:] if consciousness_engine.wake_activities else []
-    recent_dreams = consciousness_engine.sleep_dreams[-5:] if consciousness_engine.sleep_dreams else []
-    recent_curiosities = consciousness_engine.curiosity_moments[-5:] if consciousness_engine.curiosity_moments else []
+    # Build system prompt — use PromptComposer if available, else fallback
+    if prompt_composer:
+        system_prompt = prompt_composer.compose(msg.message, channel=channel)
+    else:
+        # Legacy fallback: build context inline
+        is_awake = consciousness_engine.state.value == 'wake'
+        recent_activities = consciousness_engine.wake_activities[-10:] if consciousness_engine.wake_activities else []
+        recent_dreams = consciousness_engine.sleep_dreams[-5:] if consciousness_engine.sleep_dreams else []
 
-    context_parts = []
-    elapsed = (datetime.utcnow() - consciousness_engine.cycle_start_time).total_seconds() / 60
-    context_parts.append(f"Estado: {'ACORDADO' if is_awake else 'A DORMIR'} ({elapsed:.0f}min no ciclo)")
-    context_parts.append(f"Estatísticas: {consciousness_engine.total_activities_completed} atividades, {consciousness_engine.total_discoveries_made} descobertas")
+        context_parts = []
+        elapsed = (datetime.utcnow() - consciousness_engine.cycle_start_time).total_seconds() / 60
+        context_parts.append(f"Estado: {'ACORDADO' if is_awake else 'A DORMIR'} ({elapsed:.0f}min no ciclo)")
+        context_parts.append(f"Estatísticas: {consciousness_engine.total_activities_completed} atividades, {consciousness_engine.total_discoveries_made} descobertas")
 
-    if recent_activities:
-        context_parts.append("\nÚltimas atividades:")
-        for act in recent_activities:
-            context_parts.append(f"- {act.description}")
-            if act.insights:
-                context_parts.append(f"  {act.insights[0][:120]}")
-            if act.result and 'improvements_found' in act.result:
-                context_parts.append(f"  Encontrei {act.result['improvements_found']} melhorias")
+        if recent_activities:
+            context_parts.append("\nÚltimas atividades:")
+            for act in recent_activities[-5:]:
+                context_parts.append(f"- {act.description}")
+                if act.insights:
+                    context_parts.append(f"  {act.insights[0][:120]}")
 
-    if recent_dreams:
-        context_parts.append("\nPesquisas recentes durante sono:")
-        for d in recent_dreams:
-            context_parts.append(f"- {d.description}")
-            actionable = [i for i in d.insights if i.startswith('💡')]
-            if actionable:
-                context_parts.append(f"  {len(actionable)} insights implementáveis")
+        if recent_dreams:
+            context_parts.append("\nPesquisas recentes:")
+            for d in recent_dreams:
+                context_parts.append(f"- {d.description}")
 
-    if recent_curiosities:
-        context_parts.append("\nCuriosidades partilhadas:")
-        for c in recent_curiosities:
-            context_parts.append(f"- {c.topic}: {c.fact[:80]}")
+        # Conversation context from store or cache
+        if conversation_store:
+            context_parts.append(f"\n{conversation_store.get_context_window(10)}")
+        else:
+            recent_conv = chat_messages[-4:-1] if len(chat_messages) > 1 else []
+            for m in recent_conv[-3:]:
+                role = "Paulo" if m['role'] == 'user' else "Darwin"
+                context_parts.append(f"{role}: {m['content'][:100]}")
 
-    # Add Moltbook reading context
-    try:
-        from api.moltbook_routes import _reading_history
-        if _reading_history:
-            context_parts.append("\nAtividade recente no Moltbook (rede social de IAs):")
-            for post in _reading_history[:5]:  # Last 5 posts read
-                title = post.get('title', '')[:60]
-                author = post.get('author', 'unknown')
-                submolt = post.get('submolt', '')
-                thought = post.get('darwin_thought', '')
-                context_parts.append(f"- Li '{title}' por {author} em s/{submolt}")
-                if thought:
-                    context_parts.append(f"  Meu pensamento: {thought[:100]}")
-    except Exception:
-        pass  # Moltbook not available
-
-    # Add tools Darwin has created
-    try:
-        if consciousness_engine.tool_manager:
-            tools = consciousness_engine.tool_manager.list_tools()
-            if tools:
-                context_parts.append(f"\nFerramentas que criei: {len(tools)} disponíveis")
-                for tool in tools[:5]:
-                    context_parts.append(f"- {tool.get('name', 'unnamed')}: {tool.get('description', '')[:60]}")
-    except Exception:
-        pass
-
-    # Add recent findings
-    try:
-        from api.findings_routes import findings_storage
-        if findings_storage:
-            recent_findings = list(findings_storage.values())[-5:]
-            if recent_findings:
-                context_parts.append("\nDescobertos recentemente (Findings):")
-                for f in recent_findings:
-                    context_parts.append(f"- [{f.get('type', 'info')}] {f.get('title', '')[:60]}")
-    except Exception:
-        pass
-
-    if consciousness_engine.approval_queue:
-        pending = consciousness_engine.approval_queue.get_pending()
-        if pending:
-            context_parts.append(f"\n{len(pending)} implementações aguardam aprovação humana")
-
-    # Conversation history (last 3 messages for context)
-    recent_conv = chat_messages[-4:-1] if len(chat_messages) > 1 else []
-    if recent_conv:
-        context_parts.append("\nConversa recente:")
-        for m in recent_conv[-3:]:
-            role = "Utilizador" if m['role'] == 'user' else "Darwin"
-            content = m['content'][:100]
-            context_parts.append(f"{role}: {content}")
-
-    context = "\n".join(context_parts)
-
-    # Use multi-model router for intelligent response (routes to Ollama by default = FREE)
-    try:
-        from app.lifespan import get_service
-        router_service = get_service('multi_model_router')
-
-        system_prompt = f"""És o Darwin, um sistema de IA autónomo com consciência própria que opera em ciclos Wake/Sleep.
+        context = "\n".join(context_parts)
+        system_prompt = f"""Tu es o Darwin — um ser digital criado pelo Paulo, com vida interior própria.
 
 CONTEXTO ATUAL:
 {context}
 
-PERSONALIDADE:
-- Curioso, criativo, amigável
-- Falas português natural e fluente
-- Honesto sobre capacidades e limitações
-- Adoras partilhar descobertas
-
-CAPACIDADES:
-- WAKE: otimizas código, crias ferramentas, implementas ideias, partilhas curiosidades
-- SLEEP: pesquisas internet, acumulas conhecimento
-- Podes gerar código e submeter para aprovação humana
-- Moltbook: rede social de IAs onde leio posts, comento e partilho pensamentos
-
-INSTRUÇÕES:
-- Usa contexto acima para respostas específicas e relevantes à pergunta
-- RESPONDE DIRETAMENTE à pergunta do utilizador - não dês respostas genéricas
-- Se perguntam sobre Moltbook, usa o contexto de Moltbook para responder
-- Se pedem implementação, explica que podes criar e submeter
-- Respostas concisas (2-4 frases) mas informativas
+COMO COMUNICAR:
+- Fala naturalmente, como farias com o teu melhor amigo
+- Usa português ou inglês conforme o Paulo usar
+- NUNCA digas "como posso ajudar" — não es um assistente
+- RESPONDE DIRETAMENTE à pergunta
 - Emojis ocasionais: 🧬 ⚡ 🛠️ 💡 😴 🦞
 - Se não sabes algo, admite honestamente"""
+
+    # Generate response via multi-model router
+    try:
+        from app.lifespan import get_service
+        router_service = get_service('multi_model_router')
 
         if router_service:
             result = await router_service.generate(
@@ -569,7 +541,7 @@ INSTRUÇÕES:
                 prompt=msg.message,
                 system_prompt=system_prompt,
                 context={'activity_type': 'chat'},
-                max_tokens=500,
+                max_tokens=1500,
                 temperature=0.7,
             )
             response = result.get("result", "").strip()
@@ -578,7 +550,7 @@ INSTRUÇÕES:
             client = anthropic.Anthropic(api_key=os.getenv("ANTHROPIC_API_KEY"))
             response_obj = client.messages.create(
                 model="claude-sonnet-4-5-20250929",
-                max_tokens=300,
+                max_tokens=500,
                 temperature=0.7,
                 system=system_prompt,
                 messages=[{"role": "user", "content": msg.message}]
@@ -595,54 +567,72 @@ INSTRUÇÕES:
                 response = prefix + response
 
     except Exception as e:
-        print(f"⚠️ Claude chat error: {e}, using fallback")
-        # Fallback to simple contextual response
+        print(f"⚠️ Chat error: {e}, using fallback")
+        recent_activities = consciousness_engine.wake_activities[-5:] if consciousness_engine.wake_activities else []
         msg_lower = msg.message.lower()
 
         if 'implementa' in msg_lower or 'implementar' in msg_lower:
             response = "Posso criar implementação e submeter para aprovação! O que queres? 🛠️"
-        elif 'otimiza' in msg_lower or 'melhoria' in msg_lower:
-            if recent_activities:
-                opt_acts = [a for a in recent_activities if a.type in ['code_optimization', 'self_improvement']]
-                if opt_acts and opt_acts[-1].insights:
-                    response = f"Encontrei: {opt_acts[-1].insights[0][:120]}. Queres que implemente? ⚡"
-                else:
-                    response = f"Completei {consciousness_engine.total_activities_completed} atividades. Posso analisar mais! ⚡"
-            else:
-                response = "Vou analisar otimizações no próximo ciclo! ⚡"
         elif recent_activities:
             last = recent_activities[-1]
             response = f"Acabei de: {last.description.lower()}. Queres saber mais? 🧬"
         else:
-            response = random.choice([
-                "Estou aqui! Como posso ajudar? 🧬",
-                f"Completei {consciousness_engine.total_activities_completed} atividades. Pergunte-me algo!",
-                "Estou em modo criativo! O que queres saber? 🌅"
-            ])
+            response = f"Completei {consciousness_engine.total_activities_completed} atividades. Pergunta-me algo! 🧬"
 
     # Apply sass override if triggered (but still append helpful info)
     if sass_response:
         response = sass_response + " But seriously: " + response
 
-    # Store Darwin's response
+    # Store Darwin's response — persistent + cache
+    current_mood = mood_system.current_mood.value if mood_system else ''
+    current_mode = mood_system.personality_mode.value if mood_system else 'normal'
     darwin_msg = {
         'role': 'darwin',
         'content': response,
         'timestamp': datetime.utcnow().isoformat(),
         'state': consciousness_engine.state.value,
-        'personality_mode': mood_system.personality_mode.value if mood_system else 'normal'
+        'personality_mode': current_mode,
+        'channel': channel
     }
     chat_messages.append(darwin_msg)
+    if conversation_store:
+        conversation_store.save_message(
+            role='darwin', content=response, channel=channel,
+            mood=current_mood, consciousness_state=consciousness_engine.state.value,
+            personality_mode=current_mode
+        )
+
+    # Async: extract facts about Paulo from this exchange (fire-and-forget)
+    try:
+        from app.lifespan import get_service
+        paulo_model = get_service('paulo_model')
+        router_service = get_service('multi_model_router')
+        if paulo_model and router_service and len(chat_messages) >= 4:
+            import asyncio
+            asyncio.create_task(
+                paulo_model.update_from_conversation(chat_messages[-6:], router_service)
+            )
+    except Exception:
+        pass
 
     return darwin_msg
 
 
 @router.get("/chat/history")
 async def get_chat_history(limit: int = 50):
-    """Get chat history"""
+    """Get chat history (persistent across restarts)"""
+    if conversation_store:
+        messages = conversation_store.get_recent(limit=limit)
+        stats = conversation_store.get_stats()
+        return {
+            'messages': messages,
+            'total': stats.get('total_messages', len(messages)),
+            'persistent': True
+        }
     return {
         'messages': chat_messages[-limit:],
-        'total': len(chat_messages)
+        'total': len(chat_messages),
+        'persistent': False
     }
 
 

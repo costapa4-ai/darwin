@@ -183,11 +183,29 @@ class CuriosityExpeditions:
         return True
 
     def get_next_topic(self) -> Optional[Dict[str, Any]]:
-        """Get the next topic to explore"""
+        """Get the next topic to explore — prefers InterestGraph for deep learning."""
+        # Priority 1: InterestGraph — deep, evolving interests
+        try:
+            from app.lifespan import get_service
+            interest_graph = get_service('interest_graph')
+            if interest_graph:
+                ig_topic = interest_graph.choose_expedition_topic()
+                if ig_topic:
+                    logger.info(f"Expedition topic from InterestGraph: {ig_topic}")
+                    return {
+                        'topic': ig_topic,
+                        'question': f"Deepen understanding of {ig_topic}",
+                        'priority': 8,
+                        'source': 'interest_graph'
+                    }
+        except Exception:
+            pass
+
+        # Priority 2: Queue (from feedback loops, findings, etc.)
         if self.topic_queue:
             return self.topic_queue.pop(0)
 
-        # Queue is empty - generate a topic dynamically from Darwin's knowledge
+        # Priority 3: Generate dynamically from Darwin's knowledge
         return self._generate_dynamic_topic()
 
     def _generate_dynamic_topic(self) -> Optional[Dict[str, Any]]:
@@ -459,6 +477,29 @@ class CuriosityExpeditions:
                     )
                 except Exception as e:
                     logger.error(f"Failed to track learning session: {e}")
+
+            # Deepen interest in InterestGraph
+            try:
+                from app.lifespan import get_service
+                interest_graph = get_service('interest_graph')
+                if interest_graph and expedition.success:
+                    related = self._generate_related_topics(expedition.topic)[:3]
+                    interest_graph.deepen_interest(expedition.topic, {
+                        "duration_min": expedition.duration_minutes,
+                        "summary": expedition.summary[:200] if expedition.summary else "",
+                        "sources": [d.get('source', '') for d in expedition.discoveries[:5]],
+                        "discoveries": [d.get('content', '')[:100] for d in expedition.discoveries[:5]],
+                        "related_topics": related
+                    })
+                    # Spark new interests from related topics
+                    for related_topic in related[:2]:
+                        interest_graph.discover_interest(
+                            related_topic,
+                            sparked_by=f"expedition:{expedition.topic}",
+                            enthusiasm=0.4
+                        )
+            except Exception as e:
+                logger.debug(f"InterestGraph update failed: {e}")
 
             # Trigger ON_EXPEDITION_COMPLETE hook for feedback loops
             try:

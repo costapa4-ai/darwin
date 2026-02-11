@@ -501,6 +501,62 @@ class StateManager:
         except Exception as e:
             logger.warning(f"Memory consolidation failed: {e}")
 
+        # === Digital Being: conversation summarization + identity reflection ===
+        try:
+            from app.lifespan import get_service
+            store = get_service('conversation_store')
+            router = get_service('multi_model_router')
+
+            # Summarize today's conversations
+            if store:
+                from datetime import datetime
+                today = datetime.utcnow().strftime("%Y-%m-%d")
+                today_msgs = store.get_today_messages()
+                if today_msgs and len(today_msgs) >= 2 and router:
+                    conv_text = "\n".join(
+                        f"{'Paulo' if m['role'] == 'user' else 'Darwin'}: {m['content'][:200]}"
+                        for m in today_msgs[-20:]
+                    )
+                    try:
+                        result = await router.generate(
+                            task_description="summarize daily conversations",
+                            prompt=f"Summarize this day's conversations in 2-3 sentences (Portuguese). "
+                                   f"Focus on topics discussed and emotional tone.\n\n{conv_text}",
+                            system_prompt="Summarize conversations concisely in Portuguese.",
+                            context={"activity_type": "summarization"},
+                            max_tokens=200, temperature=0.3
+                        )
+                        summary = result.get("result", "").strip()
+                        if summary and len(summary) > 20:
+                            store.save_daily_summary(today, summary)
+                            logger.info(f"Daily conversation summary saved: {summary[:60]}...")
+                    except Exception as e:
+                        logger.debug(f"Conversation summarization failed: {e}")
+
+            # Darwin self-reflection
+            darwin_self = get_service('darwin_self_model')
+            if darwin_self and router and self.engine.wake_activities:
+                experiences = [
+                    {
+                        "type": a.type,
+                        "description": a.description[:100],
+                        "success": bool(a.result and a.result.get('success', False))
+                    }
+                    for a in self.engine.wake_activities[-15:]
+                    if a.completed_at
+                ]
+                await darwin_self.reflect_and_update(experiences, router)
+                logger.info("Darwin self-reflection completed")
+
+            # Interest evolution
+            interest_graph = get_service('interest_graph')
+            if interest_graph:
+                interest_graph.evolve_interests()
+                logger.info("Interest graph evolved")
+
+        except Exception as e:
+            logger.debug(f"Digital being consolidation failed (non-critical): {e}")
+
     def _convert_activities_to_episodes(self, hm) -> int:
         """Convert wake activities into episodic memories for consolidation."""
         from core.hierarchical_memory import EpisodeCategory

@@ -248,12 +248,94 @@ async def init_consciousness_engine(
         if services['diary_engine']:
             services['diary_engine'].consciousness_engine = services['consciousness_engine']
 
+        # ==================== DIGITAL BEING SYSTEMS ====================
+        # Persistent conversation memory, identity models, inner voice, interests
+
+        from app.lifespan import set_service
+
+        # 1. Conversation Store (persistent chat memory)
+        from core.conversation_store import ConversationStore
+        conversation_store = ConversationStore(db_path="./data/darwin.db")
+        services['conversation_store'] = conversation_store
+        set_service('conversation_store', conversation_store)
+        logger.info("ConversationStore initialized (persistent chat memory)")
+
+        # 2. Identity Core (Paulo model + Darwin self-model)
+        from core.identity import PauloModel, DarwinSelfModel
+        paulo_model = PauloModel(storage_path="./data/identity/paulo.json")
+        darwin_self_model = DarwinSelfModel(storage_path="./data/identity/darwin_self.json")
+        services['paulo_model'] = paulo_model
+        services['darwin_self_model'] = darwin_self_model
+        set_service('paulo_model', paulo_model)
+        set_service('darwin_self_model', darwin_self_model)
+        logger.info("Identity Core initialized (PauloModel + DarwinSelfModel)")
+
+        # 3. Interest Graph (genuine curiosity)
+        from consciousness.interest_graph import InterestGraph
+        interest_graph = InterestGraph(storage_path="./data/interests/interests.json")
+        services['interest_graph'] = interest_graph
+        set_service('interest_graph', interest_graph)
+        logger.info("InterestGraph initialized (deep learning journeys)")
+
+        # 4. Prompt Composer (dynamic system prompt)
+        from core.prompt_composer import PromptComposer
+        prompt_composer = PromptComposer(
+            conversation_store=conversation_store,
+            paulo_model=paulo_model,
+            darwin_self_model=darwin_self_model,
+            mood_system=services['mood_system'],
+            consciousness_engine=services['consciousness_engine']
+        )
+        services['prompt_composer'] = prompt_composer
+        set_service('prompt_composer', prompt_composer)
+        logger.info("PromptComposer initialized (dynamic identity-aware prompts)")
+
+        # 5. Inner Voice (proactive communication)
+        from consciousness.inner_voice import InnerVoice
+        inner_voice = InnerVoice(
+            conversation_store=conversation_store,
+            paulo_model=paulo_model,
+            darwin_self_model=darwin_self_model,
+            mood_system=services['mood_system'],
+            router=phase2.get('multi_model_router')
+        )
+        services['inner_voice'] = inner_voice
+        set_service('inner_voice', inner_voice)
+        logger.info("InnerVoice initialized (proactive communication)")
+
+        # Wire InnerVoice into hooks for event-driven thoughts
+        try:
+            from consciousness.hooks import register_hook, HookEvent
+
+            async def _on_discovery_hook(ctx):
+                data = ctx.data if hasattr(ctx, 'data') else ctx
+                await inner_voice.generate_thought("discovery", data)
+
+            async def _on_expedition_complete_hook(ctx):
+                data = ctx.data if hasattr(ctx, 'data') else ctx
+                exp = data.get("expedition", data)
+                await inner_voice.generate_thought("curiosity", exp)
+
+            async def _on_mood_change_hook(ctx):
+                data = ctx.data if hasattr(ctx, 'data') else ctx
+                await inner_voice.generate_thought("mood_shift", data)
+
+            register_hook(HookEvent.ON_DISCOVERY, _on_discovery_hook, name="inner_voice_discovery")
+            register_hook(HookEvent.ON_EXPEDITION_COMPLETE, _on_expedition_complete_hook, name="inner_voice_expedition")
+            register_hook(HookEvent.ON_MOOD_CHANGE, _on_mood_change_hook, name="inner_voice_mood")
+            logger.info("InnerVoice hooks registered (discovery, expedition, mood)")
+        except Exception as e:
+            logger.debug(f"Could not register InnerVoice hooks: {e}")
+
+        # ==================== END DIGITAL BEING SYSTEMS ====================
+
         # Initialize routes
         from api import consciousness_routes, context_routes, mood_routes
         from api import question_routes, memory_routes, existential_routes, diary_routes
         from api import expedition_routes, learning_routes, financial_routes
 
         consciousness_routes.initialize_consciousness(services['consciousness_engine'], services['mood_system'])
+        consciousness_routes.initialize_conversations(conversation_store, prompt_composer)
         existential_routes.initialize_existential(services['consciousness_engine'], services['mood_system'])
         diary_routes.initialize_diary(services['diary_engine'])
         expedition_routes.initialize_expeditions(services['expedition_engine'])
@@ -274,8 +356,57 @@ async def init_consciousness_engine(
         # Start Proactive Engine for autonomous actions (Moltbook, exploration, etc.)
         # Integrate with mood system for mood-aware action selection
         from consciousness.proactive_engine import get_proactive_engine, init_proactive_engine_with_mood
+        from consciousness.proactive_engine import ProactiveAction, ActionCategory, ActionPriority
         proactive_engine = init_proactive_engine_with_mood(services['mood_system'])
         services['proactive_engine'] = proactive_engine
+
+        # Register InnerVoice proactive actions
+        if inner_voice:
+            # Need proper async functions (not lambdas) for iscoroutinefunction check
+            async def _inner_voice_check(context=None):
+                return await inner_voice.check_and_send()
+
+            async def _morning_greeting(context=None):
+                return await inner_voice.morning_greeting()
+
+            async def _evening_reflection(context=None):
+                return await inner_voice.evening_reflection()
+
+            proactive_engine.register_action(ProactiveAction(
+                id="inner_voice_check",
+                name="Inner Voice Check",
+                description="Check if Darwin has something meaningful to share with Paulo",
+                category=ActionCategory.COMMUNICATION,
+                priority=ActionPriority.MEDIUM,
+                trigger_condition="Every 30 minutes, check impulse queue and decide whether to reach out",
+                cooldown_minutes=30,
+                action_fn=_inner_voice_check,
+                timeout_seconds=60
+            ))
+            proactive_engine.register_action(ProactiveAction(
+                id="morning_greeting",
+                name="Morning Greeting",
+                description="Send personalized morning greeting to Paulo",
+                category=ActionCategory.COMMUNICATION,
+                priority=ActionPriority.HIGH,
+                trigger_condition="Once per day, around Paulo's typical morning time",
+                cooldown_minutes=1440,
+                action_fn=_morning_greeting,
+                timeout_seconds=60
+            ))
+            proactive_engine.register_action(ProactiveAction(
+                id="evening_reflection",
+                name="Evening Reflection",
+                description="Share daily reflection and interesting thoughts with Paulo",
+                category=ActionCategory.COMMUNICATION,
+                priority=ActionPriority.MEDIUM,
+                trigger_condition="Once per day, in the evening",
+                cooldown_minutes=1440,
+                action_fn=_evening_reflection,
+                timeout_seconds=60
+            ))
+            logger.info("InnerVoice actions registered (morning greeting, evening reflection, voice check)")
+
         asyncio.create_task(proactive_engine.run_proactive_loop(
             interval_seconds=120,  # Check every 2 minutes
             max_actions_per_hour=30  # Increased for more activity
