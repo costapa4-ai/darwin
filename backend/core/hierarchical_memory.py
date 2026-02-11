@@ -406,6 +406,34 @@ class HierarchicalMemory:
 
         return knowledge
 
+    def _find_existing_knowledge_by_concept(self, concept: str) -> Optional[str]:
+        """Find existing semantic knowledge ID by concept name."""
+        for kid, knowledge in self.semantic_memory.items():
+            if knowledge.concept == concept:
+                return kid
+        return None
+
+    def _reinforce_semantic_knowledge(
+        self,
+        knowledge_id: str,
+        description: str,
+        confidence: float,
+        source_episodes: List[str],
+    ) -> SemanticKnowledge:
+        """Reinforce existing semantic knowledge with new evidence."""
+        knowledge = self.semantic_memory[knowledge_id]
+        knowledge.description = description
+        knowledge.confidence = min(1.0, (knowledge.confidence + confidence) / 2 + 0.05)
+        knowledge.last_reinforced = datetime.now()
+        knowledge.usage_count += 1
+        # Add new source episodes without duplicating
+        existing = set(knowledge.source_episodes)
+        for ep_id in source_episodes:
+            if ep_id not in existing:
+                knowledge.source_episodes.append(ep_id)
+        logger.info(f"🧠 Reinforced semantic knowledge: {knowledge.concept} (confidence={knowledge.confidence:.2f})")
+        return knowledge
+
     async def _store_in_vector_db(self, knowledge: SemanticKnowledge) -> None:
         """Store semantic knowledge in vector database"""
         try:
@@ -530,20 +558,31 @@ class HierarchicalMemory:
             patterns = await self._find_patterns_in_episodes(episodes)
 
             for pattern in patterns:
-                # Create semantic knowledge from pattern
-                knowledge_id = f"semantic_{category.value}_{len(self.semantic_memory)}"
+                # Check if this pattern already exists as semantic knowledge
+                existing_id = self._find_existing_knowledge_by_concept(pattern['concept'])
 
-                knowledge = self.add_semantic_knowledge(
-                    knowledge_id=knowledge_id,
-                    concept=pattern['concept'],
-                    description=pattern['description'],
-                    confidence=pattern['confidence'],
-                    source_episodes=[e.id for e in pattern['episodes']],
-                    tags=pattern['tags']
-                )
-
-                stats['knowledge_created'] += 1
-                stats['patterns_found'].append(pattern['concept'])
+                if existing_id:
+                    # Reinforce existing knowledge instead of duplicating
+                    self._reinforce_semantic_knowledge(
+                        knowledge_id=existing_id,
+                        description=pattern['description'],
+                        confidence=pattern['confidence'],
+                        source_episodes=[e.id for e in pattern['episodes']],
+                    )
+                    stats['patterns_found'].append(f"{pattern['concept']} (reinforced)")
+                else:
+                    # Create new semantic knowledge
+                    knowledge_id = f"semantic_{category.value}_{len(self.semantic_memory)}"
+                    self.add_semantic_knowledge(
+                        knowledge_id=knowledge_id,
+                        concept=pattern['concept'],
+                        description=pattern['description'],
+                        confidence=pattern['confidence'],
+                        source_episodes=[e.id for e in pattern['episodes']],
+                        tags=pattern['tags']
+                    )
+                    stats['knowledge_created'] += 1
+                    stats['patterns_found'].append(pattern['concept'])
 
                 # Mark episodes as consolidated
                 for episode in pattern['episodes']:
