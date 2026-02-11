@@ -268,6 +268,10 @@ async def lifespan(app: FastAPI):
     await ws_manager.start_heartbeat()
     logger.info("WebSocket heartbeat started")
 
+    # Start Telegram bidirectional chat polling
+    from integrations.telegram_bot import start_polling as start_telegram_polling
+    await start_telegram_polling()
+
     # Log startup summary
     phase2_features = {k: v is not None for k, v in phase2.items()}
     phase3_features = {k: v is not None for k, v in phase3.items()}
@@ -286,6 +290,10 @@ async def lifespan(app: FastAPI):
     # Shutdown
     logger.info("Darwin System shutting down...")
     health_tracker.record_shutdown()
+
+    # Stop Telegram chat polling
+    from integrations.telegram_bot import stop_polling as stop_telegram_polling
+    await stop_telegram_polling()
 
     # Stop WebSocket heartbeat
     from api.websocket import manager as ws_manager
