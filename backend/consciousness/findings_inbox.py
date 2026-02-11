@@ -448,23 +448,88 @@ class FindingsInbox:
 
     def auto_cleanup(self, max_age_days: int = 7) -> int:
         """
-        Remove expired findings and old archived items.
+        Smart cleanup with tiered retention policy.
 
-        Args:
-            max_age_days: Maximum age for expired findings
+        Retention rules:
+        - Expired items: always removed
+        - LOW priority: keep max 3 days
+        - MEDIUM priority: keep max 5 days
+        - HIGH/URGENT priority: keep max 7 days
+        - Viewed items: keep max 2 days after viewing
+        - Duplicate anomalies: keep only the latest per title
+        - Cap: max 80 active findings (oldest LOW items removed first)
 
         Returns:
             Number of findings removed
         """
         initial_count = len(self.findings)
         now = datetime.now()
-        cutoff = now - timedelta(days=max_age_days)
 
-        # Remove expired findings
-        expired = [f for f in self.findings if f.is_expired()]
-        for finding in expired:
-            self.findings.remove(finding)
-            self.archived.append(finding)
+        to_archive = []
+
+        # 1. Remove expired findings
+        for f in self.findings:
+            if f.is_expired():
+                to_archive.append(f)
+
+        # 2. Tiered age limits by priority
+        priority_max_days = {
+            '1': 3,   # LOW
+            '2': 5,   # MEDIUM
+            '3': 7,   # HIGH
+            '4': 14,  # URGENT
+        }
+        for f in self.findings:
+            if f in to_archive:
+                continue
+            prio = str(f.priority)
+            max_days = priority_max_days.get(prio, 7)
+            created = datetime.fromisoformat(f.created_at)
+            if (now - created).days >= max_days:
+                to_archive.append(f)
+
+        # 3. Viewed items: keep max 2 days after viewing
+        for f in self.findings:
+            if f in to_archive or not f.viewed_at:
+                continue
+            viewed = datetime.fromisoformat(f.viewed_at)
+            if (now - viewed).days >= 2:
+                to_archive.append(f)
+
+        # 4. Deduplicate anomalies — keep only latest per title
+        anomaly_by_title = {}
+        for f in self.findings:
+            if f.type == 'anomaly' and f not in to_archive:
+                title = f.title.lower().strip()
+                if title in anomaly_by_title:
+                    # Archive the older one
+                    old = anomaly_by_title[title]
+                    old_dt = datetime.fromisoformat(old.created_at)
+                    new_dt = datetime.fromisoformat(f.created_at)
+                    if new_dt > old_dt:
+                        to_archive.append(old)
+                        anomaly_by_title[title] = f
+                    else:
+                        to_archive.append(f)
+                else:
+                    anomaly_by_title[title] = f
+
+        # 5. Cap at 80 active — remove oldest LOW items first
+        for f in to_archive:
+            if f in self.findings:
+                self.findings.remove(f)
+                self.archived.append(f)
+
+        if len(self.findings) > 80:
+            # Sort by priority (ascending) then age (ascending = oldest first)
+            overflow = sorted(
+                self.findings,
+                key=lambda f: (int(f.priority) if str(f.priority).isdigit() else 2, f.created_at)
+            )
+            while len(self.findings) > 80 and overflow:
+                victim = overflow.pop(0)
+                self.findings.remove(victim)
+                self.archived.append(victim)
 
         # Trim archived to last 100
         self.archived = self.archived[-100:]
@@ -473,7 +538,7 @@ class FindingsInbox:
 
         if removed > 0:
             self._save_state()
-            logger.info(f"🧹 Cleaned up {removed} expired findings")
+            logger.info(f"🧹 Cleaned up {removed} findings (tiered retention)")
 
         return removed
 

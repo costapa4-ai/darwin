@@ -232,6 +232,9 @@ class StateManager:
         # Run memory consolidation during sleep transition
         await self._consolidate_memories()
 
+        # Clean up findings inbox (tiered retention)
+        self._cleanup_findings_inbox()
+
         # Trim wake activities (keep last 50)
         self._trim_activities()
 
@@ -559,6 +562,17 @@ class StateManager:
             converted += 1
 
         return converted
+
+    def _cleanup_findings_inbox(self) -> None:
+        """Run tiered cleanup on findings inbox during sleep transition."""
+        try:
+            from consciousness.findings_inbox import get_findings_inbox
+            inbox = get_findings_inbox()
+            removed = inbox.auto_cleanup()
+            if removed > 0:
+                logger.info(f"Findings inbox cleanup: removed {removed} items")
+        except Exception as e:
+            logger.warning(f"Findings inbox cleanup failed: {e}")
 
     def _trim_activities(self) -> None:
         """Trim wake activities to keep last 50."""
