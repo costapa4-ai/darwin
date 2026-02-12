@@ -275,6 +275,31 @@ TOOL_METADATA: Dict[str, Dict[str, Any]] = {
         "mode": ToolMode.SLEEP,
         "cost": 2,
         "cooldown_minutes": 120
+    },
+
+    # ==========================================================================
+    # FILE & EXECUTION TOOLS - Darwin's autonomy capabilities
+    # ==========================================================================
+    "file_operations_tool": {
+        "description": "Read, write, search, and manage files. Darwin can read code/data, write to safe directories (backup, data, tools, logs), list directories, and search for text in files.",
+        "category": ToolCategory.EXPERIMENTATION,
+        "mode": ToolMode.BOTH,
+        "cost": 1,
+        "cooldown_minutes": 0
+    },
+    "script_executor_tool": {
+        "description": "Execute Python code snippets safely with timeout and restricted imports. Useful for data processing, validation, analysis, and computation.",
+        "category": ToolCategory.EXPERIMENTATION,
+        "mode": ToolMode.BOTH,
+        "cost": 2,
+        "cooldown_minutes": 5
+    },
+    "backup_tool": {
+        "description": "Create complete backups of Darwin (code + data + config) to USB drive at /backup. Includes integrity verification with checksums.",
+        "category": ToolCategory.REFLECTION,
+        "mode": ToolMode.BOTH,
+        "cost": 3,
+        "cooldown_minutes": 60
     }
 }
 

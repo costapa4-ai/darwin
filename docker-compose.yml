@@ -46,6 +46,8 @@ services:
       - ./data:/app/data
       - ./logs:/app/logs
       - ./backend:/app
+      - .:/project:ro
+      - ./backups:/backup
     depends_on:
       - redis
       - sandbox

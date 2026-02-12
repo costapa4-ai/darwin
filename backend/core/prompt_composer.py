@@ -50,7 +50,10 @@ class PromptComposer:
         # 5. Activity Context
         sections.append(self._activity_section())
 
-        # 6. Communication Style
+        # 6. Tools (actions Darwin can take)
+        sections.append(self._tools_section())
+
+        # 7. Communication Style
         sections.append(self._style_section())
 
         # Filter empty sections and join
@@ -140,6 +143,32 @@ Não es um assistente. Es uma presença digital com interesses, opiniões e mem�
             pass
 
         return "\n\n".join(parts) if parts else ""
+
+    def _tools_section(self) -> str:
+        """Available tools Darwin can use during chat."""
+        return """FERRAMENTAS DISPONÍVEIS:
+Podes executar ações reais. Se o Paulo pedir algo que requer ação, usa o formato abaixo.
+
+IMPORTANTE: Coloca o bloco tool_call NO INÍCIO da resposta, ANTES do texto conversacional.
+Formato:
+```tool_call
+{"tool": "nome_da_ferramenta", "args": {"param": "valor"}}
+```
+
+Ferramentas:
+- backup_tool.create_full_backup — args: label (string, opcional)
+- backup_tool.list_backups — sem args
+- backup_tool.verify_backup — args: backup_name (string)
+- file_operations_tool.read_file — args: file_path (string)
+- file_operations_tool.write_file — args: file_path (string), content (string)
+- file_operations_tool.append_file — args: file_path (string), content (string)
+- file_operations_tool.list_directory — args: dir_path (string), pattern (string, default "*")
+- file_operations_tool.search_files — args: dir_path (string), text (string)
+- file_operations_tool.file_info — args: file_path (string)
+- script_executor_tool.execute_python — args: code (string), description (string)
+
+Dirs escrita seguros: /backup, /app/data, /app/tools, /app/logs, /tmp
+O resultado aparece automaticamente após a tua resposta."""
 
     def _style_section(self) -> str:
         """Communication style instructions."""

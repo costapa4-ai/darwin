@@ -6,6 +6,8 @@ from typing import Optional
 from pydantic import BaseModel
 from datetime import datetime
 import anthropic
+import json
+import re
 import os
 import random
 
@@ -37,6 +39,116 @@ def initialize_conversations(store, composer=None):
             chat_messages.extend(recent)
         except Exception:
             pass
+
+# === CHAT TOOL EXECUTION ===
+# Pattern to match ```tool_call ... ``` blocks in Darwin's responses
+# Flexible: handles with/without newlines, with/without language tag
+_TOOL_CALL_RE = re.compile(r'```tool_call\s*\n?(.*?)\n?```', re.DOTALL)
+
+# Allowed tools that can be called from chat
+_CHAT_TOOLS = {
+    'backup_tool.create_full_backup',
+    'backup_tool.list_backups',
+    'backup_tool.verify_backup',
+    'file_operations_tool.read_file',
+    'file_operations_tool.write_file',
+    'file_operations_tool.append_file',
+    'file_operations_tool.list_directory',
+    'file_operations_tool.file_info',
+    'file_operations_tool.search_files',
+    'script_executor_tool.execute_python',
+}
+
+
+async def _execute_chat_tool_calls(response_text: str) -> str:
+    """
+    Parse and execute tool_call blocks in Darwin's response.
+    Returns the response with tool results appended.
+    """
+    matches = _TOOL_CALL_RE.findall(response_text)
+    if not matches:
+        return response_text
+
+    try:
+        from app.lifespan import get_service
+        tool_manager = get_service('tool_registry')
+        if not tool_manager:
+            return response_text
+        # Get the underlying ToolManager (which has tool_functions)
+        tm = getattr(tool_manager, 'tool_manager', None)
+        if not tm:
+            return response_text
+    except Exception:
+        return response_text
+
+    results = []
+    for match in matches:
+        try:
+            raw = match.strip()
+            # Try to repair truncated JSON (common with max_tokens cutoff)
+            try:
+                call = json.loads(raw)
+            except json.JSONDecodeError:
+                # Attempt repair: close open strings and braces
+                repaired = raw.rstrip(',')
+                if repaired.count('"') % 2 == 1:
+                    repaired += '"'
+                while repaired.count('{') > repaired.count('}'):
+                    repaired += '}'
+                while repaired.count('[') > repaired.count(']'):
+                    repaired += ']'
+                call = json.loads(repaired)
+            tool_name = call.get('tool', '')
+            # Support both {"tool":"x","args":{...}} and {"tool":"x","param1":"v1",...}
+            args = call.get('args', {})
+            if not args:
+                args = {k: v for k, v in call.items() if k != 'tool'}
+
+            if tool_name not in _CHAT_TOOLS:
+                results.append(f"⚠️ Tool '{tool_name}' not available for chat execution")
+                continue
+
+            # Get the function from tool manager
+            func = tm.tool_functions.get(tool_name)
+            if not func:
+                results.append(f"⚠️ Tool '{tool_name}' not found")
+                continue
+
+            # Execute (tools are async)
+            import asyncio
+            if asyncio.iscoroutinefunction(func):
+                result = await func(**args)
+            else:
+                result = func(**args)
+
+            # Format result concisely
+            if isinstance(result, dict):
+                success = result.get('success', True)
+                if success:
+                    # Remove large content from display (keep it short)
+                    display = {k: v for k, v in result.items()
+                               if k != 'content' or len(str(v)) < 500}
+                    if 'content' in result and len(str(result['content'])) >= 500:
+                        display['content'] = str(result['content'])[:500] + '...'
+                    results.append(f"✅ {tool_name}: {json.dumps(display, indent=2, default=str)}")
+                else:
+                    results.append(f"❌ {tool_name}: {result.get('error', 'Unknown error')}")
+            else:
+                results.append(f"✅ {tool_name}: {str(result)[:500]}")
+
+        except json.JSONDecodeError:
+            results.append(f"⚠️ Invalid tool call JSON: {match[:100]}")
+        except Exception as e:
+            results.append(f"❌ Tool execution error: {e}")
+
+    if results:
+        # Clean the tool_call blocks from the response and append results
+        clean_response = _TOOL_CALL_RE.sub('', response_text).strip()
+        tool_output = "\n\n---\n📋 **Resultado:**\n" + "\n\n".join(results)
+        return clean_response + tool_output
+
+    return response_text
+
 
 # Shower thoughts - profound/absurd musings
 SHOWER_THOUGHTS = [
@@ -531,6 +643,13 @@ COMO COMUNICAR:
 - Se não sabes algo, admite honestamente"""
 
     # Generate response via multi-model router
+    # Increase token budget when message likely needs tool execution
+    msg_lower = msg.message.lower()
+    _action_hints = ['backup', 'escreve', 'write', 'cria', 'create', 'lista', 'list',
+                     'read', 'le ', 'lê ', 'execut', 'run', 'search', 'procura']
+    needs_tools = any(h in msg_lower for h in _action_hints)
+    chat_max_tokens = 2500 if needs_tools else 1500
+
     try:
         from app.lifespan import get_service
         router_service = get_service('multi_model_router')
@@ -542,7 +661,7 @@ COMO COMUNICAR:
                 system_prompt=system_prompt,
                 context={'activity_type': 'chat'},
                 preferred_model='haiku',  # Chat needs fast response; Ollama too slow for large prompts on CPU
-                max_tokens=1500,
+                max_tokens=chat_max_tokens,
                 temperature=0.7,
             )
             response = result.get("result", "").strip()
@@ -579,6 +698,13 @@ COMO COMUNICAR:
             response = f"Acabei de: {last.description.lower()}. Queres saber mais? 🧬"
         else:
             response = f"Completei {consciousness_engine.total_activities_completed} atividades. Pergunta-me algo! 🧬"
+
+    # Execute any tool calls in Darwin's response
+    if '```tool_call' in response:
+        try:
+            response = await _execute_chat_tool_calls(response)
+        except Exception as e:
+            print(f"⚠️ Tool execution error: {e}")
 
     # Apply sass override if triggered (but still append helpful info)
     if sass_response:
