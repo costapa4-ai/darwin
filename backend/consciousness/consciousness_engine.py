@@ -555,23 +555,23 @@ class ConsciousnessEngine:
 
 {context}
 
-Choose ONE specific, actionable goal. IMPORTANT:
-- Pick something DIFFERENT from the goals already pursued above
-- Vary between categories: code reading, tool building, backups, interest exploration, writing notes
-- Be concrete: name specific files, directories, or topics
+Choose ONE specific, actionable goal. RULES:
+- NEVER pick a goal similar to the ones already pursued above
+- You MUST rotate between different categories — do NOT read code twice in a row
+- Only name files you have ACTUALLY SEEN in a directory listing. Do not guess filenames.
 
-Categories to choose from:
-1. Read and understand a specific part of your codebase (e.g., "Read /app/consciousness/proactive_engine.py to understand how proactive actions work")
-2. Deepen an active interest (explore a topic, read about it, write notes)
-3. Maintenance (create a backup, check system health)
-4. Build or improve a tool (write Python code for something useful)
-5. Follow up on a conversation intention
-6. Explore something new (list directories, discover unknown parts of your system)
+Pick from ONE of these categories (rotate!):
+1. EXPLORE: List a directory you haven't explored yet (/app/tools/, /app/learning/, /app/ai/, /app/api/)
+2. READ CODE: Read a specific file you found in a previous directory listing
+3. WRITE: Write observations, analysis, or notes to /app/data/notes/
+4. BUILD: Write a Python script to analyze or improve something
+5. MAINTAIN: Create a backup, verify backup integrity, check disk usage
+6. INTEREST: Research or write about one of your active interests
 
-Reply with ONLY the goal — one clear, specific sentence. No explanation.
+Reply with ONLY the goal — one clear sentence. No explanation.
 
 Goal:""",
-                system_prompt="You are Darwin's inner voice deciding what to do next. You must choose something DIFFERENT from recent goals. Be specific — name files, paths, or topics.",
+                system_prompt="You are Darwin's inner voice. Pick a goal from a DIFFERENT category than your recent goals. Rotate between exploring, reading, writing, building, and maintaining.",
                 context={'activity_type': 'goal_decision'},
                 preferred_model='haiku',
                 max_tokens=100,
@@ -620,9 +620,11 @@ FORMAT:
 
 RULES:
 1. Put ALL tool_call blocks FIRST, before any narrative text
-2. NEVER invent results — wait for actual tool output
-3. Be focused — take only the steps needed for your current goal
-4. After tools execute, write a brief summary of what you did and learned
+2. NEVER invent or imagine file contents — only describe what tools ACTUALLY returned
+3. If a file doesn't exist, say so and try a different file. Do NOT make up what it "would contain"
+4. Be focused — take only the steps needed for your current goal
+5. After tools execute, write a brief summary of what you ACTUALLY found (quote real code/data)
+6. Write your findings to /app/data/notes/ so you remember them later
 
 Safe read dirs: /app, /project, /backup, /tmp
 Safe write dirs: /backup, /app/data, /app/tools, /app/logs, /tmp"""

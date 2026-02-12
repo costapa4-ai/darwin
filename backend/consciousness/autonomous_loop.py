@@ -81,14 +81,16 @@ async def execute_tool(tool_name: str, args: dict, tm) -> str:
 
         if isinstance(result, dict):
             if result.get('success', True):
+                # Give file reads more content so Darwin can actually analyze code
+                max_content = 4000 if 'read_file' in tool_name else 1000
                 display = {k: v for k, v in result.items()
-                           if k != 'content' or len(str(v)) < 500}
-                if 'content' in result and len(str(result['content'])) >= 500:
-                    display['content'] = str(result['content'])[:500] + '...'
+                           if k != 'content' or len(str(v)) < max_content}
+                if 'content' in result and len(str(result['content'])) >= max_content:
+                    display['content'] = str(result['content'])[:max_content] + '... [truncated]'
                 return f"✅ {tool_name}: {json.dumps(display, indent=2, default=str)}"
             else:
                 return f"❌ {tool_name}: {result.get('error', 'Unknown error')}"
-        return f"✅ {tool_name}: {str(result)[:500]}"
+        return f"✅ {tool_name}: {str(result)[:1000]}"
 
     except Exception as e:
         return f"❌ {tool_name} error: {e}"
