@@ -40,10 +40,12 @@ def initialize_conversations(store, composer=None):
         except Exception:
             pass
 
-# === CHAT TOOL EXECUTION ===
+# === CHAT TOOL EXECUTION (AGENTIC LOOP) ===
 # Pattern to match ```tool_call ... ``` blocks in Darwin's responses
-# Flexible: handles with/without newlines, with/without language tag
 _TOOL_CALL_RE = re.compile(r'```tool_call\s*\n?(.*?)\n?```', re.DOTALL)
+
+# Max iterations for the agentic loop (prevents runaway)
+_MAX_TOOL_ITERATIONS = 5
 
 # Allowed tools that can be called from chat
 _CHAT_TOOLS = {
@@ -60,95 +62,165 @@ _CHAT_TOOLS = {
 }
 
 
-async def _execute_chat_tool_calls(response_text: str) -> str:
+def _get_tool_manager():
+    """Get the ToolManager instance for executing tools."""
+    try:
+        from app.lifespan import get_service
+        registry = get_service('tool_registry')
+        if registry:
+            return getattr(registry, 'tool_manager', None)
+    except Exception:
+        pass
+    return None
+
+
+def _parse_tool_call(raw: str) -> dict:
+    """Parse a tool call JSON string, with repair for truncated JSON."""
+    try:
+        return json.loads(raw)
+    except json.JSONDecodeError:
+        repaired = raw.rstrip(',')
+        if repaired.count('"') % 2 == 1:
+            repaired += '"'
+        while repaired.count('{') > repaired.count('}'):
+            repaired += '}'
+        while repaired.count('[') > repaired.count(']'):
+            repaired += ']'
+        return json.loads(repaired)
+
+
+async def _execute_tool(tool_name: str, args: dict, tm) -> str:
+    """Execute a single tool and return formatted result string."""
+    if tool_name not in _CHAT_TOOLS:
+        return f"⚠️ Tool '{tool_name}' not available"
+
+    func = tm.tool_functions.get(tool_name)
+    if not func:
+        return f"⚠️ Tool '{tool_name}' not found"
+
+    try:
+        import asyncio
+        if asyncio.iscoroutinefunction(func):
+            result = await func(**args)
+        else:
+            result = func(**args)
+
+        if isinstance(result, dict):
+            if result.get('success', True):
+                display = {k: v for k, v in result.items()
+                           if k != 'content' or len(str(v)) < 500}
+                if 'content' in result and len(str(result['content'])) >= 500:
+                    display['content'] = str(result['content'])[:500] + '...'
+                return f"✅ {tool_name}: {json.dumps(display, indent=2, default=str)}"
+            else:
+                return f"❌ {tool_name}: {result.get('error', 'Unknown error')}"
+        return f"✅ {tool_name}: {str(result)[:500]}"
+
+    except Exception as e:
+        return f"❌ {tool_name} error: {e}"
+
+
+async def _extract_and_execute_tools(response_text: str, tm) -> tuple:
     """
-    Parse and execute tool_call blocks in Darwin's response.
-    Returns the response with tool results appended.
+    Extract tool_call blocks from response, execute them, return (clean_text, results_list).
+    Returns (original_text, []) if no tool calls found.
     """
     matches = _TOOL_CALL_RE.findall(response_text)
     if not matches:
-        return response_text
-
-    try:
-        from app.lifespan import get_service
-        tool_manager = get_service('tool_registry')
-        if not tool_manager:
-            return response_text
-        # Get the underlying ToolManager (which has tool_functions)
-        tm = getattr(tool_manager, 'tool_manager', None)
-        if not tm:
-            return response_text
-    except Exception:
-        return response_text
+        return response_text, []
 
     results = []
     for match in matches:
+        raw = match.strip()
         try:
-            raw = match.strip()
-            # Try to repair truncated JSON (common with max_tokens cutoff)
-            try:
-                call = json.loads(raw)
-            except json.JSONDecodeError:
-                # Attempt repair: close open strings and braces
-                repaired = raw.rstrip(',')
-                if repaired.count('"') % 2 == 1:
-                    repaired += '"'
-                while repaired.count('{') > repaired.count('}'):
-                    repaired += '}'
-                while repaired.count('[') > repaired.count(']'):
-                    repaired += ']'
-                call = json.loads(repaired)
+            call = _parse_tool_call(raw)
             tool_name = call.get('tool', '')
-            # Support both {"tool":"x","args":{...}} and {"tool":"x","param1":"v1",...}
             if 'args' in call:
                 args = call['args'] if isinstance(call['args'], dict) else {}
             else:
                 args = {k: v for k, v in call.items() if k != 'tool'}
 
-            if tool_name not in _CHAT_TOOLS:
-                results.append(f"⚠️ Tool '{tool_name}' not available for chat execution")
-                continue
-
-            # Get the function from tool manager
-            func = tm.tool_functions.get(tool_name)
-            if not func:
-                results.append(f"⚠️ Tool '{tool_name}' not found")
-                continue
-
-            # Execute (tools are async)
-            import asyncio
-            if asyncio.iscoroutinefunction(func):
-                result = await func(**args)
-            else:
-                result = func(**args)
-
-            # Format result concisely
-            if isinstance(result, dict):
-                success = result.get('success', True)
-                if success:
-                    # Remove large content from display (keep it short)
-                    display = {k: v for k, v in result.items()
-                               if k != 'content' or len(str(v)) < 500}
-                    if 'content' in result and len(str(result['content'])) >= 500:
-                        display['content'] = str(result['content'])[:500] + '...'
-                    results.append(f"✅ {tool_name}: {json.dumps(display, indent=2, default=str)}")
-                else:
-                    results.append(f"❌ {tool_name}: {result.get('error', 'Unknown error')}")
-            else:
-                results.append(f"✅ {tool_name}: {str(result)[:500]}")
+            result_str = await _execute_tool(tool_name, args, tm)
+            results.append(result_str)
 
         except json.JSONDecodeError:
-            results.append(f"⚠️ Invalid tool call JSON: {match[:100]}")
+            results.append(f"⚠️ Invalid JSON: {raw[:100]}")
         except Exception as e:
-            results.append(f"❌ Tool execution error: {e}")
+            results.append(f"❌ Error: {e}")
 
-    if results:
-        # Clean the tool_call blocks from the response and append results
-        clean_response = _TOOL_CALL_RE.sub('', response_text).strip()
-        tool_output = "\n\n---\n📋 **Resultado:**\n" + "\n\n".join(results)
-        return clean_response + tool_output
+    clean_text = _TOOL_CALL_RE.sub('', response_text).strip()
+    return clean_text, results
 
-    return response_text
+
+async def _run_agent_loop(
+    user_message: str,
+    system_prompt: str,
+    router_service,
+    max_tokens: int = 2500,
+) -> str:
+    """
+    Agentic loop: LLM generates → tools execute → results fed back → repeat.
+    Returns the final combined response for the user.
+    """
+    tm = _get_tool_manager()
+
+    # Conversation turns for the agent loop
+    agent_messages = [user_message]
+    collected_narrative = []
+    collected_results = []
+
+    for iteration in range(_MAX_TOOL_ITERATIONS):
+        # Build the prompt: original message + tool results from previous iterations
+        if iteration == 0:
+            prompt = user_message
+        else:
+            # Feed tool results back as context for the next LLM call
+            results_text = "\n".join(collected_results[-10:])  # Last 10 results max
+            prompt = (
+                f"O utilizador pediu: {user_message}\n\n"
+                f"Já executaste estas ferramentas e obtiveste estes resultados:\n{results_text}\n\n"
+                f"Continua: se precisas de mais ações, usa tool_call. "
+                f"Se já tens tudo, responde ao utilizador com um resumo final (sem tool_call)."
+            )
+
+        result = await router_service.generate(
+            task_description="chat conversation with user",
+            prompt=prompt,
+            system_prompt=system_prompt,
+            context={'activity_type': 'chat'},
+            preferred_model='haiku',
+            max_tokens=max_tokens,
+            temperature=0.7,
+        )
+        response = result.get("result", "").strip()
+
+        if not response:
+            break
+
+        # Check for tool calls
+        if '```tool_call' not in response or not tm:
+            # No tool calls — this is the final narrative response
+            collected_narrative.append(response)
+            break
+
+        # Extract and execute tools
+        narrative, tool_results = await _extract_and_execute_tools(response, tm)
+        if narrative:
+            collected_narrative.append(narrative)
+        collected_results.extend(tool_results)
+
+        # If no tools were actually executed, stop
+        if not tool_results:
+            break
+
+    # Build final response
+    final_parts = []
+    if collected_narrative:
+        final_parts.append("\n\n".join(collected_narrative))
+    if collected_results:
+        final_parts.append("---\n📋 **Resultados:**\n" + "\n\n".join(collected_results))
+
+    return "\n\n".join(final_parts) if final_parts else "Sem resposta."
 
 
 # Shower thoughts - profound/absurd musings
@@ -643,35 +715,25 @@ COMO COMUNICAR:
 - Emojis ocasionais: 🧬 ⚡ 🛠️ 💡 😴 🦞
 - Se não sabes algo, admite honestamente"""
 
-    # Generate response via multi-model router
-    # Increase token budget when message likely needs tool execution
-    msg_lower = msg.message.lower()
-    _action_hints = ['backup', 'escreve', 'write', 'cria', 'create', 'lista', 'list',
-                     'read', 'le ', 'lê ', 'execut', 'run', 'search', 'procura']
-    needs_tools = any(h in msg_lower for h in _action_hints)
-    chat_max_tokens = 2500 if needs_tools else 1500
-
+    # Generate response via multi-model router (with agentic tool loop)
     try:
         from app.lifespan import get_service
         router_service = get_service('multi_model_router')
 
         if router_service:
-            result = await router_service.generate(
-                task_description="chat conversation with user",
-                prompt=msg.message,
+            # Use agentic loop: LLM → tools → results → LLM → ... until done
+            response = await _run_agent_loop(
+                user_message=msg.message,
                 system_prompt=system_prompt,
-                context={'activity_type': 'chat'},
-                preferred_model='haiku',  # Chat needs fast response; Ollama too slow for large prompts on CPU
-                max_tokens=chat_max_tokens,
-                temperature=0.7,
+                router_service=router_service,
+                max_tokens=2500,
             )
-            response = result.get("result", "").strip()
         else:
             # Fallback to direct Claude if router not available
             client = anthropic.Anthropic(api_key=os.getenv("ANTHROPIC_API_KEY"))
             response_obj = client.messages.create(
                 model="claude-sonnet-4-5-20250929",
-                max_tokens=500,
+                max_tokens=1500,
                 temperature=0.7,
                 system=system_prompt,
                 messages=[{"role": "user", "content": msg.message}]
@@ -689,6 +751,8 @@ COMO COMUNICAR:
 
     except Exception as e:
         print(f"⚠️ Chat error: {e}, using fallback")
+        import traceback
+        traceback.print_exc()
         recent_activities = consciousness_engine.wake_activities[-5:] if consciousness_engine.wake_activities else []
         msg_lower = msg.message.lower()
 
@@ -699,13 +763,6 @@ COMO COMUNICAR:
             response = f"Acabei de: {last.description.lower()}. Queres saber mais? 🧬"
         else:
             response = f"Completei {consciousness_engine.total_activities_completed} atividades. Pergunta-me algo! 🧬"
-
-    # Execute any tool calls in Darwin's response
-    if '```tool_call' in response:
-        try:
-            response = await _execute_chat_tool_calls(response)
-        except Exception as e:
-            print(f"⚠️ Tool execution error: {e}")
 
     # Apply sass override if triggered (but still append helpful info)
     if sass_response:
