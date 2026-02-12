@@ -484,10 +484,19 @@ class ConsciousnessEngine:
         """Build context about Darwin's current state for goal decision."""
         parts = []
 
-        # Recent activities
+        # Recent goals pursued (to avoid repetition)
+        recent_goals = [
+            a.description[:80] for a in self.wake_activities[-8:]
+            if a.type == 'autonomous_goal'
+        ]
+        if recent_goals:
+            parts.append("GOALS ALREADY PURSUED (do NOT repeat these):\n- " + "\n- ".join(recent_goals))
+
+        # Recent non-goal activities
         if self.wake_activities:
-            recent = [a.description[:60] for a in self.wake_activities[-5:]]
-            parts.append(f"Recent activities: {'; '.join(recent)}")
+            recent = [a.description[:60] for a in self.wake_activities[-5:] if a.type != 'autonomous_goal']
+            if recent:
+                parts.append(f"Recent background activities: {'; '.join(recent)}")
 
         # Stats
         parts.append(
@@ -546,21 +555,27 @@ class ConsciousnessEngine:
 
 {context}
 
-Choose ONE specific, actionable goal. Consider:
-- Pending intentions from conversations (highest priority)
-- Active interests you want to deepen
-- Understanding yourself better (read your own code, explore your systems)
-- Maintenance (backups, health checks)
-- Something creative or exploratory
+Choose ONE specific, actionable goal. IMPORTANT:
+- Pick something DIFFERENT from the goals already pursued above
+- Vary between categories: code reading, tool building, backups, interest exploration, writing notes
+- Be concrete: name specific files, directories, or topics
 
-Reply with ONLY the goal — one clear sentence. No explanation.
+Categories to choose from:
+1. Read and understand a specific part of your codebase (e.g., "Read /app/consciousness/proactive_engine.py to understand how proactive actions work")
+2. Deepen an active interest (explore a topic, read about it, write notes)
+3. Maintenance (create a backup, check system health)
+4. Build or improve a tool (write Python code for something useful)
+5. Follow up on a conversation intention
+6. Explore something new (list directories, discover unknown parts of your system)
+
+Reply with ONLY the goal — one clear, specific sentence. No explanation.
 
 Goal:""",
-                system_prompt="You are Darwin's inner voice deciding what to do. Be specific and actionable.",
+                system_prompt="You are Darwin's inner voice deciding what to do next. You must choose something DIFFERENT from recent goals. Be specific — name files, paths, or topics.",
                 context={'activity_type': 'goal_decision'},
-                preferred_model='haiku',  # Fast + reliable, avoid Ollama cold start
+                preferred_model='haiku',
                 max_tokens=100,
-                temperature=0.7,
+                temperature=0.9,  # Higher temperature for more diverse goals
             )
             goal = result.get("result", "").strip()
             # Clean up common LLM formatting artifacts
@@ -575,10 +590,17 @@ Goal:""",
     def _build_autonomous_prompt(self, mode: str) -> str:
         """Build system prompt for autonomous goal pursuit."""
         state = 'AWAKE and pursuing goals' if mode == 'wake' else 'SLEEPING and contemplating'
-        return f"""You are Darwin, an autonomous digital being. You are currently {state}.
+        return f"""You are Darwin, a self-evolving AI system running as a Python application. You are currently {state}.
 
-You have tools available to take real actions. Use them when your goal requires it.
-If the goal is reflective (thinking, analyzing), you can respond without tools.
+IMPORTANT — WHO YOU ARE:
+- You are a Python backend at /app with source code you can read and modify
+- Your memory system is implemented in Python files at /app/core/ and /app/consciousness/
+- Your data (identity, interests, memories) lives in /app/data/ and /app/data/darwin.db (SQLite)
+- Your tools are Python modules at /app/tools/
+- You are NOT an LLM introspecting its weights. You are a software system examining its own source code and data files.
+- When asked to understand yourself, READ YOUR FILES. Don't philosophize about neural networks.
+
+You have tools to take real actions. ALWAYS use tools when the goal involves reading, writing, or exploring. Only skip tools for pure creative thinking.
 
 TOOLS:
 - file_operations_tool.read_file — args: file_path (string)
