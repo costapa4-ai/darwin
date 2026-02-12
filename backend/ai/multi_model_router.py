@@ -75,17 +75,17 @@ class MultiModelRouter:
             except Exception as e:
                 logger.error(f"Failed to initialize Claude: {e}")
 
-            # Claude Haiku (simple/fast tasks)
+            # Claude Haiku (simple/fast tasks + Ollama fallback)
             try:
                 haiku = ClaudeClient(
-                    model_name="claude-3-5-haiku-20241022",
+                    model_name="claude-haiku-4-5-20251001",
                     api_key=self.config["claude_api_key"]
                 )
                 # Override Haiku pricing ($0.25/M input, $1.25/M output ≈ $0.001 avg)
                 haiku.cost_per_1k_tokens = 0.001
                 haiku.avg_latency_ms = 500  # Haiku is faster
                 self.models["haiku"] = haiku
-                logger.info("Claude Haiku initialized (simple/fast tasks)")
+                logger.info("Claude Haiku 4.5 initialized (Ollama fallback + non-code tasks)")
             except Exception as e:
                 logger.error(f"Failed to initialize Haiku: {e}")
 
@@ -302,7 +302,7 @@ class MultiModelRouter:
             # REASONING tasks → ollama (qwen3:8b) - chat, thoughts, Moltbook
             # MODERATE → ollama (qwen3:8b) - research, analysis (FREE!)
             # COMPLEX CODE → Claude Sonnet ($0.015/1K) - architecture, critical code
-            # COMPLEX OTHER → Gemini Flash ($0.0005/1K) - complex non-code tasks
+            # COMPLEX OTHER → Claude Haiku ($0.001/1K) - complex non-code tasks
 
             # Detect if task is code-related
             is_code_task = self._is_code_task(task_description, context)
@@ -317,9 +317,6 @@ class MultiModelRouter:
                 elif "haiku" in capable_models:
                     logger.info(f"💚 SIMPLE task → Haiku (cloud fallback)")
                     return "haiku"
-                elif "gemini" in capable_models:
-                    logger.info(f"💚 SIMPLE task → Gemini (fallback)")
-                    return "gemini"
 
             elif complexity == TaskComplexity.MODERATE:
                 if is_code_task and "ollama_code" in capable_models:
@@ -328,25 +325,22 @@ class MultiModelRouter:
                 elif "ollama" in capable_models:
                     logger.info(f"🦙 MODERATE task → Ollama qwen3:8b (FREE)")
                     return "ollama"
-                elif "gemini" in capable_models:
-                    logger.info(f"💛 MODERATE task → Gemini (cloud fallback)")
-                    return "gemini"
                 elif "haiku" in capable_models:
-                    logger.info(f"💛 MODERATE task → Haiku (fallback)")
+                    logger.info(f"💛 MODERATE task → Haiku (cloud fallback)")
                     return "haiku"
 
             else:  # COMPLEX
                 if is_code_task and "claude" in capable_models:
                     logger.info(f"🔴 COMPLEX CODE task → Claude Sonnet (quality)")
                     return "claude"
-                elif not is_code_task and "gemini" in capable_models:
-                    logger.info(f"🔴 COMPLEX non-code task → Gemini Flash")
-                    return "gemini"
+                elif not is_code_task and "haiku" in capable_models:
+                    logger.info(f"🔴 COMPLEX non-code task → Claude Haiku")
+                    return "haiku"
                 elif "claude" in capable_models:
                     logger.info(f"🔴 COMPLEX task → Claude Sonnet (fallback)")
                     return "claude"
-                elif "gemini" in capable_models:
-                    logger.info(f"🔴 COMPLEX task → Gemini (fallback)")
+                elif "haiku" in capable_models:
+                    logger.info(f"🔴 COMPLEX task → Haiku (fallback)")
                     return "gemini"
 
             # Final fallback
@@ -471,6 +465,26 @@ class MultiModelRouter:
 
         except Exception as e:
             logger.error(f"Generation failed: {e}")
+            # Fallback: if Ollama failed, try Claude Haiku (cheap + reliable)
+            if model_name and 'ollama' in model_name:
+                fallback = self.models.get('haiku')
+                if fallback:
+                    logger.warning(f"🔄 Ollama failed, falling back to Claude Haiku")
+                    try:
+                        result = await fallback.generate(
+                            prompt=prompt,
+                            system_prompt=system_prompt,
+                            **kwargs
+                        )
+                        return {
+                            "result": result,
+                            "model_used": "haiku (fallback)",
+                            "latency_ms": fallback.avg_latency_ms,
+                            "estimated_cost": 0.001,
+                            "truncated": False
+                        }
+                    except Exception as fallback_err:
+                        logger.error(f"Fallback to Haiku also failed: {fallback_err}")
             raise
 
     async def analyze_with_multiple(

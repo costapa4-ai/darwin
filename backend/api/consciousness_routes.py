@@ -541,6 +541,7 @@ COMO COMUNICAR:
                 prompt=msg.message,
                 system_prompt=system_prompt,
                 context={'activity_type': 'chat'},
+                preferred_model='haiku',  # Chat needs fast response; Ollama too slow for large prompts on CPU
                 max_tokens=1500,
                 temperature=0.7,
             )

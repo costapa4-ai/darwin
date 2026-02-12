@@ -33,7 +33,7 @@ services:
       - OLLAMA_ENABLED=${OLLAMA_ENABLED:-true}
       - OLLAMA_URL=${OLLAMA_URL:-http://ollama:11434}
       - OLLAMA_MODEL=${OLLAMA_MODEL:-qwen3:8b}
-      - OLLAMA_CODE_MODEL=${OLLAMA_CODE_MODEL:-qwen3:14b}
+      - OLLAMA_CODE_MODEL=${OLLAMA_CODE_MODEL:-qwen3:8b}
       - OLLAMA_REASONING_MODEL=${OLLAMA_REASONING_MODEL:-qwen3:8b}
       # Telegram Bot (Darwin → Owner notifications)
       - TELEGRAM_BOT_TOKEN=${TELEGRAM_BOT_TOKEN:-}
@@ -119,6 +119,8 @@ services:
   ollama:
     image: ollama/ollama:latest
     # No port mapping needed - backend connects via darwin-net
+    environment:
+      - OLLAMA_MAX_LOADED_MODELS=1
     volumes:
       - ollama-data:/root/.ollama
     networks:

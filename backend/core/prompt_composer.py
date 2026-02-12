@@ -115,29 +115,10 @@ Não es um assistente. Es uma presença digital com interesses, opiniões e mem�
 
         parts = []
 
-        # Recent conversation
-        context_window = self.conversation_store.get_context_window(limit=10)
+        # Recent conversation (keep short for CPU inference)
+        context_window = self.conversation_store.get_context_window(limit=4)
         if context_window and "Primeira conversa" not in context_window:
             parts.append(f"CONVERSA RECENTE:\n{context_window}")
-
-        # Recent summaries (what we talked about recently)
-        try:
-            summaries = self.conversation_store.get_recent_summaries(days=3)
-            if summaries:
-                summary_lines = []
-                for s in summaries[:3]:
-                    summary_lines.append(f"- {s['date']}: {s['summary'][:150]}")
-                parts.append("RESUMO DE CONVERSAS RECENTES:\n" + "\n".join(summary_lines))
-        except Exception:
-            pass
-
-        # Relationship context
-        try:
-            rel_context = self.conversation_store.get_relationship_context()
-            if rel_context and "Ainda estou" not in rel_context:
-                parts.append(f"FACTOS SOBRE O PAULO (aprendidos em conversas):\n{rel_context}")
-        except Exception:
-            pass
 
         return "\n\n".join(parts) if parts else ""
 
@@ -149,44 +130,12 @@ Não es um assistente. Es uma presença digital com interesses, opiniões e mem�
         parts = []
 
         try:
-            # Recent activities
+            # Recent activities (keep brief)
             activities = getattr(self.consciousness_engine, 'wake_activities', [])
             if activities:
-                recent = activities[-5:]
-                activity_lines = []
-                for a in recent:
-                    desc = a.description[:80] if hasattr(a, 'description') else str(a)[:80]
-                    activity_lines.append(f"- {desc}")
-                parts.append("ATIVIDADES RECENTES:\n" + "\n".join(activity_lines))
-
-            # Recent dreams
-            dreams = getattr(self.consciousness_engine, 'dreams', [])
-            if dreams:
-                recent_dreams = dreams[-3:]
-                dream_lines = []
-                for d in recent_dreams:
-                    topic = d.topic if hasattr(d, 'topic') else str(d)[:60]
-                    insights = len(d.insights) if hasattr(d, 'insights') else 0
-                    dream_lines.append(f"- Pesquisei: {topic} ({insights} insights)")
-                parts.append("PESQUISAS RECENTES (sonhos):\n" + "\n".join(dream_lines))
-        except Exception:
-            pass
-
-        # Moltbook context
-        try:
-            from api.moltbook_routes import _reading_history
-            if _reading_history:
-                recent_reads = _reading_history[-3:]
-                moltbook_lines = []
-                for entry in recent_reads:
-                    post = entry.get('post', {})
-                    title = post.get('title', '')[:60]
-                    thought = entry.get('darwin_thought', '')[:80]
-                    moltbook_lines.append(f"- Li: \"{title}\"")
-                    if thought:
-                        moltbook_lines.append(f"  Pensei: {thought}")
-                if moltbook_lines:
-                    parts.append("ATIVIDADE MOLTBOOK:\n" + "\n".join(moltbook_lines))
+                recent = activities[-3:]
+                activity_lines = [a.description[:60] if hasattr(a, 'description') else str(a)[:60] for a in recent]
+                parts.append("ATIVIDADES RECENTES: " + "; ".join(activity_lines))
         except Exception:
             pass
 

@@ -2,6 +2,7 @@
 Ollama AI Model Client
 Local LLM integration for cost-free, low-latency tasks
 """
+import asyncio
 import aiohttp
 import json
 import re
@@ -74,7 +75,9 @@ class OllamaClient(BaseModelClient):
             messages = []
             if system_prompt:
                 messages.append({"role": "system", "content": system_prompt})
-            messages.append({"role": "user", "content": prompt})
+            # Add /no_think to disable qwen3 thinking mode (saves 30-50% gen time on CPU)
+            user_content = f"/no_think\n{prompt}" if 'qwen3' in self.model_name else prompt
+            messages.append({"role": "user", "content": user_content})
 
             # Call Ollama API
             async with aiohttp.ClientSession(
@@ -88,14 +91,16 @@ class OllamaClient(BaseModelClient):
                         "stream": False,
                         "options": {
                             "temperature": temperature,
-                            "num_predict": max_tokens
+                            "num_predict": max_tokens,
+                            "num_ctx": 4096
                         }
                     },
-                    timeout=aiohttp.ClientTimeout(total=180)  # 3 min for large code generation
+                    timeout=aiohttp.ClientTimeout(total=45)  # 45s; Haiku fallback on timeout
                 ) as response:
                     if response.status != 200:
                         error_text = await response.text()
-                        raise Exception(f"Ollama error {response.status}: {error_text}")
+                        logger.error(f"Ollama HTTP {response.status}: {error_text[:500]}")
+                        raise Exception(f"Ollama error {response.status}: {error_text[:200]}")
 
                     # Read full response body before parsing
                     raw_body = await response.read()
@@ -122,11 +127,14 @@ class OllamaClient(BaseModelClient):
             logger.info(f"Ollama ({self.model_name}) generated {len(result)} chars in {self.avg_latency_ms}ms (truncated={self.last_truncated})")
             return result
 
+        except asyncio.TimeoutError:
+            logger.warning(f"Ollama timed out after 45s (model={self.model_name}), using cloud fallback")
+            raise Exception(f"Ollama timed out after 45s")
         except aiohttp.ClientError as e:
             logger.error(f"Ollama connection error: {e}")
             raise Exception(f"Cannot connect to Ollama at {self.base_url}. Is it running?")
         except Exception as e:
-            logger.error(f"Ollama generation failed: {e}")
+            logger.error(f"Ollama generation failed ({type(e).__name__}): {e}")
             raise
 
     async def analyze_code(self, code: str, task: str) -> Dict[str, Any]:
