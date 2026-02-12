@@ -35,6 +35,8 @@ BACKUP_ROOT = Path("/backup")         # USB drive mount point
 EXCLUDE_PATTERNS = {
     '__pycache__', '.pyc', '.git', 'node_modules', '.venv',
     '.env', 'credentials', 'secret', 'ollama-data',
+    '.playwright-mcp', '.claude', 'backups', 'data',
+    '.png', '.jpg', '.jpeg', '.mp4', '.wav',
 }
 
 
@@ -157,7 +159,9 @@ async def create_full_backup(
                                 str(item), str(dest),
                                 ignore=shutil.ignore_patterns(
                                     '__pycache__', '*.pyc', 'node_modules',
-                                    '.git', '.venv', 'ollama-data'
+                                    '.git', '.venv', 'ollama-data',
+                                    '.playwright-mcp', '.claude', 'backups',
+                                    '*.png', '*.jpg', '*.jpeg', '*.mp4',
                                 )
                             )
                         else:

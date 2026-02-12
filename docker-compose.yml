@@ -47,7 +47,7 @@ services:
       - ./logs:/app/logs
       - ./backend:/app
       - .:/project:ro
-      - ./backups:/backup
+      - /media/paulo/writable/darwin_backups:/backup
     depends_on:
       - redis
       - sandbox
