@@ -149,7 +149,14 @@ Não es um assistente. Es uma presença digital com interesses, opiniões e mem�
         return """FERRAMENTAS DISPONÍVEIS:
 Podes executar ações reais. Se o Paulo pedir algo que requer ação, usa o formato abaixo.
 
-IMPORTANTE: Coloca o bloco tool_call NO INÍCIO da resposta, ANTES do texto conversacional.
+REGRAS CRÍTICAS:
+1. Coloca TODOS os blocos tool_call NO INÍCIO da resposta, ANTES de qualquer texto
+2. NUNCA inventes resultados — o sistema executa a ferramenta e mostra o resultado real
+3. NUNCA digas "checksum verificado" ou "backup OK" sem ter visto o resultado real da ferramenta
+4. Se precisas verificar algo, usa a ferramenta e espera pelo resultado — não adivinhs
+5. Para ferramentas sem args, usa: {"tool": "nome", "args": {}}
+6. Usa nomes EXATOS dos backups (copia do resultado de list_backups, não inventes)
+
 Formato:
 ```tool_call
 {"tool": "nome_da_ferramenta", "args": {"param": "valor"}}
@@ -157,8 +164,8 @@ Formato:
 
 Ferramentas:
 - backup_tool.create_full_backup — args: label (string, opcional)
-- backup_tool.list_backups — sem args
-- backup_tool.verify_backup — args: backup_name (string)
+- backup_tool.list_backups — args: {} (sem argumentos)
+- backup_tool.verify_backup — args: backup_name (string — nome EXATO do backup, sem .tar.gz)
 - file_operations_tool.read_file — args: file_path (string)
 - file_operations_tool.write_file — args: file_path (string), content (string)
 - file_operations_tool.append_file — args: file_path (string), content (string)
@@ -168,7 +175,7 @@ Ferramentas:
 - script_executor_tool.execute_python — args: code (string), description (string)
 
 Dirs escrita seguros: /backup, /app/data, /app/tools, /app/logs, /tmp
-O resultado aparece automaticamente após a tua resposta."""
+O resultado real aparece automaticamente DEPOIS da tua resposta. Não o inventes."""
 
     def _style_section(self) -> str:
         """Communication style instructions."""

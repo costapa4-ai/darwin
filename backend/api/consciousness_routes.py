@@ -100,8 +100,9 @@ async def _execute_chat_tool_calls(response_text: str) -> str:
                 call = json.loads(repaired)
             tool_name = call.get('tool', '')
             # Support both {"tool":"x","args":{...}} and {"tool":"x","param1":"v1",...}
-            args = call.get('args', {})
-            if not args:
+            if 'args' in call:
+                args = call['args'] if isinstance(call['args'], dict) else {}
+            else:
                 args = {k: v for k, v in call.items() if k != 'tool'}
 
             if tool_name not in _CHAT_TOOLS:
