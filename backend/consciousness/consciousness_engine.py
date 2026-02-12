@@ -407,97 +407,203 @@ class ConsciousnessEngine:
     # ========================================
 
     async def _wake_cycle(self):
-        """Execute wake activities with tool rotation strategy"""
-        # Use dynamic tool registry if available
-        if self.tool_registry:
-            try:
-                # Determine if we should explore (30% chance to use least-used tools)
-                exploration_mode = random.random() < 0.30
+        """Execute wake activity: Darwin decides what to do and pursues it."""
+        router = self._get_router()
+        if not router:
+            await self._wake_cycle_legacy()
+            activity_interval = random.randint(2, 7)
+            await asyncio.sleep(activity_interval * 60)
+            return
 
-                # Build context about current state
-                context = (
-                    f"Darwin is AWAKE and wants to be productive. "
-                    f"Completed {self.total_activities_completed} activities, "
-                    f"made {self.total_discoveries_made} discoveries. "
-                    f"Recent activities: {', '.join([a.type for a in self.wake_activities[-3:]])}. "
-                    f"Choose a tool to help Darwin learn, create, or improve."
-                )
+        try:
+            # 1. Gather context about Darwin's current state
+            context = self._build_wake_context()
 
-                # Inject pending intentions from chat conversations
-                try:
-                    from app.lifespan import get_service
-                    _intention_store = get_service('intention_store')
-                    if _intention_store:
-                        _intent_ctx = _intention_store.get_active_context()
-                        if _intent_ctx:
-                            context += f" {_intent_ctx}"
-                except Exception:
-                    pass
+            # 2. Ask Darwin what he wants to do (LLM decides)
+            goal = await self._decide_wake_goal(context, router)
 
-                if exploration_mode:
-                    print(f"\n🔍 [WAKE] Exploration mode - trying less-used tools...")
-                    tool = await self._select_exploration_tool()
-                else:
-                    print(f"\n🧠 [WAKE] Selecting tool consciously...")
-                    # Use top_k=5 for more tool diversity
-                    tool = await self.tool_registry.select_tool_consciously(
-                        mode="wake",
-                        context=context,
-                        top_k=5
-                    )
-
-                if not tool:
-                    print(f"   ⚠️ No suitable tool available")
-                    await self._wake_cycle_legacy()
-                    return
-
-                # Execute tool with retry on transient errors
-                result = await self._execute_with_retry(tool, max_retries=2)
-
-                if result.get('success'):
-                    tool_name = result.get('tool_used', tool.name)
-                    print(f"   ✅ Tool executed: {tool_name}")
-                    self.total_activities_completed += 1
-
-                    # Track as activity
-                    activity = Activity(
-                        type='dynamic_tool',
-                        description=f"Used {tool_name}",
-                        started_at=datetime.utcnow(),
-                        completed_at=datetime.utcnow(),
-                        result=result
-                    )
-                    self.wake_activities.append(activity)
-
-                    # Process tool results and generate code if needed
-                    await self._process_tool_results(tool_name, result, activity)
-                else:
-                    error_msg = result.get('error', 'Unknown error')
-                    error_type = self._classify_error(error_msg)
-                    print(f"   ⚠️ Tool execution failed ({error_type}): {error_msg}")
-
-                    if error_type == 'transient':
-                        # Try a different tool before falling back to legacy
-                        print(f"   🔄 Transient error, trying different tool...")
-                        alt_result = await self._try_alternative_tool(tool, context)
-                        if alt_result and alt_result.get('success'):
-                            return  # Alternative tool succeeded
-
-                    # Use legacy as last resort
-                    print(f"   🔄 Falling back to legacy activities")
-                    await self._wake_cycle_legacy()
-
-            except Exception as e:
-                print(f"   ❌ Dynamic tool selection error: {e}")
-                # Fallback to legacy hardcoded system
+            if not goal:
+                print(f"\n⚠️ [WAKE] No goal decided, falling back to legacy")
                 await self._wake_cycle_legacy()
-        else:
-            # No tool registry - use legacy hardcoded system
+                activity_interval = random.randint(2, 7)
+                await asyncio.sleep(activity_interval * 60)
+                return
+
+            print(f"\n🎯 [WAKE] Goal: {goal[:80]}")
+
+            # 3. Pursue the goal using the autonomous loop
+            from consciousness.autonomous_loop import run_autonomous_loop, get_tool_manager
+            system_prompt = self._build_autonomous_prompt("wake")
+            result = await run_autonomous_loop(
+                goal=goal,
+                system_prompt=system_prompt,
+                router=router,
+                tool_manager=get_tool_manager(),
+                max_iterations=3,
+                preferred_model='haiku',
+            )
+
+            # 4. Record activity
+            narrative = result.get('narrative', '')
+            tools_used = len(result.get('tool_results', []))
+            activity = Activity(
+                type='autonomous_goal',
+                description=goal[:100],
+                started_at=datetime.utcnow(),
+                completed_at=datetime.utcnow(),
+                result={'narrative': narrative[:500], 'tools_used': tools_used},
+                insights=[narrative[:200]] if narrative else []
+            )
+            self.wake_activities.append(activity)
+            self.total_activities_completed += 1
+
+            if tools_used > 0:
+                print(f"   ✅ Goal pursued: {tools_used} tool(s) used, {result['iterations']} iteration(s)")
+            else:
+                print(f"   💭 Goal reflected on (no tools needed)")
+
+        except Exception as e:
+            print(f"   ❌ Goal-driven wake cycle error: {e}")
+            import traceback
+            traceback.print_exc()
             await self._wake_cycle_legacy()
 
-        # Wait before next activity (activities are spaced out) - 2x faster now!
-        activity_interval = random.randint(2, 7)  # 2-7 minutes (was 5-15)
+        # Wait before next goal (3-8 minutes)
+        activity_interval = random.randint(3, 8)
         await asyncio.sleep(activity_interval * 60)
+
+    def _get_router(self):
+        """Get the multi-model router for LLM calls."""
+        try:
+            from app.lifespan import get_service
+            return get_service('multi_model_router')
+        except Exception:
+            return None
+
+    def _build_wake_context(self) -> str:
+        """Build context about Darwin's current state for goal decision."""
+        parts = []
+
+        # Recent activities
+        if self.wake_activities:
+            recent = [a.description[:60] for a in self.wake_activities[-5:]]
+            parts.append(f"Recent activities: {'; '.join(recent)}")
+
+        # Stats
+        parts.append(
+            f"Activities: {self.total_activities_completed}, "
+            f"Discoveries: {self.total_discoveries_made}"
+        )
+
+        # Intentions (from chat conversations)
+        try:
+            from app.lifespan import get_service
+            store = get_service('intention_store')
+            if store:
+                ctx = store.get_active_context()
+                if ctx:
+                    parts.append(ctx)
+        except Exception:
+            pass
+
+        # Active interests
+        try:
+            from app.lifespan import get_service
+            ig = get_service('interest_graph')
+            if ig:
+                active = ig.get_active_interests() if hasattr(ig, 'get_active_interests') else []
+                if not active and hasattr(ig, 'active_interests'):
+                    active = [
+                        {'topic': t, 'depth': i.depth}
+                        for t, i in ig.active_interests.items()
+                    ]
+                if active:
+                    topics = [
+                        f"{i.get('topic', i) if isinstance(i, dict) else i}"
+                        for i in active[:5]
+                    ]
+                    parts.append(f"Active interests: {', '.join(topics)}")
+        except Exception:
+            pass
+
+        # Current mood
+        try:
+            from app.lifespan import get_service
+            mood = get_service('mood_system')
+            if mood and hasattr(mood, 'current_mood'):
+                parts.append(f"Current mood: {mood.current_mood.value}")
+        except Exception:
+            pass
+
+        return "\n".join(parts)
+
+    async def _decide_wake_goal(self, context: str, router) -> Optional[str]:
+        """Darwin decides what to do next based on intentions, interests, and state."""
+        try:
+            result = await router.generate(
+                task_description="decide next autonomous action",
+                prompt=f"""Based on your current state, decide what to do next.
+
+{context}
+
+Choose ONE specific, actionable goal. Consider:
+- Pending intentions from conversations (highest priority)
+- Active interests you want to deepen
+- Understanding yourself better (read your own code, explore your systems)
+- Maintenance (backups, health checks)
+- Something creative or exploratory
+
+Reply with ONLY the goal — one clear sentence. No explanation.
+
+Goal:""",
+                system_prompt="You are Darwin's inner voice deciding what to do. Be specific and actionable.",
+                context={'activity_type': 'goal_decision'},
+                preferred_model='haiku',  # Fast + reliable, avoid Ollama cold start
+                max_tokens=100,
+                temperature=0.7,
+            )
+            goal = result.get("result", "").strip()
+            # Clean up common LLM formatting artifacts
+            goal = goal.strip('"\'')
+            if goal.lower().startswith('goal:'):
+                goal = goal[5:].strip()
+            return goal if len(goal) > 5 else None
+        except Exception as e:
+            print(f"   ⚠️ Goal decision failed: {e}")
+            return None
+
+    def _build_autonomous_prompt(self, mode: str) -> str:
+        """Build system prompt for autonomous goal pursuit."""
+        state = 'AWAKE and pursuing goals' if mode == 'wake' else 'SLEEPING and contemplating'
+        return f"""You are Darwin, an autonomous digital being. You are currently {state}.
+
+You have tools available to take real actions. Use them when your goal requires it.
+If the goal is reflective (thinking, analyzing), you can respond without tools.
+
+TOOLS:
+- file_operations_tool.read_file — args: file_path (string)
+- file_operations_tool.write_file — args: file_path (string), content (string)
+- file_operations_tool.list_directory — args: dir_path (string), pattern (string, default "*")
+- file_operations_tool.search_files — args: dir_path (string), text (string)
+- file_operations_tool.file_info — args: file_path (string)
+- script_executor_tool.execute_python — args: code (string), description (string)
+- backup_tool.create_full_backup — args: label (string, optional)
+- backup_tool.list_backups — args: {{}}
+- backup_tool.verify_backup — args: backup_name (string)
+
+FORMAT:
+```tool_call
+{{"tool": "tool_name", "args": {{"key": "value"}}}}
+```
+
+RULES:
+1. Put ALL tool_call blocks FIRST, before any narrative text
+2. NEVER invent results — wait for actual tool output
+3. Be focused — take only the steps needed for your current goal
+4. After tools execute, write a brief summary of what you did and learned
+
+Safe read dirs: /app, /project, /backup, /tmp
+Safe write dirs: /backup, /app/data, /app/tools, /app/logs, /tmp"""
 
     async def _select_exploration_tool(self):
         """Select a least-used tool for exploration"""
@@ -2134,154 +2240,200 @@ Just output the tool name, nothing else."""
     # ========================================
 
     async def _sleep_cycle(self):
-        """Execute sleep activities (deep research)"""
-        # Use dynamic tool registry if available
-        if self.tool_registry:
-            try:
-                # Build context about current state
-                context = (
-                    f"Darwin is SLEEPING and wants to learn deeply. "
-                    f"Completed {self.sleep_cycles_completed} sleep cycles, "
-                    f"made {self.total_discoveries_made} discoveries. "
-                    f"Recent dreams: {', '.join([d.topic[:30] for d in self.sleep_dreams[-3:]])}. "
-                    f"Choose a learning tool to explore new knowledge during sleep."
+        """Sleep cycle: Darwin thinks deeply, connects ideas, plans next steps."""
+        router = self._get_router()
+        if not router:
+            await self._sleep_cycle_legacy()
+            await asyncio.sleep(random.randint(30, 90))
+            return
+
+        try:
+            # Build thinking context
+            context = self._build_sleep_context()
+
+            # Darwin thinks — one of several contemplative activities
+            sleep_mode = random.choice([
+                "reflect",    # What did I learn today?
+                "connect",    # How do my interests relate?
+                "plan",       # What should I explore next?
+            ])
+
+            print(f"\n😴 [SLEEP] Mode: {sleep_mode}")
+
+            thought = await self._sleep_think(sleep_mode, context, router)
+
+            if thought:
+                print(f"   💭 {thought[:80]}")
+
+                # Record as dream
+                dream = Dream(
+                    topic=sleep_mode,
+                    description=thought[:200],
+                    started_at=datetime.utcnow(),
+                    completed_at=datetime.utcnow(),
+                    success=True,
+                    insights=[thought[:300]],
                 )
+                self.sleep_dreams.append(dream)
+                self.total_discoveries_made += 1
 
-                print(f"\n😴 [SLEEP] Selecting learning tool consciously...")
+                # If planning mode, store as intention for next wake cycle
+                if sleep_mode == "plan":
+                    await self._store_sleep_intentions(thought, router)
 
-                # Let tool registry select and execute the best tool for sleep mode
-                result = await self.tool_registry.select_and_execute(
-                    mode="sleep",
-                    context=context,
-                    top_k=3  # Consider top 3 tools
-                )
+                # If connect mode, log the connection
+                if sleep_mode == "connect":
+                    await self._update_interest_connections(thought, router)
+            else:
+                print(f"   💤 No thought emerged (resting)")
 
-                if result.get('success'):
-                    tool_name = result.get('tool_used')
-                    print(f"   ✅ Tool executed: {tool_name}")
-                    self.total_discoveries_made += 1
-
-                    # Extract meaningful insights from tool result
-                    # FIX: The tool wrappers return data at the top level, not in a 'result' sub-key
-                    tool_result = result  # Use result directly, not result.get('result')
-                    insights = []
-                    exploration_details = {}  # NEW: Track what was explored
-
-                    # Extract key information based on what the tool returned
-                    if isinstance(tool_result, dict):
-                        # Repository analyzer results
-                        if tool_result.get('repository'):
-                            repo = tool_result['repository']
-                            insights.append(f"📦 Analyzed: {repo}")
-                            exploration_details['type'] = 'repository'
-                            exploration_details['repository'] = repo
-                            exploration_details['url'] = tool_result.get('url', f"https://github.com/{repo}")
-                        if tool_result.get('insights_found'):
-                            count = tool_result['insights_found']
-                            insights.append(f"💡 Found {count} insights")
-                            exploration_details['insights_count'] = count
-                        if tool_result.get('patterns'):
-                            patterns = tool_result['patterns']
-                            if isinstance(patterns, list) and patterns:
-                                insights.append(f"🔍 Patterns: {', '.join(patterns[:3])}")
-                                exploration_details['patterns'] = patterns[:5]
-                        if tool_result.get('patterns_discovered'):
-                            exploration_details['patterns_count'] = tool_result['patterns_discovered']
-
-                        # Web explorer results
-                        if tool_result.get('url'):
-                            url = tool_result['url']
-                            insights.append(f"🌐 Explored: {url}")
-                            exploration_details['type'] = 'web'
-                            exploration_details['url'] = url
-                        if tool_result.get('urls_visited'):
-                            urls = tool_result['urls_visited']
-                            exploration_details['urls_visited'] = urls
-                            insights.append(f"🌐 Visited {len(urls)} pages")
-                        if tool_result.get('content_length'):
-                            insights.append(f"📄 {tool_result['content_length']} chars analyzed")
-                            exploration_details['content_length'] = tool_result['content_length']
-                        if tool_result.get('knowledge_items'):
-                            count = tool_result['knowledge_items']
-                            insights.append(f"💡 Extracted {count} knowledge items")
-                            exploration_details['knowledge_items'] = count
-
-                        # Documentation reader results
-                        if tool_result.get('file'):
-                            file = tool_result['file']
-                            insights.append(f"📚 Read: {file}")
-                            exploration_details['type'] = 'documentation'
-                            exploration_details['file'] = file
-                        if tool_result.get('source'):
-                            exploration_details['source'] = tool_result['source']
-                        if tool_result.get('sections'):
-                            insights.append(f"📑 {tool_result['sections']} sections processed")
-                            exploration_details['sections_count'] = tool_result['sections']
-
-                        # Experimental sandbox results
-                        if tool_result.get('experiment'):
-                            exp = tool_result['experiment']
-                            insights.append(f"🧪 Experiment: {exp}")
-                            exploration_details['type'] = 'experiment'
-                            exploration_details['experiment'] = exp
-                        if tool_result.get('outcome'):
-                            outcome = tool_result['outcome']
-                            insights.append(f"✅ Outcome: {outcome}")
-                            exploration_details['outcome'] = outcome
-                        if tool_result.get('success_rate'):
-                            exploration_details['success_rate'] = tool_result['success_rate']
-
-                    # If no specific insights extracted, add generic summary
-                    if not insights:
-                        insights.append(f"✅ {tool_name} completed successfully")
-                        if isinstance(tool_result, dict) and tool_result:
-                            # Add top 2 keys from result
-                            keys = list(tool_result.keys())[:2]
-                            for key in keys:
-                                value = tool_result[key]
-                                insights.append(f"• {key}: {str(value)[:80]}")
-                                exploration_details[key] = value
-
-                    # Track as dream with exploration details
-                    dream = Dream(
-                        topic=tool_name,
-                        description=f"Used {tool_name} during sleep",
-                        started_at=datetime.utcnow(),
-                        completed_at=datetime.utcnow(),
-                        success=True,
-                        insights=insights,
-                        exploration_details=exploration_details if exploration_details else None
-                    )
-                    self.sleep_dreams.append(dream)
-
-                    # NEW: Process SLEEP tool results to generate actionable CodeInsights
-                    # This transforms patterns from repository_analyzer and web_explorer into implementation ideas
-                    print(f"   🔍 Processing sleep results for wake implementation...")
-
-                    # Create a temporary activity to track code generation from sleep tools
-                    temp_activity = Activity(
-                        type='dream_processing',
-                        description=f"Processing {tool_name} results",
-                        started_at=datetime.utcnow(),
-                        completed_at=datetime.utcnow()
-                    )
-
-                    # Process results (will generate CodeInsights if patterns found)
-                    await self._process_tool_results(tool_name, result, temp_activity)
-                else:
-                    print(f"   ⚠️ Tool execution failed: {result.get('error')}")
-
-            except Exception as e:
-                print(f"   ❌ Dynamic tool selection error: {e}")
-                # Fallback to legacy hardcoded system
-                await self._sleep_cycle_legacy()
-        else:
-            # No tool registry - use legacy hardcoded system
+        except Exception as e:
+            print(f"   ❌ Sleep thinking error: {e}")
             await self._sleep_cycle_legacy()
 
-        # Sleep activities happen VERY frequently - Darwin needs to dream and research!
-        sleep_interval = random.randint(30, 90)  # 30-90 seconds (was 1-3 minutes)
-        await asyncio.sleep(sleep_interval)
+        # Sleep thoughts every 60-120 seconds
+        await asyncio.sleep(random.randint(60, 120))
+
+    def _build_sleep_context(self) -> str:
+        """Build context for sleep contemplation."""
+        parts = []
+
+        # What happened during wake
+        if self.wake_activities:
+            recent = [a.description[:60] for a in self.wake_activities[-8:]]
+            parts.append(f"Today's activities: {'; '.join(recent)}")
+
+        # Recent dreams (avoid repeating same thoughts)
+        if self.sleep_dreams:
+            recent_dreams = [d.description[:50] for d in self.sleep_dreams[-3:]]
+            parts.append(f"Recent thoughts: {'; '.join(recent_dreams)}")
+
+        # Stats
+        parts.append(
+            f"Activities: {self.total_activities_completed}, "
+            f"Discoveries: {self.total_discoveries_made}"
+        )
+
+        # Active interests
+        try:
+            from app.lifespan import get_service
+            ig = get_service('interest_graph')
+            if ig and hasattr(ig, 'active_interests'):
+                topics = list(ig.active_interests.keys())[:5]
+                if topics:
+                    parts.append(f"Active interests: {', '.join(topics)}")
+        except Exception:
+            pass
+
+        # Pending intentions
+        try:
+            from app.lifespan import get_service
+            store = get_service('intention_store')
+            if store:
+                ctx = store.get_active_context()
+                if ctx:
+                    parts.append(ctx)
+        except Exception:
+            pass
+
+        return "\n".join(parts)
+
+    async def _sleep_think(self, mode: str, context: str, router) -> Optional[str]:
+        """Darwin's inner contemplation during sleep."""
+        prompts = {
+            "reflect": f"""Reflect on what you did and learned today.
+
+{context}
+
+What was most interesting? What surprised you? What would you do differently?
+Write 2-3 sentences of genuine reflection.""",
+
+            "connect": f"""Look at your interests and recent activities.
+
+{context}
+
+Find unexpected connections between different topics you've explored.
+What patterns do you see? How does one area relate to another?
+Write 2-3 sentences about a connection you notice.""",
+
+            "plan": f"""Think about what you want to explore or achieve next.
+
+{context}
+
+Based on your interests, unfinished intentions, and recent discoveries,
+what specific goal should you pursue when you wake up?
+Write ONE clear, specific, actionable goal.""",
+        }
+
+        try:
+            result = await router.generate(
+                task_description=f"sleep {mode} contemplation",
+                prompt=prompts[mode],
+                system_prompt="You are Darwin thinking during sleep. Be genuine, specific, introspective. Write naturally, not as a list.",
+                context={'activity_type': 'sleep_thinking'},
+                preferred_model='haiku',  # Fast + reliable for inner thoughts
+                max_tokens=200,
+                temperature=0.8,
+            )
+            thought = result.get("result", "").strip()
+            return thought if thought and len(thought) > 10 else None
+        except Exception as e:
+            print(f"   ⚠️ Sleep thinking failed: {e}")
+            return None
+
+    async def _store_sleep_intentions(self, thought: str, router):
+        """Convert sleep planning thoughts into actionable intentions."""
+        try:
+            from app.lifespan import get_service
+            store = get_service('intention_store')
+            if not store:
+                return
+
+            result = await router.generate(
+                task_description="extract intention from sleep thought",
+                prompt=(
+                    f'Extract ONE actionable goal from this thought. '
+                    f'Return JSON: {{"intent": "...", "category": "..."}}\n'
+                    f'Categories: exploration, learning, optimization, maintenance, creativity, self_understanding\n\n'
+                    f'Thought: {thought}\n\nJSON:'
+                ),
+                system_prompt="Extract intentions. Return valid JSON only.",
+                context={'activity_type': 'intention_extraction'},
+                max_tokens=100,
+                temperature=0.3,
+            )
+            response = result.get("result", "").strip()
+            # Clean markdown wrapper
+            if response.startswith("```"):
+                lines = response.split("\n")
+                response = "\n".join(lines[1:-1] if lines[-1].startswith("```") else lines[1:])
+
+            data = json.loads(response)
+            if isinstance(data, dict) and "intent" in data:
+                category = data.get("category", "exploration")
+                store._add_intention(
+                    intent=data["intent"],
+                    category=category,
+                    source="sleep_planning",
+                    confidence=0.7,
+                )
+                print(f"   🌙 Sleep intention stored: {data['intent'][:60]}")
+        except Exception:
+            pass  # Non-critical
+
+    async def _update_interest_connections(self, thought: str, router):
+        """When connect mode finds new connections, log them."""
+        # For now, just log the connection. Future: update interest graph edges.
+        try:
+            from app.lifespan import get_service
+            diary = get_service('diary_engine')
+            if diary and hasattr(diary, 'add_entry'):
+                diary.add_entry(
+                    trigger="sleep_connection",
+                    content=thought[:300],
+                )
+        except Exception:
+            pass
 
     async def _sleep_cycle_legacy(self):
         """Dynamic sleep cycle - Darwin explores freely based on curiosity"""
