@@ -260,6 +260,13 @@ async def init_consciousness_engine(
         set_service('conversation_store', conversation_store)
         logger.info("ConversationStore initialized (persistent chat memory)")
 
+        # 1b. Intention Store (chat → consciousness bridge)
+        from core.intention_store import IntentionStore
+        intention_store = IntentionStore(db_path="./data/darwin.db")
+        services['intention_store'] = intention_store
+        set_service('intention_store', intention_store)
+        logger.info("IntentionStore initialized (chat→consciousness bridge)")
+
         # 2. Identity Core (Paulo model + Darwin self-model)
         from core.identity import PauloModel, DarwinSelfModel
         paulo_model = PauloModel(storage_path="./data/identity/paulo.json")

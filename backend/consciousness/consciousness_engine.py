@@ -423,6 +423,17 @@ class ConsciousnessEngine:
                     f"Choose a tool to help Darwin learn, create, or improve."
                 )
 
+                # Inject pending intentions from chat conversations
+                try:
+                    from app.lifespan import get_service
+                    _intention_store = get_service('intention_store')
+                    if _intention_store:
+                        _intent_ctx = _intention_store.get_active_context()
+                        if _intent_ctx:
+                            context += f" {_intent_ctx}"
+                except Exception:
+                    pass
+
                 if exploration_mode:
                     print(f"\n🔍 [WAKE] Exploration mode - trying less-used tools...")
                     tool = await self._select_exploration_tool()

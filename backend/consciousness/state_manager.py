@@ -554,6 +554,11 @@ class StateManager:
                 interest_graph.evolve_interests()
                 logger.info("Interest graph evolved")
 
+            # Expire stale intentions
+            intention_store = get_service('intention_store')
+            if intention_store:
+                intention_store.expire_old()
+
         except Exception as e:
             logger.debug(f"Digital being consolidation failed (non-critical): {e}")
 

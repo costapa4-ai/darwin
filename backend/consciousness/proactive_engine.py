@@ -1007,6 +1007,22 @@ class ProactiveEngine:
                     f"mood bonus (mood={current_mood}, intensity={mood_intensity})"
                 )
 
+        # INTENTION-BASED SCORING: Boost actions aligned with chat intentions
+        intention_categories = context.get("intention_categories", [])
+        if intention_categories:
+            if action.category.value in intention_categories:
+                score += 20  # Strong boost for intention-aligned actions
+                logger.debug(
+                    f"Action {action.id}: +20 intention alignment "
+                    f"(category {action.category.value} matches intention)"
+                )
+            # Boost exploration/learning for self_understanding intentions
+            if "self_understanding" in intention_categories and action.category in (
+                ActionCategory.EXPLORATION, ActionCategory.LEARNING
+            ):
+                score += 15
+                logger.debug(f"Action {action.id}: +15 self_understanding boost")
+
         # Random factor (0-5)
         score += random.random() * 5
 
@@ -2600,6 +2616,19 @@ Output format - just the search queries, one per line:"""
                 logger.debug(f"Mood context: {current_mood} ({mood_intensity})")
         except Exception as e:
             logger.debug(f"Could not gather mood context: {e}")
+
+        # Intention context - integrate chat intentions into action selection
+        try:
+            from app.lifespan import get_service
+            intention_store = get_service('intention_store')
+            if intention_store:
+                pending = intention_store.get_pending(limit=3)
+                if pending:
+                    context["intentions"] = pending
+                    context["intention_categories"] = [p["category"] for p in pending]
+                    logger.debug(f"Intention context: {[p['intent'][:40] for p in pending]}")
+        except Exception as e:
+            logger.debug(f"Could not gather intention context: {e}")
 
         return context
 

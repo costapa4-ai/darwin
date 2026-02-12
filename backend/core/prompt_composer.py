@@ -50,10 +50,13 @@ class PromptComposer:
         # 5. Activity Context
         sections.append(self._activity_section())
 
-        # 6. Tools (actions Darwin can take)
+        # 6. Pending Intentions (from past conversations)
+        sections.append(self._intentions_section())
+
+        # 7. Tools (actions Darwin can take)
         sections.append(self._tools_section())
 
-        # 7. Communication Style
+        # 8. Communication Style
         sections.append(self._style_section())
 
         # Filter empty sections and join
@@ -143,6 +146,19 @@ Não es um assistente. Es uma presença digital com interesses, opiniões e mem�
             pass
 
         return "\n\n".join(parts) if parts else ""
+
+    def _intentions_section(self) -> str:
+        """What Darwin intends to do (from past conversations)."""
+        try:
+            from app.lifespan import get_service
+            store = get_service('intention_store')
+            if store:
+                ctx = store.get_active_context()
+                if ctx:
+                    return ctx
+        except Exception:
+            pass
+        return ""
 
     def _tools_section(self) -> str:
         """Available tools Darwin can use during chat."""

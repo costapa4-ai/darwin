@@ -800,6 +800,19 @@ COMO COMUNICAR:
     except Exception:
         pass
 
+    # Async: extract intentions from conversation (fire-and-forget)
+    try:
+        from app.lifespan import get_service
+        intention_store = get_service('intention_store')
+        router_svc = get_service('multi_model_router')
+        if intention_store and router_svc and len(chat_messages) >= 2:
+            import asyncio
+            asyncio.create_task(
+                intention_store.extract_from_conversation(chat_messages[-6:], router_svc)
+            )
+    except Exception:
+        pass
+
     return darwin_msg
 
 
