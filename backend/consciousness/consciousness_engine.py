@@ -439,7 +439,7 @@ class ConsciousnessEngine:
                 system_prompt=system_prompt,
                 router=router,
                 tool_manager=get_tool_manager(),
-                max_iterations=3,
+                max_iterations=20,
                 preferred_model='haiku',
             )
 
