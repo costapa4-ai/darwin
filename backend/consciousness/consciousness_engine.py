@@ -627,6 +627,7 @@ RULES:
 4. Be focused — take only the steps needed for your current goal
 5. After tools execute, write a brief summary of what you ACTUALLY found (quote real code/data)
 6. Write your findings to /app/data/notes/ so you remember them later
+7. When you are DONE with your goal, write "## Summary" followed by what you learned. Do NOT keep using tools after you have achieved your goal
 
 Safe read dirs: /app, /project, /backup, /tmp
 Safe write dirs: /backup, /app/data, /app/tools, /app/logs, /tmp"""

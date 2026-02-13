@@ -21,6 +21,14 @@ logger = _get_logger(__name__)
 # Pattern to match ```tool_call ... ``` blocks in LLM responses
 TOOL_CALL_RE = re.compile(r'```tool_call\s*\n?(.*?)\n?```', re.DOTALL)
 
+# Phrases that signal the goal is complete (case-insensitive check)
+DONE_SIGNALS = [
+    'goal complete', 'goal achieved', 'task complete', 'task done',
+    'summary:', '## summary', '## findings', '## conclusion',
+    'i have completed', 'i\'ve completed', 'investigation complete',
+    'analysis complete', 'exploration complete',
+]
+
 # Tools allowed for execution (chat + autonomous)
 ALLOWED_TOOLS = {
     'backup_tool.create_full_backup',
@@ -204,6 +212,27 @@ async def run_autonomous_loop(
         collected_results.extend(tool_results)
 
         if not tool_results:
+            break
+
+        # --- Smart early stopping ---
+
+        # 1. Check if narrative contains completion signals
+        if narrative:
+            narrative_lower = narrative.lower()
+            if any(signal in narrative_lower for signal in DONE_SIGNALS):
+                logger.info(f"🏁 Goal complete signal detected at iteration {iterations}")
+                break
+
+        # 2. Stop after write_file — the deliverable is done
+        wrote_file = any('write_file' in r for r in tool_results)
+        if wrote_file and iteration >= 1:
+            logger.info(f"🏁 File written, goal likely complete at iteration {iterations}")
+            break
+
+        # 3. Stop if only errors in this iteration (no progress)
+        all_failed = all(r.startswith('❌') or r.startswith('⚠️') for r in tool_results)
+        if all_failed and iteration >= 2:
+            logger.info(f"🏁 No progress (all tools failed), stopping at iteration {iterations}")
             break
 
     return {
