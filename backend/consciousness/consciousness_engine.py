@@ -440,6 +440,7 @@ class ConsciousnessEngine:
                 router=router,
                 tool_manager=get_tool_manager(),
                 max_iterations=20,
+                max_tokens=4000,
                 preferred_model='haiku',
             )
 
