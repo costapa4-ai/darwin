@@ -440,8 +440,9 @@ class ConsciousnessEngine:
                 router=router,
                 tool_manager=get_tool_manager(),
                 max_iterations=20,
-                max_tokens=4000,
-                preferred_model='haiku',
+                max_tokens=2000,
+                preferred_model='ollama',
+                timeout=300,  # 5 min per iteration — Ollama is slow but FREE
             )
 
             # 4. Record activity
@@ -2396,9 +2397,10 @@ Write ONE clear, specific, actionable goal.""",
                 prompt=prompts[mode],
                 system_prompt="You are Darwin thinking during sleep. Be genuine, specific, introspective. Write naturally, not as a list.",
                 context={'activity_type': 'sleep_thinking'},
-                preferred_model='haiku',  # Fast + reliable for inner thoughts
+                preferred_model='ollama',  # FREE — sleep thinking is not time-sensitive
                 max_tokens=200,
                 temperature=0.8,
+                timeout=120,  # 2 min OK for 200 tokens
             )
             thought = result.get("result", "").strip()
             return thought if thought and len(thought) > 10 else None

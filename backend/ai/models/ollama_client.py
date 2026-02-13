@@ -95,7 +95,7 @@ class OllamaClient(BaseModelClient):
                             "num_ctx": 4096
                         }
                     },
-                    timeout=aiohttp.ClientTimeout(total=45)  # 45s; Haiku fallback on timeout
+                    timeout=aiohttp.ClientTimeout(total=kwargs.get('timeout', 45))
                 ) as response:
                     if response.status != 200:
                         error_text = await response.text()

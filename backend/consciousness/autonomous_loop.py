@@ -136,6 +136,7 @@ async def run_autonomous_loop(
     max_iterations: int = 5,
     max_tokens: int = 1500,
     preferred_model: str = 'haiku',
+    timeout: int = 45,
 ) -> dict:
     """
     LLM-driven autonomous action loop.
@@ -161,10 +162,13 @@ async def run_autonomous_loop(
         if iteration == 0:
             prompt = goal
         else:
-            results_text = "\n".join(collected_results[-10:])
+            # Keep context compact for Ollama: only last 3 results, truncated
+            recent = collected_results[-3:]
+            trimmed = [r[:800] + '...' if len(r) > 800 else r for r in recent]
+            results_text = "\n".join(trimmed)
             prompt = (
                 f"Your goal: {goal}\n\n"
-                f"Tools executed so far:\n{results_text}\n\n"
+                f"Tools executed so far (latest {len(recent)}):\n{results_text}\n\n"
                 f"Continue: if you need more actions, use tool_call. "
                 f"If you have enough information, write a brief summary of what you did and learned (no tool_call)."
             )
@@ -178,6 +182,7 @@ async def run_autonomous_loop(
                 preferred_model=preferred_model,
                 max_tokens=max_tokens,
                 temperature=0.7,
+                timeout=timeout,
             )
             response = result.get("result", "").strip()
         except Exception as e:
