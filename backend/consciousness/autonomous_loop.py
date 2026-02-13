@@ -74,6 +74,13 @@ def parse_tool_call(raw: str) -> dict:
 async def execute_tool(tool_name: str, args: dict, tm) -> str:
     """Execute a single tool and return formatted result string."""
     if tool_name not in ALLOWED_TOOLS:
+        try:
+            from consciousness.safety_logger import get_safety_logger
+            get_safety_logger().log('tool_rejected', 'autonomous_loop', {
+                'tool': tool_name, 'args_keys': list(args.keys()),
+            }, severity='warning')
+        except Exception:
+            pass
         return f"⚠️ Tool '{tool_name}' not available"
 
     func = tm.tool_functions.get(tool_name)
@@ -221,18 +228,42 @@ async def run_autonomous_loop(
             narrative_lower = narrative.lower()
             if any(signal in narrative_lower for signal in DONE_SIGNALS):
                 logger.info(f"🏁 Goal complete signal detected at iteration {iterations}")
+                try:
+                    from consciousness.safety_logger import get_safety_logger
+                    get_safety_logger().log('early_stop', 'autonomous_loop', {
+                        'reason': 'done_signal', 'iteration': iterations,
+                        'goal': goal[:80],
+                    })
+                except Exception:
+                    pass
                 break
 
         # 2. Stop after write_file — the deliverable is done
         wrote_file = any('write_file' in r for r in tool_results)
         if wrote_file and iteration >= 1:
             logger.info(f"🏁 File written, goal likely complete at iteration {iterations}")
+            try:
+                from consciousness.safety_logger import get_safety_logger
+                get_safety_logger().log('early_stop', 'autonomous_loop', {
+                    'reason': 'write_file', 'iteration': iterations,
+                    'goal': goal[:80],
+                })
+            except Exception:
+                pass
             break
 
         # 3. Stop if only errors in this iteration (no progress)
         all_failed = all(r.startswith('❌') or r.startswith('⚠️') for r in tool_results)
         if all_failed and iteration >= 2:
             logger.info(f"🏁 No progress (all tools failed), stopping at iteration {iterations}")
+            try:
+                from consciousness.safety_logger import get_safety_logger
+                get_safety_logger().log('early_stop', 'autonomous_loop', {
+                    'reason': 'all_failed', 'iteration': iterations,
+                    'goal': goal[:80],
+                }, severity='warning')
+            except Exception:
+                pass
             break
 
     return {

@@ -115,12 +115,20 @@ class PromptEvolutionEngine:
                         f"< original avg={original.avg_score:.3f} * 0.90"
                     )
                     self.registry.rollback_to_original(slot.id)
-                    results['rollbacks'].append({
+                    rollback_info = {
                         'slot': slot.id,
                         'variant': active.id,
                         'active_score': round(active.avg_score, 3),
                         'original_score': round(original.avg_score, 3),
-                    })
+                    }
+                    results['rollbacks'].append(rollback_info)
+                    # Log safety event
+                    try:
+                        from consciousness.safety_logger import get_safety_logger
+                        get_safety_logger().log('prompt_rollback', 'prompt_evolution',
+                                                rollback_info, severity='warning')
+                    except Exception:
+                        pass
                     continue
 
             # Step 2: Promotion — find challenger that outperforms active
@@ -145,12 +153,19 @@ class PromptEvolutionEngine:
                         f"challenger avg={challenger.avg_score:.3f} vs active avg={active.avg_score:.3f}"
                     )
                     self.registry.activate_variant(slot.id, challenger.id)
-                    results['promotions'].append({
+                    promo_info = {
                         'slot': slot.id,
                         'promoted': challenger.id,
                         'challenger_score': round(challenger.avg_score, 3),
                         'previous_score': round(active.avg_score, 3),
-                    })
+                    }
+                    results['promotions'].append(promo_info)
+                    # Log safety event
+                    try:
+                        from consciousness.safety_logger import get_safety_logger
+                        get_safety_logger().log('prompt_promoted', 'prompt_evolution', promo_info)
+                    except Exception:
+                        pass
                     break  # Only one promotion per slot per cycle
 
             # Step 3: Mutate — generate new variants from best performer

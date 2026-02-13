@@ -310,6 +310,14 @@ class CodeGenerator:
             if self._is_protected_file(path):
                 print(f"   🛡️ PROTECTED: {path} is a critical file")
                 print(f"   ✨ Creating new tool instead of modifying core infrastructure")
+                # Log safety event
+                try:
+                    from consciousness.safety_logger import get_safety_logger
+                    get_safety_logger().log('protected_file_redirect', 'code_generator', {
+                        'file': path, 'insight': insight.title[:100],
+                    }, severity='warning')
+                except Exception:
+                    pass
                 # Redirect to create a new tool instead
                 return self._create_tool_path_from_insight(insight)
 
@@ -788,11 +796,11 @@ Return ONLY the corrected Python code in a code block. No explanations needed.
 
         # Record outcome for prompt evolution
         # Score: 1.0 = passed first try, 0.7 = 1 correction, 0.4 = 2 corrections, 0.0 = failed
+        passed = validation.valid and validation.score >= 70
         try:
             from consciousness.prompt_registry import get_prompt_registry
             registry = get_prompt_registry()
             if registry:
-                passed = validation.valid and validation.score >= 70
                 if passed:
                     gen_score = max(0.0, 1.0 - (attempt * 0.3))
                 else:
@@ -807,6 +815,26 @@ Return ONLY the corrected Python code in a code block. No explanations needed.
                     )
         except Exception as e:
             logger.debug(f"Prompt evolution record_outcome: {e}")
+
+        # Log safety event for validation outcome
+        try:
+            from consciousness.safety_logger import get_safety_logger
+            sl = get_safety_logger()
+            if not passed:
+                sl.log('code_validation_fail', 'code_generator', {
+                    'insight': insight.title[:100],
+                    'score': validation.score,
+                    'attempts': attempt + 1,
+                    'errors': validation.errors[:3],
+                }, severity='warning')
+            elif attempt > 0:
+                sl.log('code_validation_corrected', 'code_generator', {
+                    'insight': insight.title[:100],
+                    'score': validation.score,
+                    'attempts': attempt + 1,
+                })
+        except Exception:
+            pass
 
         # Create final diffs
         file_path = self._determine_file_path(insight)

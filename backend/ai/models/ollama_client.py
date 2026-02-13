@@ -68,6 +68,7 @@ class OllamaClient(BaseModelClient):
         **kwargs
     ) -> str:
         """Generate completion using local Ollama"""
+        timeout_s = kwargs.get('timeout', 45)
         try:
             start_time = time.time()
 
@@ -95,7 +96,7 @@ class OllamaClient(BaseModelClient):
                             "num_ctx": 4096
                         }
                     },
-                    timeout=aiohttp.ClientTimeout(total=kwargs.get('timeout', 45))
+                    timeout=aiohttp.ClientTimeout(total=timeout_s)
                 ) as response:
                     if response.status != 200:
                         error_text = await response.text()
@@ -128,8 +129,8 @@ class OllamaClient(BaseModelClient):
             return result
 
         except asyncio.TimeoutError:
-            logger.warning(f"Ollama timed out after 45s (model={self.model_name}), using cloud fallback")
-            raise Exception(f"Ollama timed out after 45s")
+            logger.warning(f"Ollama timed out after {timeout_s}s (model={self.model_name}), using cloud fallback")
+            raise Exception(f"Ollama timed out after {timeout_s}s")
         except aiohttp.ClientError as e:
             logger.error(f"Ollama connection error: {e}")
             raise Exception(f"Cannot connect to Ollama at {self.base_url}. Is it running?")

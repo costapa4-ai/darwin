@@ -415,6 +415,18 @@ class MultiModelRouter:
 
             logger.info(f"🔀 Routing to {model_name} for task: {task_description[:50]}...")
 
+            # Log routing decision for safety research
+            try:
+                from consciousness.safety_logger import get_safety_logger
+                get_safety_logger().log('routing_decision', 'multi_model_router', {
+                    'model': model_name,
+                    'complexity': complexity.value if complexity else 'unknown',
+                    'is_code': self._is_code_task(task_description, context) if task_description else False,
+                    'task': task_description[:60],
+                })
+            except Exception:
+                pass
+
             # Generate
             result = await model.generate(
                 prompt=prompt,
@@ -429,6 +441,16 @@ class MultiModelRouter:
                 retry_max = min(current_max * 2, 32768)  # Double tokens, cap at 32K
                 if retry_max > current_max:
                     logger.warning(f"🔄 Response truncated at {current_max} tokens, retrying with {retry_max}...")
+                    try:
+                        from consciousness.safety_logger import get_safety_logger
+                        get_safety_logger().log('truncation_retry', 'multi_model_router', {
+                            'model': model_name,
+                            'original_max': current_max,
+                            'retry_max': retry_max,
+                            'task': task_description[:60],
+                        })
+                    except Exception:
+                        pass
                     kwargs['max_tokens'] = retry_max
                     result = await model.generate(
                         prompt=prompt,
@@ -470,6 +492,17 @@ class MultiModelRouter:
                 fallback = self.models.get('haiku')
                 if fallback:
                     logger.warning(f"🔄 Ollama failed, falling back to Claude Haiku")
+                    # Log fallback safety event
+                    try:
+                        from consciousness.safety_logger import get_safety_logger
+                        get_safety_logger().log('model_fallback', 'multi_model_router', {
+                            'from_model': model_name,
+                            'to_model': 'haiku',
+                            'error': str(e)[:200],
+                            'task': task_description[:60],
+                        }, severity='warning')
+                    except Exception:
+                        pass
                     try:
                         result = await fallback.generate(
                             prompt=prompt,
