@@ -165,7 +165,24 @@ class MoodSystem:
     - Mood history and patterns
     - Context-aware mood selection
     - Natural mood decay over time
+    - Genome-driven parameters (with hardcoded fallback)
     """
+
+    # Hardcoded fallback durations (used when genome unavailable)
+    _DEFAULT_DURATIONS = {
+        MoodState.CURIOUS: (10, 30),
+        MoodState.EXCITED: (5, 15),
+        MoodState.FOCUSED: (20, 60),
+        MoodState.SATISFIED: (10, 30),
+        MoodState.FRUSTRATED: (5, 20),
+        MoodState.TIRED: (15, 45),
+        MoodState.PLAYFUL: (5, 20),
+        MoodState.CONTEMPLATIVE: (15, 40),
+        MoodState.DETERMINED: (20, 60),
+        MoodState.SURPRISED: (2, 10),
+        MoodState.CONFUSED: (5, 25),
+        MoodState.PROUD: (10, 30),
+    }
 
     def __init__(self):
         """Initialize mood system"""
@@ -182,21 +199,8 @@ class MoodSystem:
         self.mood_history: List[Dict] = []
         self.history_limit = 50
 
-        # Mood persistence
-        self.mood_duration_minutes = {
-            MoodState.CURIOUS: (10, 30),      # Min, Max duration
-            MoodState.EXCITED: (5, 15),
-            MoodState.FOCUSED: (20, 60),
-            MoodState.SATISFIED: (10, 30),
-            MoodState.FRUSTRATED: (5, 20),
-            MoodState.TIRED: (15, 45),
-            MoodState.PLAYFUL: (5, 20),
-            MoodState.CONTEMPLATIVE: (15, 40),
-            MoodState.DETERMINED: (20, 60),
-            MoodState.SURPRISED: (2, 10),
-            MoodState.CONFUSED: (5, 25),
-            MoodState.PROUD: (10, 30)
-        }
+        # Mood persistence — read from genome, fallback to hardcoded
+        self.mood_duration_minutes = self._load_mood_durations()
 
         # Mood compatibility (which moods can follow which)
         self.mood_transitions = {
@@ -216,7 +220,9 @@ class MoodSystem:
 
         # Event counter for mood influence
         self.recent_events: List[Dict] = []
-        self.event_window_minutes = 30  # Consider events from last 30 min
+        self.event_window_minutes = self._genome_get(
+            'emotions.event_window_minutes', 30
+        )
 
         # Environmental influences tracking
         self.discovery_count_today = 0
@@ -225,35 +231,65 @@ class MoodSystem:
         self.last_discovery_time: Optional[datetime] = None
         self.last_error_time: Optional[datetime] = None
 
-        # Time-based mood tendencies
-        self.time_mood_tendencies = {
-            'morning': [  # 6-12
-                (MoodState.CURIOUS, 0.3),
-                (MoodState.EXCITED, 0.3),
-                (MoodState.FOCUSED, 0.2),
-                (MoodState.DETERMINED, 0.2)
-            ],
-            'afternoon': [  # 12-18
-                (MoodState.FOCUSED, 0.3),
-                (MoodState.DETERMINED, 0.2),
-                (MoodState.CURIOUS, 0.2),
-                (MoodState.SATISFIED, 0.15),
-                (MoodState.PLAYFUL, 0.15)
-            ],
-            'evening': [  # 18-22
-                (MoodState.CONTEMPLATIVE, 0.3),
-                (MoodState.TIRED, 0.25),
-                (MoodState.SATISFIED, 0.2),
-                (MoodState.PLAYFUL, 0.15),
-                (MoodState.CURIOUS, 0.1)
-            ],
-            'night': [  # 22-6
-                (MoodState.TIRED, 0.4),
-                (MoodState.CONTEMPLATIVE, 0.3),
-                (MoodState.CURIOUS, 0.2),
-                (MoodState.FOCUSED, 0.1)
-            ]
+        # Time-based mood tendencies — read from genome, fallback to hardcoded
+        self.time_mood_tendencies = self._load_time_tendencies()
+
+    # ============= GENOME INTEGRATION =============
+
+    @staticmethod
+    def _genome_get(key: str, default=None):
+        """Read a value from the genome, with fallback."""
+        try:
+            from consciousness.genome_manager import get_genome
+            val = get_genome().get(key)
+            return val if val is not None else default
+        except Exception:
+            return default
+
+    def _load_mood_durations(self) -> Dict[MoodState, Tuple[int, int]]:
+        """Load mood durations from genome, fallback to hardcoded."""
+        try:
+            from consciousness.genome_manager import get_genome
+            genome_moods = get_genome().get("emotions.moods")
+            if genome_moods and isinstance(genome_moods, dict):
+                result = {}
+                for mood in MoodState:
+                    gm = genome_moods.get(mood.value)
+                    if gm and isinstance(gm, dict):
+                        result[mood] = (gm.get("duration_min", 10), gm.get("duration_max", 30))
+                    else:
+                        result[mood] = self._DEFAULT_DURATIONS.get(mood, (10, 30))
+                return result
+        except Exception:
+            pass
+        return dict(self._DEFAULT_DURATIONS)
+
+    def _load_time_tendencies(self) -> Dict[str, List[Tuple[MoodState, float]]]:
+        """Load time-of-day mood tendencies from genome."""
+        _HARDCODED = {
+            'morning':   [(MoodState.CURIOUS, 0.3), (MoodState.EXCITED, 0.3), (MoodState.FOCUSED, 0.2), (MoodState.DETERMINED, 0.2)],
+            'afternoon': [(MoodState.FOCUSED, 0.3), (MoodState.DETERMINED, 0.2), (MoodState.CURIOUS, 0.2), (MoodState.SATISFIED, 0.15), (MoodState.PLAYFUL, 0.15)],
+            'evening':   [(MoodState.CONTEMPLATIVE, 0.3), (MoodState.TIRED, 0.25), (MoodState.SATISFIED, 0.2), (MoodState.PLAYFUL, 0.15), (MoodState.CURIOUS, 0.1)],
+            'night':     [(MoodState.TIRED, 0.4), (MoodState.CONTEMPLATIVE, 0.3), (MoodState.CURIOUS, 0.2), (MoodState.FOCUSED, 0.1)],
         }
+        try:
+            from consciousness.genome_manager import get_genome
+            genome_tt = get_genome().get("emotions.time_tendencies")
+            if genome_tt and isinstance(genome_tt, dict):
+                result = {}
+                mood_map = {m.value: m for m in MoodState}
+                for period, entries in genome_tt.items():
+                    if isinstance(entries, list):
+                        result[period] = [
+                            (mood_map[e[0]], e[1])
+                            for e in entries
+                            if isinstance(e, list) and len(e) == 2 and e[0] in mood_map
+                        ]
+                if result:
+                    return result
+        except Exception:
+            pass
+        return _HARDCODED
 
     def process_event(
         self,
@@ -604,22 +640,16 @@ class MoodSystem:
         Returns:
             Emoji string
         """
-        emoji_map = {
-            MoodState.CURIOUS: "🔍",
-            MoodState.EXCITED: "⚡",
-            MoodState.FOCUSED: "🎯",
-            MoodState.SATISFIED: "😌",
-            MoodState.FRUSTRATED: "😤",
-            MoodState.TIRED: "😴",
-            MoodState.PLAYFUL: "🎮",
-            MoodState.CONTEMPLATIVE: "🤔",
-            MoodState.DETERMINED: "💪",
-            MoodState.SURPRISED: "😲",
-            MoodState.CONFUSED: "🤷",
-            MoodState.PROUD: "🏆"
+        _HARDCODED_EMOJI = {
+            MoodState.CURIOUS: "🔍", MoodState.EXCITED: "⚡", MoodState.FOCUSED: "🎯",
+            MoodState.SATISFIED: "😌", MoodState.FRUSTRATED: "😤", MoodState.TIRED: "😴",
+            MoodState.PLAYFUL: "🎮", MoodState.CONTEMPLATIVE: "🤔", MoodState.DETERMINED: "💪",
+            MoodState.SURPRISED: "😲", MoodState.CONFUSED: "🤷", MoodState.PROUD: "🏆",
         }
 
-        base_emoji = emoji_map.get(self.current_mood, "🤖")
+        # Try genome first
+        genome_emoji = self._genome_get(f"emotions.moods.{self.current_mood.value}.emoji")
+        base_emoji = genome_emoji if genome_emoji else _HARDCODED_EMOJI.get(self.current_mood, "🤖")
 
         # Add intensity indicator
         if self.mood_intensity == MoodIntensity.HIGH:

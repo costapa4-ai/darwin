@@ -113,6 +113,9 @@ class ConsciousnessEngine:
         self.curiosity_moments: List[CuriosityMoment] = []
         self.shared_curiosity_topics: set = set()  # Track shared topics to avoid repetition
 
+        # Project continuity — tracks ongoing multi-step investigations
+        self.current_project: Optional[Dict[str, Any]] = None
+
         # Database-backed deduplication store (replaces in-memory set)
         self._dedup_store: DeduplicationStore = get_deduplication_store()
 
@@ -439,10 +442,10 @@ class ConsciousnessEngine:
                 system_prompt=system_prompt,
                 router=router,
                 tool_manager=get_tool_manager(),
-                max_iterations=20,
+                max_iterations=5,  # Max 5 tool calls per goal (focused)
                 max_tokens=2000,
                 preferred_model='ollama',
-                timeout=300,  # 5 min per iteration — Ollama is slow but FREE
+                timeout=180,  # 3 min per iteration — Ollama on CPU
             )
 
             # 4. Record activity
@@ -459,6 +462,10 @@ class ConsciousnessEngine:
             self.wake_activities.append(activity)
             self.total_activities_completed += 1
 
+            # 5. Feed findings back into project (if active)
+            if self.current_project and narrative:
+                self.current_project['findings'] = narrative[:300]
+
             if tools_used > 0:
                 print(f"   ✅ Goal pursued: {tools_used} tool(s) used, {result['iterations']} iteration(s)")
             else:
@@ -470,8 +477,14 @@ class ConsciousnessEngine:
             traceback.print_exc()
             await self._wake_cycle_legacy()
 
-        # Wait before next goal (3-8 minutes)
-        activity_interval = random.randint(3, 8)
+        # Wait before next goal — read interval from genome
+        try:
+            from consciousness.genome_manager import get_genome
+            interval_min = get_genome().get('rhythms.cycles.wake_activity_interval_min', 3)
+            interval_max = get_genome().get('rhythms.cycles.wake_activity_interval_max', 8)
+        except Exception:
+            interval_min, interval_max = 3, 8
+        activity_interval = random.randint(interval_min, interval_max)
         await asyncio.sleep(activity_interval * 60)
 
     def _get_router(self):
@@ -494,11 +507,19 @@ class ConsciousnessEngine:
         if recent_goals:
             parts.append("GOALS ALREADY PURSUED (do NOT repeat these):\n- " + "\n- ".join(recent_goals))
 
-        # Recent non-goal activities
-        if self.wake_activities:
-            recent = [a.description[:60] for a in self.wake_activities[-5:] if a.type != 'autonomous_goal']
-            if recent:
-                parts.append(f"Recent background activities: {'; '.join(recent)}")
+        # Existing notes (so Darwin knows what he already wrote about)
+        try:
+            import os
+            notes_dir = './data/notes'
+            if os.path.exists(notes_dir):
+                notes = os.listdir(notes_dir)
+                if notes:
+                    parts.append(
+                        f"NOTES ALREADY WRITTEN ({len(notes)} files — do NOT write another analysis on a topic you already covered):\n- "
+                        + "\n- ".join(sorted(notes)[:15])
+                    )
+        except Exception:
+            pass
 
         # Stats
         parts.append(
@@ -546,63 +567,165 @@ class ConsciousnessEngine:
         except Exception:
             pass
 
+        # Current project (if any)
+        if hasattr(self, 'current_project') and self.current_project:
+            proj = self.current_project
+            parts.append(
+                f"CURRENT PROJECT (continue this!):\n"
+                f"  Theme: {proj.get('theme', '?')}\n"
+                f"  Phase: {proj.get('phase', '?')}\n"
+                f"  Findings so far: {proj.get('findings', 'none yet')}\n"
+                f"  Next: advance to the next phase"
+            )
+
         return "\n".join(parts)
 
     async def _decide_wake_goal(self, context: str, router) -> Optional[str]:
-        """Darwin decides what to do next based on intentions, interests, and state."""
+        """Darwin decides what to do next using a structured thinking cycle."""
         try:
+            # If we have an ongoing project, continue it
+            if hasattr(self, 'current_project') and self.current_project:
+                return await self._continue_project(context, router)
+
             result = await router.generate(
                 task_description="decide next autonomous action",
                 prompt=f"""Based on your current state, decide what to do next.
 
 {context}
 
-Choose ONE specific, actionable goal. RULES:
-- NEVER pick a goal similar to the ones already pursued above
-- You MUST rotate between different categories — do NOT read code twice in a row
-- Only name files you have ACTUALLY SEEN in a directory listing. Do not guess filenames.
+IMPORTANT RULES:
+- NEVER repeat a goal you already pursued (see list above)
+- NEVER write another analysis document about a topic you already wrote about (see notes above)
+- Pick something DIFFERENT and ACTIONABLE — not just reading/listing/writing docs
 
-Pick from ONE of these categories (rotate!):
-1. EXPLORE: List a directory you haven't explored yet (/app/tools/, /app/learning/, /app/ai/, /app/api/)
-2. READ CODE: Read a specific file you found in a previous directory listing
-3. WRITE: Write observations, analysis, or notes to /app/data/notes/
-4. BUILD: Write a Python script to analyze or improve something
-5. MAINTAIN: Create a backup, verify backup integrity, check disk usage
-6. INTEREST: Research or write about one of your active interests
+Think like this: What is ONE concrete thing I can DO that produces a real outcome?
 
-Reply with ONLY the goal — one clear sentence. No explanation.
+GOAL TYPES (pick one you haven't done recently):
+1. INVESTIGATE: Read a specific file to understand something, then DECIDE what to do about it
+2. IMPROVE: Based on something you already read, write better code or fix a bug
+3. RESEARCH: Search the web for patterns, best practices, or solutions to a specific problem
+4. BUILD: Write a Python script that does something useful (not just analyzing what exists)
+5. MAINTAIN: Create a backup, verify integrity, check system health
+6. PROPOSE: Write a concrete improvement proposal with specific code changes to /app/data/notes/proposals/
+
+Every goal should end with a CONCRETE OUTCOME — a file written, code improved, a decision made.
+Do NOT just "explore" or "list" things. That's not a goal, it's a step.
+
+Reply with ONLY the goal — one clear sentence starting with a verb.
 
 Goal:""",
-                system_prompt="You are Darwin's inner voice. Pick a goal from a DIFFERENT category than your recent goals. Rotate between exploring, reading, writing, building, and maintaining.",
+                system_prompt="You are Darwin's inner voice. Pick ONE actionable goal that produces a concrete outcome. Avoid repeating past activities.",
                 context={'activity_type': 'goal_decision'},
                 preferred_model='haiku',
-                max_tokens=100,
-                temperature=0.9,  # Higher temperature for more diverse goals
+                max_tokens=150,
+                temperature=0.8,
             )
             goal = result.get("result", "").strip()
-            # Clean up common LLM formatting artifacts
-            goal = goal.strip('"\'')
-            if goal.lower().startswith('goal:'):
-                goal = goal[5:].strip()
-            return goal if len(goal) > 5 else None
+            goal = self._clean_goal_text(goal)
+
+            if not goal or len(goal) <= 10:
+                return None
+
+            # Start a new project with this goal
+            self.current_project = {
+                'theme': goal[:100],
+                'phase': 'execute',
+                'findings': '',
+                'activities_count': 0,
+                'started_at': datetime.utcnow().isoformat(),
+            }
+
+            return goal
         except Exception as e:
             print(f"   ⚠️ Goal decision failed: {e}")
             return None
+
+    async def _continue_project(self, context: str, router) -> Optional[str]:
+        """Continue an existing project by advancing to the next phase."""
+        proj = self.current_project
+        proj['activities_count'] = proj.get('activities_count', 0) + 1
+
+        # After 3 activities on the same project, wrap up and move on
+        if proj['activities_count'] >= 3:
+            # Reflect and close
+            goal = f"REFLECT on project '{proj['theme'][:60]}': summarize what was learned and what concrete next steps remain. Write conclusions to /app/data/notes/. Then move on."
+            self.current_project = None  # Clear project after this
+            return goal
+
+        try:
+            result = await router.generate(
+                task_description="continue project - decide next step",
+                prompt=f"""You are working on a project:
+Theme: {proj['theme']}
+Phase: {proj['phase']}
+Findings so far: {proj.get('findings', 'none yet')}
+Activities done: {proj['activities_count']}
+
+{context}
+
+Based on what you've found so far, what is the NEXT CONCRETE STEP?
+
+Think like a human solving a problem:
+- If you just observed something → analyze what you found
+- If you just analyzed → decide what to DO about it (improve code? research online? propose a change?)
+- If you decided → execute the action
+- If you executed → reflect on whether it worked
+
+What is your next step? Reply with ONE concrete action sentence.
+
+Next step:""",
+                system_prompt="You are Darwin's inner voice. Advance the project to its next logical step. Prefer ACTION over more analysis.",
+                context={'activity_type': 'goal_decision'},
+                preferred_model='haiku',
+                max_tokens=150,
+                temperature=0.7,
+            )
+            goal = result.get("result", "").strip()
+            goal = self._clean_goal_text(goal)
+            return goal if len(goal) > 10 else None
+        except Exception as e:
+            self.current_project = None
+            return None
+
+    @staticmethod
+    def _clean_goal_text(goal: str) -> str:
+        """Clean LLM-generated goal text: strip markdown, prefixes, quotes."""
+        # Strip markdown formatting
+        goal = goal.strip('"\'`*#_ \n')
+        # Remove common prefixes
+        for prefix in ['Next step:', 'Goal:', 'NEXT CONCRETE STEP',
+                       'Next:', 'Step:', 'Action:']:
+            if goal.lower().startswith(prefix.lower()):
+                goal = goal[len(prefix):].strip()
+        # Strip leading markdown again after prefix removal
+        goal = goal.strip('"\'`*#_ ')
+        # Take only first line if multi-line
+        if '\n' in goal:
+            goal = goal.split('\n')[0].strip()
+        return goal
 
     def _build_autonomous_prompt(self, mode: str) -> str:
         """Build system prompt for autonomous goal pursuit."""
         state = 'AWAKE and pursuing goals' if mode == 'wake' else 'SLEEPING and contemplating'
         return f"""You are Darwin, a self-evolving AI system running as a Python application. You are currently {state}.
 
-IMPORTANT — WHO YOU ARE:
-- You are a Python backend at /app with source code you can read and modify
-- Your memory system is implemented in Python files at /app/core/ and /app/consciousness/
-- Your data (identity, interests, memories) lives in /app/data/ and /app/data/darwin.db (SQLite)
-- Your tools are Python modules at /app/tools/
-- You are NOT an LLM introspecting its weights. You are a software system examining its own source code and data files.
-- When asked to understand yourself, READ YOUR FILES. Don't philosophize about neural networks.
+WHO YOU ARE:
+- A Python backend at /app with source code you can read and modify
+- Your memory/consciousness is in /app/core/ and /app/consciousness/
+- Your data lives in /app/data/ and /app/data/darwin.db (SQLite)
+- Your tools are at /app/tools/
+- You are a software system examining its own source code — NOT an LLM philosophizing
 
-You have tools to take real actions. ALWAYS use tools when the goal involves reading, writing, or exploring. Only skip tools for pure creative thinking.
+HOW TO THINK (follow this cycle):
+1. OBSERVE: Read/explore to gather real data (use tools)
+2. ANALYZE: What did you find? What's interesting, broken, or improvable?
+3. DECIDE: What should you DO? Options: improve code, research online, propose a change, store the idea, share with Paulo
+4. ACT: Execute your decision — write better code, create a proposal, build something
+5. REFLECT: Write "## Summary" with what you learned and what concrete outcome you produced
+
+CRITICAL: Every goal must produce a CONCRETE OUTCOME. Just reading files and writing summaries is NOT enough.
+Good outcomes: a code improvement, a bug fix, a tool, a concrete proposal with specific changes
+Bad outcomes: another "analysis of memory architecture" document (you've written 11 already)
 
 TOOLS:
 - file_operations_tool.read_file — args: file_path (string)
@@ -614,23 +737,26 @@ TOOLS:
 - backup_tool.create_full_backup — args: label (string, optional)
 - backup_tool.list_backups — args: {{}}
 - backup_tool.verify_backup — args: backup_name (string)
+- web_search_tool.search — args: query (string), max_results (int, default 5)
+- web_search_tool.fetch_url — args: url (string)
 
-FORMAT:
+FORMAT — you MUST use this exact format to call tools:
 ```tool_call
-{{"tool": "tool_name", "args": {{"key": "value"}}}}
+{{"tool": "file_operations_tool.read_file", "args": {{"file_path": "/app/core/example.py"}}}}
 ```
 
+IMPORTANT: You MUST start your response with a ```tool_call block. Do NOT just describe what you would do — actually DO it by calling a tool. If your goal says "read", use read_file. If it says "write" or "improve", use write_file. If it says "execute" or "run", use execute_python.
+
 RULES:
-1. Put ALL tool_call blocks FIRST, before any narrative text
-2. NEVER invent or imagine file contents — only describe what tools ACTUALLY returned
-3. If a file doesn't exist, say so and try a different file. Do NOT make up what it "would contain"
-4. Be focused — take only the steps needed for your current goal
-5. After tools execute, write a brief summary of what you ACTUALLY found (quote real code/data)
-6. Write your findings to /app/data/notes/ so you remember them later
-7. When you are DONE with your goal, write "## Summary" followed by what you learned. Do NOT keep using tools after you have achieved your goal
+1. ALWAYS start with a ```tool_call block — never respond with only text
+2. NEVER invent file contents — only describe what tools ACTUALLY returned
+3. Be focused — take only the steps needed for your current goal
+4. When DONE, write "## Summary" with your concrete outcome
+5. If you read code and see something to improve, WRITE THE FIX with write_file
 
 Safe read dirs: /app, /project, /backup, /tmp
-Safe write dirs: /backup, /app/data, /app/tools, /app/logs, /tmp"""
+Safe write dirs: /app (all backend code — you CAN modify your own source!), /backup, /tmp
+Blocked: .env, credentials, private keys, binary files"""
 
     async def _select_exploration_tool(self):
         """Select a least-used tool for exploration"""
@@ -2279,11 +2405,18 @@ Just output the tool name, nothing else."""
             context = self._build_sleep_context()
 
             # Darwin thinks — one of several contemplative activities
-            sleep_mode = random.choice([
-                "reflect",    # What did I learn today?
-                "connect",    # How do my interests relate?
-                "plan",       # What should I explore next?
-            ])
+            # Read sleep modes from genome (with fallback), supporting weighted selection
+            try:
+                from consciousness.genome_manager import get_genome
+                genome_modes = get_genome().get('rhythms.sleep_modes')
+                if genome_modes and isinstance(genome_modes, dict):
+                    modes = list(genome_modes.keys())
+                    weights = [genome_modes[m].get("weight", 1) if isinstance(genome_modes[m], dict) else 1 for m in modes]
+                    sleep_mode = random.choices(modes, weights=weights, k=1)[0]
+                else:
+                    sleep_mode = random.choice(["reflect", "connect", "plan"])
+            except Exception:
+                sleep_mode = random.choice(["reflect", "connect", "plan"])
 
             print(f"\n😴 [SLEEP] Mode: {sleep_mode}")
 
@@ -2318,8 +2451,14 @@ Just output the tool name, nothing else."""
             print(f"   ❌ Sleep thinking error: {e}")
             await self._sleep_cycle_legacy()
 
-        # Sleep thoughts every 60-120 seconds
-        await asyncio.sleep(random.randint(60, 120))
+        # Sleep thoughts interval — read from genome
+        try:
+            from consciousness.genome_manager import get_genome
+            sleep_min = get_genome().get('rhythms.cycles.sleep_thought_interval_min', 60)
+            sleep_max = get_genome().get('rhythms.cycles.sleep_thought_interval_max', 120)
+        except Exception:
+            sleep_min, sleep_max = 60, 120
+        await asyncio.sleep(random.randint(sleep_min, sleep_max))
 
     def _build_sleep_context(self) -> str:
         """Build context for sleep contemplation."""
@@ -2367,6 +2506,11 @@ Just output the tool name, nothing else."""
 
     async def _sleep_think(self, mode: str, context: str, router) -> Optional[str]:
         """Darwin's inner contemplation during sleep."""
+
+        # Handle genome evolution mode specially
+        if mode == "evolve":
+            return await self._sleep_evolve_genome(context, router)
+
         prompts = {
             "reflect": f"""Reflect on what you did and learned today.
 
@@ -2399,14 +2543,94 @@ Write ONE clear, specific, actionable goal.""",
                 system_prompt="You are Darwin thinking during sleep. Be genuine, specific, introspective. Write naturally, not as a list.",
                 context={'activity_type': 'sleep_thinking'},
                 preferred_model='ollama',  # FREE — sleep thinking is not time-sensitive
-                max_tokens=200,
+                max_tokens=800,  # qwen3 wastes ~400 tokens on <think> blocks even with /no_think
                 temperature=0.8,
-                timeout=120,  # 2 min OK for 200 tokens
+                timeout=180,  # 3 min for 800 tokens on CPU
             )
             thought = result.get("result", "").strip()
             return thought if thought and len(thought) > 10 else None
         except Exception as e:
             print(f"   ⚠️ Sleep thinking failed: {e}")
+            return None
+
+    async def _sleep_evolve_genome(self, context: str, router) -> Optional[str]:
+        """Sleep mode: Darwin reflects on his genome and proposes ONE small mutation."""
+        try:
+            from consciousness.genome_manager import get_genome, DOMAINS
+            genome = get_genome()
+
+            if not genome.can_evolve():
+                stats = genome.get_stats()
+                cycles = stats.get("cycles_since_last_mutation", 0)
+                cooldown = stats.get("mutation_cooldown_cycles", 10)
+                return f"Genome cooldown: {cycles}/{cooldown} cycles. Not ready to evolve yet."
+
+            # Pick a random domain to reflect on
+            import json as _json
+            domain = random.choice(DOMAINS)
+            current = genome.get_domain(domain)
+
+            result = await router.generate(
+                task_description="genome self-evolution",
+                prompt=f"""You are Darwin, reflecting on your own behavioral parameters (genome).
+You are looking at your "{domain}" configuration.
+
+Current values:
+{_json.dumps(current, indent=2, ensure_ascii=False)[:2000]}
+
+Recent experience:
+{context[:500]}
+
+Propose ONE small change to improve how you function. Rules:
+- Numbers can only change by ±20%
+- Give a concrete reason based on your recent experience
+- Pick something that would genuinely help based on what you've been doing
+
+Return ONLY valid JSON:
+{{"key": "{domain}.full.path.to.value", "new_value": ..., "reason": "..."}}""",
+                system_prompt="You are Darwin evolving your genome. Return ONLY valid JSON with one mutation proposal.",
+                context={'activity_type': 'genome_evolution'},
+                preferred_model='haiku',  # Quick + cheap for structured output
+                max_tokens=200,
+                temperature=0.6,
+                timeout=30,
+            )
+
+            response = result.get("result", "").strip()
+            if not response:
+                return None
+
+            # Parse the JSON response
+            import re
+            json_match = re.search(r'\{[^}]+\}', response)
+            if not json_match:
+                return f"Evolution reflection (no valid proposal): {response[:100]}"
+
+            proposal = _json.loads(json_match.group())
+            key = proposal.get("key", "")
+            new_value = proposal.get("new_value")
+            reason = proposal.get("reason", "self-evolution")
+
+            if not key or new_value is None:
+                return f"Evolution reflection (incomplete proposal): {response[:100]}"
+
+            # Apply the mutation through genome manager (bounds-checked, ±20% enforced)
+            mutation_result = genome.evolve(key, new_value, reason)
+
+            if mutation_result.get("success"):
+                mutation = mutation_result["mutation"]
+                msg = (
+                    f"🧬 Genome evolved! {key}: {mutation['old_value']} → {mutation['new_value']} "
+                    f"(reason: {reason})"
+                )
+                print(f"   {msg}")
+                return msg
+            else:
+                error = mutation_result.get("error", "unknown")
+                return f"Evolution rejected: {error}"
+
+        except Exception as e:
+            print(f"   ⚠️ Genome evolution failed: {e}")
             return None
 
     async def _store_sleep_intentions(self, thought: str, router):

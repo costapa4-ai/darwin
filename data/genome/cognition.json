@@ -1,0 +1,27 @@
+{
+  "scoring": {
+    "base_priority_multiplier": 10,
+    "recency_multiplier": 2,
+    "recency_max_bonus": 20,
+    "never_executed_bonus": 15,
+    "category_repeat_penalty": -15,
+    "same_action_repeat_penalty": -25,
+    "random_factor_max": 5,
+    "intention_alignment_bonus": 20,
+    "self_understanding_bonus": 15
+  },
+  "wake_goal_types": [
+    "INVESTIGATE",
+    "IMPROVE",
+    "RESEARCH",
+    "BUILD",
+    "MAINTAIN",
+    "PROPOSE"
+  ],
+  "curiosity_level": 0.7,
+  "discovery_momentum_window_minutes": 30,
+  "frustration_decay_minutes": 15,
+  "engagement_max_interactions": 20,
+  "max_recent_tracking": 5,
+  "history_limit": 50
+}

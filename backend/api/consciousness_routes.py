@@ -47,6 +47,7 @@ from consciousness.autonomous_loop import (
     ALLOWED_TOOLS as _CHAT_TOOLS,
     get_tool_manager as _get_tool_manager,
     extract_and_execute_tools as _extract_and_execute_tools,
+    format_tool_result_brief as _format_brief,
 )
 
 # Max iterations for the agentic loop (prevents runaway)
@@ -62,13 +63,16 @@ async def _run_agent_loop(
     """
     Agentic loop: LLM generates → tools execute → results fed back → repeat.
     Returns the final combined response for the user.
+
+    If multiple iterations produced narrative chunks, a final revision pass
+    merges them into one natural response (no duplicate greetings, no JSON).
     """
     tm = _get_tool_manager()
 
     # Conversation turns for the agent loop
-    agent_messages = [user_message]
     collected_narrative = []
-    collected_results = []
+    collected_results = []       # Detailed results for LLM feedback
+    collected_results_brief = [] # Brief summaries for user display
 
     for iteration in range(_MAX_TOOL_ITERATIONS):
         # Build the prompt: original message + tool results from previous iterations
@@ -81,7 +85,8 @@ async def _run_agent_loop(
                 f"O utilizador pediu: {user_message}\n\n"
                 f"Já executaste estas ferramentas e obtiveste estes resultados:\n{results_text}\n\n"
                 f"Continua: se precisas de mais ações, usa tool_call. "
-                f"Se já tens tudo, responde ao utilizador com um resumo final (sem tool_call)."
+                f"Se já tens tudo, responde ao utilizador com um resumo final (sem tool_call). "
+                f"NÃO repitas saudações — continua a partir de onde ficaste."
             )
 
         result = await router_service.generate(
@@ -109,17 +114,52 @@ async def _run_agent_loop(
         if narrative:
             collected_narrative.append(narrative)
         collected_results.extend(tool_results)
+        collected_results_brief.extend(_format_brief(r) for r in tool_results)
 
         # If no tools were actually executed, stop
         if not tool_results:
             break
 
-    # Build final response
+    # ── Final response assembly ──
+    # If multiple iterations produced narrative, run a revision pass
+    if len(collected_narrative) > 1:
+        raw_combined = "\n\n".join(collected_narrative)
+        brief_tools = "\n".join(collected_results_brief) if collected_results_brief else ""
+
+        try:
+            revision = await router_service.generate(
+                task_description="revise chat response",
+                prompt=(
+                    f"O utilizador disse: {user_message}\n\n"
+                    f"Tu geraste esta resposta em múltiplas partes (durante a execução de ferramentas):\n"
+                    f"---\n{raw_combined}\n---\n\n"
+                    + (f"Ferramentas executadas:\n{brief_tools}\n\n" if brief_tools else "")
+                    + "Reescreve como UMA resposta natural e coesa. Regras:\n"
+                    "- UMA ÚNICA saudação no início (sem repetir 'Bom dia' ou 'Opa')\n"
+                    "- Consolida toda a informação relevante sem repetir\n"
+                    "- Remove qualquer JSON cru — usa linguagem natural\n"
+                    "- Mantém emojis e personalidade\n"
+                    "- Se houve erros de ferramentas, menciona brevemente\n"
+                    "- NÃO adiciones informação que não estava no original"
+                ),
+                system_prompt="Reescreve a resposta do Darwin de forma coesa. Mantém o tom e personalidade. Responde APENAS com a resposta revista, sem comentários.",
+                context={'activity_type': 'chat_revision'},
+                preferred_model='haiku',
+                max_tokens=max_tokens,
+                temperature=0.5,
+            )
+            revised = revision.get("result", "").strip()
+            if revised and len(revised) > 20:
+                return revised
+        except Exception:
+            pass  # Fall through to manual assembly
+
+    # Single narrative or revision failed — use simple assembly
     final_parts = []
     if collected_narrative:
         final_parts.append("\n\n".join(collected_narrative))
-    if collected_results:
-        final_parts.append("---\n📋 **Resultados:**\n" + "\n\n".join(collected_results))
+    if collected_results_brief:
+        final_parts.append("---\n📋 **Ferramentas:**\n" + "\n".join(collected_results_brief))
 
     return "\n\n".join(final_parts) if final_parts else "Sem resposta."
 

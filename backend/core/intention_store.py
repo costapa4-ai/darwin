@@ -21,11 +21,29 @@ logger = _get_logger(__name__)
 # How long intentions stay active before expiring
 INTENTION_TTL_HOURS = 48
 
+# Max pending intentions per category (prevent goal flooding)
+MAX_PER_CATEGORY = 3
+
+# Max total pending intentions
+MAX_TOTAL_PENDING = 12
+
 # Valid categories (map to ActionCategory in proactive_engine)
 VALID_CATEGORIES = {
     "exploration", "learning", "optimization", "maintenance",
     "creativity", "communication", "self_understanding"
 }
+
+# Keywords that indicate semantically similar intentions
+_SIMILARITY_GROUPS = [
+    {"memory", "memória", "remember"},
+    {"file", "filesystem", "ficheiro", "aceder", "access"},
+    {"identity", "self-understanding", "self-awareness", "self-knowledge", "who i am"},
+    {"backup", "integrity", "verify"},
+    {"improve", "optimize", "enhancement"},
+    {"explore", "discover", "investigate"},
+    {"learn", "understand", "study"},
+    {"error", "mistake", "limit", "bug"},
+]
 
 
 class IntentionStore:
@@ -158,17 +176,36 @@ JSON array:""",
             conn.close()
 
     def _is_duplicate(self, intent: str) -> bool:
-        """Check if a similar pending intention already exists."""
+        """Check if a similar pending intention already exists (semantic dedup)."""
         conn = sqlite3.connect(self.db_path)
         try:
-            # Simple substring match — good enough for deduplication
-            cursor = conn.execute(
-                """SELECT COUNT(*) FROM intentions
-                   WHERE status = 'pending'
-                   AND (LOWER(intent) = LOWER(?) OR LOWER(?) LIKE '%' || LOWER(intent) || '%')""",
-                (intent, intent)
-            )
-            return cursor.fetchone()[0] > 0
+            # Get all pending intents
+            rows = conn.execute(
+                "SELECT intent FROM intentions WHERE status = 'pending'"
+            ).fetchall()
+            intent_lower = intent.lower()
+
+            for (existing,) in rows:
+                existing_lower = existing.lower()
+                # Exact or substring match
+                if intent_lower == existing_lower:
+                    return True
+                if intent_lower in existing_lower or existing_lower in intent_lower:
+                    return True
+                # Semantic similarity: share 3+ significant words
+                intent_words = set(w for w in intent_lower.split() if len(w) > 3)
+                existing_words = set(w for w in existing_lower.split() if len(w) > 3)
+                overlap = intent_words & existing_words
+                if len(overlap) >= 3:
+                    return True
+                # Same similarity group
+                for group in _SIMILARITY_GROUPS:
+                    if any(k in intent_lower for k in group) and any(k in existing_lower for k in group):
+                        # Both mention the same concept area AND same category-style words
+                        if len(overlap) >= 2:
+                            return True
+
+            return False
         finally:
             conn.close()
 
@@ -256,6 +293,68 @@ JSON array:""",
             conn.commit()
             if expired > 0:
                 logger.info(f"Expired {expired} stale intention(s)")
+        finally:
+            conn.close()
+
+    def cleanup_duplicates(self):
+        """Remove semantically duplicate pending intentions, keeping highest-confidence."""
+        conn = sqlite3.connect(self.db_path)
+        conn.row_factory = sqlite3.Row
+        try:
+            rows = conn.execute(
+                "SELECT id, intent, category, confidence FROM intentions WHERE status = 'pending' ORDER BY confidence DESC"
+            ).fetchall()
+
+            seen_themes = {}  # category → best intent
+            to_remove = []
+
+            for r in rows:
+                intent_lower = r['intent'].lower()
+                cat = r['category']
+
+                # Check if we already have a similar one in this category
+                is_dup = False
+                key = f"{cat}"
+                if key in seen_themes:
+                    for existing_intent in seen_themes[key]:
+                        existing_lower = existing_intent.lower()
+                        # Word overlap check
+                        words_new = set(w for w in intent_lower.split() if len(w) > 3)
+                        words_existing = set(w for w in existing_lower.split() if len(w) > 3)
+                        if len(words_new & words_existing) >= 2:
+                            is_dup = True
+                            break
+                        if intent_lower in existing_lower or existing_lower in intent_lower:
+                            is_dup = True
+                            break
+
+                if is_dup:
+                    to_remove.append(r['id'])
+                else:
+                    seen_themes.setdefault(key, []).append(r['intent'])
+
+            # Also enforce per-category limit
+            cat_counts = {}
+            all_rows = conn.execute(
+                "SELECT id, category FROM intentions WHERE status = 'pending' AND id NOT IN ({}) ORDER BY confidence DESC".format(
+                    ','.join(str(i) for i in to_remove) if to_remove else '0'
+                )
+            ).fetchall()
+            for r in all_rows:
+                cat_counts[r['category']] = cat_counts.get(r['category'], 0) + 1
+                if cat_counts[r['category']] > MAX_PER_CATEGORY:
+                    to_remove.append(r['id'])
+
+            if to_remove:
+                placeholders = ','.join('?' * len(to_remove))
+                conn.execute(
+                    f"UPDATE intentions SET status = 'consolidated' WHERE id IN ({placeholders})",
+                    to_remove
+                )
+                conn.commit()
+                logger.info(f"Cleaned up {len(to_remove)} duplicate/excess intentions")
+
+            return len(to_remove)
         finally:
             conn.close()
 

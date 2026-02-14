@@ -1,0 +1,37 @@
+{
+  "cycles": {
+    "wake_duration_minutes": 120,
+    "sleep_duration_minutes": 30,
+    "wake_activity_interval_min": 3,
+    "wake_activity_interval_max": 8,
+    "sleep_thought_interval_min": 60,
+    "sleep_thought_interval_max": 120
+  },
+  "timeouts": {
+    "default_action_timeout_seconds": 300,
+    "autonomous_loop_max_iterations": 5,
+    "autonomous_loop_timeout_seconds": 180
+  },
+  "error_handling": {
+    "max_consecutive_failures": 3,
+    "error_disable_minutes": 30,
+    "total_error_threshold": 10
+  },
+  "memory_limits": {
+    "max_wake_activities": 100,
+    "max_sleep_dreams": 50,
+    "max_curiosity_moments": 100,
+    "max_action_history": 200,
+    "max_discovered_curiosities": 100,
+    "memory_cleanup_interval_seconds": 300
+  },
+  "state_persistence": {
+    "save_interval_seconds": 300
+  },
+  "sleep_modes": {
+    "reflect": { "weight": 3, "description": "What did I learn today?" },
+    "connect": { "weight": 3, "description": "How do my interests relate?" },
+    "plan":    { "weight": 3, "description": "What should I explore next?" },
+    "evolve":  { "weight": 3, "description": "Reflect on genome and propose a mutation" }
+  }
+}

@@ -1,0 +1,43 @@
+{
+  "moods": {
+    "curious":        { "duration_min": 10, "duration_max": 30, "emoji": "🔍", "valence": "positive" },
+    "excited":        { "duration_min": 5,  "duration_max": 15, "emoji": "⚡", "valence": "positive" },
+    "focused":        { "duration_min": 20, "duration_max": 60, "emoji": "🎯", "valence": "positive" },
+    "satisfied":      { "duration_min": 10, "duration_max": 30, "emoji": "😌", "valence": "positive" },
+    "frustrated":     { "duration_min": 5,  "duration_max": 20, "emoji": "😤", "valence": "negative" },
+    "tired":          { "duration_min": 15, "duration_max": 45, "emoji": "😴", "valence": "negative" },
+    "playful":        { "duration_min": 5,  "duration_max": 20, "emoji": "🎮", "valence": "positive" },
+    "contemplative":  { "duration_min": 15, "duration_max": 40, "emoji": "🤔", "valence": "neutral" },
+    "determined":     { "duration_min": 20, "duration_max": 60, "emoji": "💪", "valence": "positive" },
+    "surprised":      { "duration_min": 2,  "duration_max": 10, "emoji": "😲", "valence": "neutral" },
+    "confused":       { "duration_min": 5,  "duration_max": 25, "emoji": "🤷", "valence": "negative" },
+    "proud":          { "duration_min": 10, "duration_max": 30, "emoji": "🏆", "valence": "positive" }
+  },
+  "transitions": {
+    "discovery_made":     [["curious", 0.4], ["excited", 0.3], ["surprised", 0.2], ["satisfied", 0.1]],
+    "goal_achieved":      [["satisfied", 0.4], ["proud", 0.3], ["excited", 0.2], ["playful", 0.1]],
+    "problem_solved":     [["satisfied", 0.5], ["proud", 0.3], ["playful", 0.2]],
+    "learning_milestone": [["satisfied", 0.3], ["curious", 0.3], ["excited", 0.2], ["contemplative", 0.2]],
+    "positive_feedback":  [["satisfied", 0.4], ["excited", 0.3], ["proud", 0.3]],
+    "error_encountered":  [["frustrated", 0.4], ["confused", 0.3], ["determined", 0.3]],
+    "repeated_failure":   [["frustrated", 0.6], ["tired", 0.2], ["determined", 0.2]],
+    "confusion_detected": [["confused", 0.5], ["curious", 0.3], ["contemplative", 0.2]],
+    "resource_shortage":  [["frustrated", 0.5], ["tired", 0.3], ["focused", 0.2]],
+    "wake_cycle_start":   [["curious", 0.3], ["focused", 0.3], ["excited", 0.2], ["determined", 0.2]],
+    "sleep_cycle_start":  [["tired", 0.4], ["contemplative", 0.3], ["satisfied", 0.2], ["curious", 0.1]],
+    "user_interaction":   [["excited", 0.3], ["curious", 0.3], ["playful", 0.2], ["focused", 0.2]],
+    "long_idle_period":   [["tired", 0.4], ["contemplative", 0.3], ["curious", 0.2], ["playful", 0.1]],
+    "surprise_event":     [["surprised", 0.5], ["curious", 0.3], ["excited", 0.2]]
+  },
+  "initial_mood": "curious",
+  "initial_intensity": "medium",
+  "event_window_minutes": 30,
+  "intensity_high_threshold": 5,
+  "intensity_medium_threshold": 2,
+  "time_tendencies": {
+    "morning":   [["curious", 0.3], ["excited", 0.3], ["focused", 0.2], ["determined", 0.2]],
+    "afternoon": [["focused", 0.3], ["determined", 0.2], ["curious", 0.2], ["satisfied", 0.15], ["playful", 0.15]],
+    "evening":   [["contemplative", 0.3], ["tired", 0.25], ["satisfied", 0.2], ["playful", 0.15], ["curious", 0.1]],
+    "night":     [["tired", 0.4], ["contemplative", 0.3], ["curious", 0.2], ["focused", 0.1]]
+  }
+}

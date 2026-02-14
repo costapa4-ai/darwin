@@ -1,0 +1,18 @@
+{
+  "exploration": {
+    "max_active_interests": 7,
+    "interest_decay_days": 30,
+    "expedition_cooldown_minutes": 15,
+    "expedition_max_insights": 5
+  },
+  "shower_thoughts": {
+    "enabled": true,
+    "frequency_per_sleep_cycle": 3,
+    "max_length": 200
+  },
+  "poetry_style": "narrative",
+  "project_continuity": {
+    "max_activities_per_project": 3,
+    "reflect_after_max": true
+  }
+}

@@ -38,11 +38,14 @@ SAFE_MODULES = {
     'itertools', 'functools', 'operator', 'string', 'textwrap',
     'hashlib', 'base64', 'csv', 'statistics', 'random',
     'copy', 'pprint', 'dataclasses', 'typing', 'enum',
+    'tarfile', 'zipfile', 'glob', 'os', 'os.path',
 }
 
 # Patterns that are blocked in code
 BLOCKED_PATTERNS = [
     'os.system', 'os.popen', 'os.exec',
+    'os.remove', 'os.unlink', 'os.rmdir', 'os.rename',
+    'os.chmod', 'os.chown', 'os.kill', 'os.fork',
     'subprocess', 'Popen',
     '__import__', 'importlib',
     'eval(', 'exec(',
@@ -81,7 +84,9 @@ async def execute_python(
 
     # Check for obviously dangerous patterns
     code_lower = code.lower()
-    for pattern in ['os.system', 'subprocess', 'popen', '__import__',
+    for pattern in ['os.system', 'os.remove', 'os.unlink', 'os.rmdir',
+                    'os.chmod', 'os.chown', 'os.kill', 'os.fork',
+                    'subprocess', 'popen', '__import__',
                     'shutil.rmtree', 'ctypes', 'cffi']:
         if pattern in code_lower:
             return {

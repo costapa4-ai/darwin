@@ -232,11 +232,28 @@ class StateManager:
         # Run memory consolidation during sleep transition
         await self._consolidate_memories()
 
+        # Clear current project (start fresh next wake cycle)
+        self.engine.current_project = None
+
         # Clean up findings inbox (tiered retention)
         self._cleanup_findings_inbox()
 
         # Trim wake activities (keep last 50)
         self._trim_activities()
+
+        # Record genome cycle (half-cycle: wake complete)
+        try:
+            from consciousness.genome_manager import get_genome
+            genome = get_genome()
+            genome.record_cycle()
+
+            # Check if Paulo changed core values
+            cv_change = genome.check_core_values_changed()
+            if cv_change:
+                print(f"🔔 Core values changed: {cv_change}")
+                logger.info(f"Core values change detected: {cv_change}")
+        except Exception as e:
+            logger.debug(f"Genome cycle record failed: {e}")
 
         # Trigger after_sleep hooks
         await self._trigger_hooks('AFTER_SLEEP', {
@@ -306,6 +323,20 @@ class StateManager:
 
         # Trim dreams (keep last 50)
         self._trim_dreams()
+
+        # Record genome cycle (half-cycle: sleep complete — full cycle done)
+        try:
+            from consciousness.genome_manager import get_genome
+            genome = get_genome()
+            genome.record_cycle()
+
+            # Check if Paulo changed core values
+            cv_change = genome.check_core_values_changed()
+            if cv_change:
+                print(f"🔔 Core values changed: {cv_change}")
+                logger.info(f"Core values change detected: {cv_change}")
+        except Exception as e:
+            logger.debug(f"Genome cycle record failed: {e}")
 
         # Trigger after_wake hooks
         await self._trigger_hooks('AFTER_WAKE', {
@@ -554,10 +585,11 @@ class StateManager:
                 interest_graph.evolve_interests()
                 logger.info("Interest graph evolved")
 
-            # Expire stale intentions
+            # Expire stale intentions and clean up duplicates
             intention_store = get_service('intention_store')
             if intention_store:
                 intention_store.expire_old()
+                intention_store.cleanup_duplicates()
 
         except Exception as e:
             logger.debug(f"Digital being consolidation failed (non-critical): {e}")

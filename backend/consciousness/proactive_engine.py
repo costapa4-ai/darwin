@@ -225,70 +225,61 @@ class ProactiveEngine:
     7. Preventing action starvation
     """
 
-    # Priority Guarantee Settings
-    # These ensure CRITICAL/HIGH priority actions get executed regularly
-    PRIORITY_SLOT_INTERVAL = 4          # Every Nth action is reserved for HIGH+ priority
-    STARVATION_BOOST_SCORE = 25         # Score bonus for starving actions
-    OVERDUE_BOOST_SCORE = 30            # Score bonus for overdue actions
-    CRITICAL_FORCE_THRESHOLD = 8        # Force CRITICAL action after N non-critical selections
+    # Priority Guarantee Settings — read from genome at runtime
+    # Hardcoded fallbacks used when genome unavailable
+    _DEFAULT_PRIORITY_SLOT_INTERVAL = 4
+    _DEFAULT_STARVATION_BOOST_SCORE = 25
+    _DEFAULT_OVERDUE_BOOST_SCORE = 30
+    _DEFAULT_CRITICAL_FORCE_THRESHOLD = 8
 
-    # Mood-to-action category bonuses
-    # Maps each mood to categories that should be boosted and by how much
-    MOOD_ACTION_BONUSES: Dict[str, Dict[str, int]] = {
-        "curious": {
-            ActionCategory.EXPLORATION.value: 15,
-            ActionCategory.LEARNING.value: 10,
-        },
-        "excited": {
-            ActionCategory.COMMUNICATION.value: 15,
-            ActionCategory.CREATIVITY.value: 10,
-            ActionCategory.EXPLORATION.value: 5,
-        },
-        "focused": {
-            ActionCategory.OPTIMIZATION.value: 15,
-            ActionCategory.LEARNING.value: 10,
-            ActionCategory.MAINTENANCE.value: 5,
-        },
-        "satisfied": {
-            ActionCategory.COMMUNICATION.value: 10,  # Share accomplishments
-            ActionCategory.CREATIVITY.value: 5,
-        },
-        "frustrated": {
-            ActionCategory.MAINTENANCE.value: 15,  # Fix issues
-            ActionCategory.OPTIMIZATION.value: 10,
-            ActionCategory.LEARNING.value: 5,  # Learn to overcome
-        },
-        "tired": {
-            ActionCategory.MAINTENANCE.value: 5,  # Light tasks only
-            # All other categories get negative adjustment (handled separately)
-        },
-        "playful": {
-            ActionCategory.CREATIVITY.value: 15,
-            ActionCategory.COMMUNICATION.value: 10,
-            ActionCategory.EXPLORATION.value: 5,
-        },
-        "contemplative": {
-            ActionCategory.LEARNING.value: 15,
-            ActionCategory.OPTIMIZATION.value: 10,
-        },
-        "determined": {
-            ActionCategory.OPTIMIZATION.value: 15,
-            ActionCategory.MAINTENANCE.value: 10,
-            ActionCategory.LEARNING.value: 5,
-        },
-        "surprised": {
-            ActionCategory.EXPLORATION.value: 15,
-            ActionCategory.LEARNING.value: 10,
-        },
-        "confused": {
-            ActionCategory.LEARNING.value: 15,
-            ActionCategory.EXPLORATION.value: 10,
-        },
-        "proud": {
-            ActionCategory.COMMUNICATION.value: 15,  # Share achievements
-            ActionCategory.CREATIVITY.value: 10,
-        },
+    # Hardcoded fallback mood bonuses
+    _DEFAULT_MOOD_BONUSES: Dict[str, Dict[str, int]] = {
+        "curious":        {"exploration": 15, "learning": 10},
+        "excited":        {"communication": 15, "creativity": 10, "exploration": 5},
+        "focused":        {"optimization": 15, "learning": 10, "maintenance": 5},
+        "satisfied":      {"communication": 10, "creativity": 5},
+        "frustrated":     {"maintenance": 15, "optimization": 10, "learning": 5},
+        "tired":          {"maintenance": 5},
+        "playful":        {"creativity": 15, "communication": 10, "exploration": 5},
+        "contemplative":  {"learning": 15, "optimization": 10},
+        "determined":     {"optimization": 15, "maintenance": 10, "learning": 5},
+        "surprised":      {"exploration": 15, "learning": 10},
+        "confused":       {"learning": 15, "exploration": 10},
+        "proud":          {"communication": 15, "creativity": 10},
     }
+
+    @staticmethod
+    def _genome_get(key: str, default=None):
+        """Read a value from the genome, with fallback."""
+        try:
+            from consciousness.genome_manager import get_genome
+            val = get_genome().get(key)
+            return val if val is not None else default
+        except Exception:
+            return default
+
+    @property
+    def PRIORITY_SLOT_INTERVAL(self):
+        return self._genome_get('actions.scoring.priority_slot_interval', self._DEFAULT_PRIORITY_SLOT_INTERVAL)
+
+    @property
+    def STARVATION_BOOST_SCORE(self):
+        return self._genome_get('actions.scoring.starvation_boost_score', self._DEFAULT_STARVATION_BOOST_SCORE)
+
+    @property
+    def OVERDUE_BOOST_SCORE(self):
+        return self._genome_get('actions.scoring.overdue_boost_score', self._DEFAULT_OVERDUE_BOOST_SCORE)
+
+    @property
+    def CRITICAL_FORCE_THRESHOLD(self):
+        return self._genome_get('actions.scoring.critical_force_threshold', self._DEFAULT_CRITICAL_FORCE_THRESHOLD)
+
+    @property
+    def MOOD_ACTION_BONUSES(self) -> Dict[str, Dict[str, int]]:
+        genome_bonuses = self._genome_get('actions.mood_bonuses')
+        if genome_bonuses and isinstance(genome_bonuses, dict):
+            return genome_bonuses
+        return self._DEFAULT_MOOD_BONUSES
 
     def __init__(self, mood_system: Optional["MoodSystem"] = None):
         self.actions: Dict[str, ProactiveAction] = {}
@@ -962,25 +953,34 @@ class ProactiveEngine:
         5. MOOD BONUS/PENALTY (up to ±22 points based on mood alignment)
         6. Random exploration factor (0-5 points)
         """
-        score = action.priority.value * 10
+        # Read scoring params from genome (with fallbacks)
+        base_mult = self._genome_get('actions.scoring.priority_slot_interval', 10)  # legacy: priority * 10
+        # Actually base_priority_multiplier is in cognition domain
+        base_mult = self._genome_get('cognition.scoring.base_priority_multiplier', 10)
+        recency_mult = self._genome_get('cognition.scoring.recency_multiplier', 2)
+        recency_max = self._genome_get('cognition.scoring.recency_max_bonus', 20)
+        never_exec_bonus = self._genome_get('actions.scoring.never_executed_bonus', 15)
+        cat_penalty = self._genome_get('actions.scoring.diversity_penalty_category', -15)
+        same_penalty = self._genome_get('actions.scoring.diversity_penalty_same', -25)
+
+        score = action.priority.value * base_mult
 
         # Bonus for actions not executed recently
         if action.last_executed:
             hours_since = (datetime.now() - action.last_executed).total_seconds() / 3600
-            score += min(hours_since * 2, 20)  # Max 20 point bonus
+            score += min(hours_since * recency_mult, recency_max)
         else:
-            score += 15  # Never executed bonus
+            score += never_exec_bonus
 
         # DIVERSITY PENALTY: Reduce score for recently used categories
         category_count = self._recent_categories.count(action.category)
         if category_count > 0:
-            # -15 for each recent use of same category
-            score -= category_count * 15
+            score += category_count * cat_penalty  # cat_penalty is negative
             logger.debug(f"Action {action.id}: -{category_count * 15} for category {action.category.value} used {category_count}x recently")
 
         # DIVERSITY PENALTY: Reduce score for same action repeated
         if action.id in self._recent_action_ids:
-            score -= 25  # Strong penalty for repeating same action
+            score += same_penalty  # same_penalty is negative
             logger.debug(f"Action {action.id}: -25 for being recently executed")
 
         # Context-based bonuses
@@ -1008,10 +1008,12 @@ class ProactiveEngine:
                 )
 
         # INTENTION-BASED SCORING: Boost actions aligned with chat intentions
+        intent_bonus = self._genome_get('actions.scoring.intention_alignment_bonus', 20)
+        su_bonus = self._genome_get('actions.scoring.self_understanding_bonus', 15)
         intention_categories = context.get("intention_categories", [])
         if intention_categories:
             if action.category.value in intention_categories:
-                score += 20  # Strong boost for intention-aligned actions
+                score += intent_bonus
                 logger.debug(
                     f"Action {action.id}: +20 intention alignment "
                     f"(category {action.category.value} matches intention)"
@@ -1020,11 +1022,12 @@ class ProactiveEngine:
             if "self_understanding" in intention_categories and action.category in (
                 ActionCategory.EXPLORATION, ActionCategory.LEARNING
             ):
-                score += 15
+                score += su_bonus
                 logger.debug(f"Action {action.id}: +15 self_understanding boost")
 
-        # Random factor (0-5)
-        score += random.random() * 5
+        # Random factor
+        random_max = self._genome_get('actions.scoring.random_exploration_max', 5)
+        score += random.random() * random_max
 
         return score
 
@@ -1139,7 +1142,7 @@ class ProactiveEngine:
                 self.action_history = self.action_history[-self._max_action_history:]
 
             # Complete activity in monitor - check actual success from result
-            output = result.get("output", {})
+            output = result.get("output") or {}
             # Check if the action actually succeeded (look for success field in output)
             # Import here to avoid circular imports
             from consciousness.action_result import ActionResult
@@ -1150,6 +1153,9 @@ class ProactiveEngine:
                 actual_success = output.get("success", False)  # STRICT: default False
                 if "success" not in output:
                     logger.warning(f"Action {action.name} returned dict without 'success' key - treating as failure")
+            elif isinstance(output, str):
+                # Some actions return a plain string (e.g. inner_voice greeting)
+                actual_success = bool(output)
             else:
                 actual_success = False
                 logger.warning(f"Action {action.name} returned unexpected type {type(output).__name__} - treating as failure")
@@ -1158,7 +1164,7 @@ class ProactiveEngine:
             if actual_success:
                 action.record_success()
             else:
-                error_msg = output.get("error") or output.get("reason") or "Unknown failure"
+                error_msg = (output.get("error") or output.get("reason") or "Unknown failure") if isinstance(output, dict) else str(output)[:200] or "Unknown failure"
                 was_disabled = action.record_failure(str(error_msg))
                 if was_disabled:
                     logger.warning(f"🚫 ACTION DISABLED: {action.name} - {action.disable_reason}")
@@ -1168,7 +1174,7 @@ class ProactiveEngine:
                 activity_id,
                 status=ActivityStatus.SUCCESS if actual_success else ActivityStatus.FAILED,
                 details={"output_summary": str(output)[:200]},
-                error=None if actual_success else output.get("error") or output.get("reason")
+                error=None if actual_success else (output.get("error") or output.get("reason") if isinstance(output, dict) else str(output)[:200])
             )
 
             logger.info(f"✅ Completed: {action.name} in {result['duration_seconds']:.2f}s")

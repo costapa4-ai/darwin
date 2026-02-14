@@ -25,6 +25,8 @@ export default function NewDashboard({ onNavigate }) {
   const [findingsCount, setFindingsCount] = useState(0);
   const [showLanguageEvolution, setShowLanguageEvolution] = useState(false);
   const [showMonitor, setShowMonitor] = useState(false);
+  const [showRouting, setShowRouting] = useState(false);
+  const [routingData, setRoutingData] = useState(null);
 
   useEffect(() => {
     fetchData();
@@ -178,6 +180,21 @@ export default function NewDashboard({ onNavigate }) {
     setShowCosts(true);
   };
 
+  const fetchRouting = async () => {
+    try {
+      const res = await fetch(`${API_BASE}/api/v1/observatory/ai-routing`);
+      const data = await res.json();
+      setRoutingData(data);
+    } catch (error) {
+      console.error('Error fetching routing:', error);
+    }
+  };
+
+  const handleRoutingClick = async () => {
+    await fetchRouting();
+    setShowRouting(true);
+  };
+
   const isAwake = status?.state === 'wake';
   const progress = status ? (status.elapsed_minutes / (isAwake ? 120 : 30)) * 100 : 0;
 
@@ -243,6 +260,38 @@ export default function NewDashboard({ onNavigate }) {
             </div>
             {/* Switch to 3D Brain View */}
             <div className="flex items-center gap-1">
+              <button
+                onClick={handleCostsClick}
+                className="px-2 py-1 rounded-lg bg-green-600/60 hover:bg-green-600/80 transition-colors text-xs font-medium text-white flex items-center gap-1"
+                title="API Cost Summary"
+              >
+                <span>💰</span>
+                Costs
+              </button>
+              <button
+                onClick={handleRoutingClick}
+                className="px-2 py-1 rounded-lg bg-purple-600/60 hover:bg-purple-600/80 transition-colors text-xs font-medium text-white flex items-center gap-1"
+                title="AI Model Routing & Free Ratio"
+              >
+                <span>📈</span>
+                Routing
+              </button>
+              <button
+                onClick={() => onNavigate && onNavigate('genome')}
+                className="px-2 py-1 rounded-lg bg-emerald-600/60 hover:bg-emerald-600/80 transition-colors text-xs font-medium text-white flex items-center gap-1"
+                title="Genome Dashboard"
+              >
+                <span>🧬</span>
+                Genome
+              </button>
+              <button
+                onClick={() => onNavigate && onNavigate('core-values')}
+                className="px-2 py-1 rounded-lg bg-amber-600/60 hover:bg-amber-600/80 transition-colors text-xs font-medium text-white flex items-center gap-1"
+                title="Core Values & Identity"
+              >
+                <span>🔮</span>
+                Values
+              </button>
               <button
                 onClick={() => onNavigate && onNavigate('observatory')}
                 className="px-2 py-1 rounded-lg bg-white/20 hover:bg-white/30 transition-colors text-xs font-medium text-white flex items-center gap-1"
@@ -862,6 +911,110 @@ export default function NewDashboard({ onNavigate }) {
               <button
                 onClick={() => setShowCosts(false)}
                 className="bg-green-600 hover:bg-green-700 text-white px-4 py-2 rounded-lg text-sm transition-colors font-semibold"
+              >
+                Fechar
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* AI Routing Modal */}
+      {showRouting && routingData && (
+        <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-50 p-4">
+          <div className="bg-slate-900 rounded-lg shadow-2xl border border-slate-700 w-full max-w-lg">
+            {/* Modal Header */}
+            <div className="bg-gradient-to-r from-purple-600 to-indigo-600 p-4 rounded-t-lg flex justify-between items-center">
+              <h2 className="text-xl font-bold text-white flex items-center gap-2">
+                <span>📈</span> AI Routing
+              </h2>
+              <button
+                onClick={() => setShowRouting(false)}
+                className="text-white hover:bg-white/20 rounded-lg px-3 py-1 text-xl transition-colors"
+              >
+                ✕
+              </button>
+            </div>
+
+            {/* Modal Body */}
+            <div className="p-4 space-y-4">
+              {/* Key Metrics */}
+              <div className="grid grid-cols-3 gap-3 text-center">
+                <div className="bg-slate-800 rounded-lg p-3">
+                  <div className="text-2xl font-bold text-purple-400">{routingData.total_requests || 0}</div>
+                  <div className="text-xs text-slate-400">Total Requests</div>
+                </div>
+                <div className="bg-slate-800 rounded-lg p-3">
+                  <div className="text-2xl font-bold text-green-400">${routingData.total_cost?.toFixed(4) || '0.00'}</div>
+                  <div className="text-xs text-slate-400">Total Cost</div>
+                </div>
+                <div className="bg-slate-800 rounded-lg p-3">
+                  <div className="text-2xl font-bold text-cyan-400">{((routingData.free_ratio || 0) * 100).toFixed(1)}%</div>
+                  <div className="text-xs text-slate-400">Free (Ollama)</div>
+                </div>
+              </div>
+
+              {/* Per-Model Breakdown */}
+              <div className="bg-slate-800 rounded-lg p-4">
+                <h3 className="text-sm font-bold text-slate-400 uppercase mb-3">Per-Model Breakdown</h3>
+                <div className="space-y-3">
+                  {routingData.models && Object.entries(routingData.models).map(([name, data]) => {
+                    const maxReqs = Math.max(...Object.values(routingData.models).map(m => m.requests || 0), 1);
+                    const barWidth = ((data.requests || 0) / maxReqs) * 100;
+                    const isOllama = name.includes('ollama');
+                    const color = isOllama ? '#22c55e' : name === 'claude' ? '#ef4444' : name === 'gemini' ? '#eab308' : '#a855f7';
+                    return (
+                      <div key={name}>
+                        <div className="flex justify-between items-center mb-1">
+                          <div className="flex items-center gap-2">
+                            <div className="w-2.5 h-2.5 rounded-full" style={{ backgroundColor: color }}></div>
+                            <span className="text-sm text-slate-300">{name}</span>
+                          </div>
+                          <div className="flex items-center gap-3">
+                            <span className="text-xs text-slate-400">{data.requests || 0} req</span>
+                            <span className="text-xs text-slate-400">{Math.round(data.avg_latency_ms || 0)}ms</span>
+                            <span className="text-xs font-bold" style={{ color }}>${(data.cost || 0).toFixed(4)}</span>
+                          </div>
+                        </div>
+                        <div className="w-full bg-slate-700 rounded-full h-1.5">
+                          <div className="h-full rounded-full transition-all" style={{ width: `${barWidth}%`, backgroundColor: color }}></div>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+
+              {/* Tier Distribution */}
+              <div className="bg-slate-800 rounded-lg p-4">
+                <h3 className="text-sm font-bold text-slate-400 uppercase mb-3">Tier Distribution</h3>
+                <div className="grid grid-cols-3 gap-3 text-center">
+                  <div>
+                    <div className="text-lg font-bold text-green-400">{routingData.tier_distribution?.simple || 0}</div>
+                    <div className="text-xs text-slate-400">Simple (Free)</div>
+                  </div>
+                  <div>
+                    <div className="text-lg font-bold text-yellow-400">{routingData.tier_distribution?.moderate || 0}</div>
+                    <div className="text-xs text-slate-400">Moderate</div>
+                  </div>
+                  <div>
+                    <div className="text-lg font-bold text-red-400">{routingData.tier_distribution?.complex || 0}</div>
+                    <div className="text-xs text-slate-400">Complex</div>
+                  </div>
+                </div>
+              </div>
+
+              {/* Strategy */}
+              <div className="text-center text-xs text-slate-500">
+                Strategy: <span className="text-slate-300 font-medium">{routingData.routing_strategy?.toUpperCase()}</span>
+              </div>
+            </div>
+
+            {/* Modal Footer */}
+            <div className="bg-slate-800 p-3 rounded-b-lg border-t border-slate-700 flex justify-end">
+              <button
+                onClick={() => setShowRouting(false)}
+                className="bg-purple-600 hover:bg-purple-700 text-white px-4 py-2 rounded-lg text-sm transition-colors font-semibold"
               >
                 Fechar
               </button>

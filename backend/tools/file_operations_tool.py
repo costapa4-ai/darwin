@@ -39,9 +39,7 @@ READABLE_ROOTS = [
 # Directories Darwin can WRITE to
 WRITABLE_ROOTS = [
     Path("/backup"),     # USB backup drive
-    Path("/app/data"),   # Runtime data (identity, memory, etc.)
-    Path("/app/tools"),  # Darwin can create new tools!
-    Path("/app/logs"),   # Log files
+    Path("/app"),        # Backend code — Darwin can improve himself!
     Path("/tmp"),        # Temporary workspace
 ]
 
@@ -54,6 +52,30 @@ BLOCKED_PATTERNS = {
 # Extensions that are blocked from writing (binaries, executables)
 BLOCKED_WRITE_EXTENSIONS = {
     '.exe', '.bin', '.so', '.dll', '.dylib', '.sh',
+}
+
+# Critical infrastructure files that Darwin must NEVER overwrite
+# These are the tools and core systems that keep Darwin running
+PROTECTED_WRITE_PATHS = {
+    '/app/tools/file_operations_tool.py',
+    '/app/tools/script_executor_tool.py',
+    '/app/tools/backup_tool.py',
+    '/app/tools/web_search_tool.py',
+    '/app/main.py',
+    '/app/config.py',
+    '/app/consciousness/autonomous_loop.py',
+    '/app/consciousness/consciousness_engine.py',
+    '/app/consciousness/state_manager.py',
+    '/app/consciousness/safety_logger.py',
+    '/app/ai/multi_model_router.py',
+    '/app/ai/models/claude_client.py',
+    '/app/ai/models/ollama_client.py',
+    '/app/api/consciousness_routes.py',
+    '/app/core/prompt_composer.py',
+    '/app/core/conversation_store.py',
+    '/app/core/intention_store.py',
+    '/app/data/genome/_bounds.json',
+    '/app/data/genome/_version.json',
 }
 
 MAX_READ_SIZE = 10 * 1024 * 1024   # 10MB
@@ -72,6 +94,8 @@ def _is_path_readable(path: Path) -> bool:
 def _is_path_writable(path: Path) -> bool:
     """Check if a path is within writable boundaries."""
     resolved = path.resolve()
+    if str(resolved) in PROTECTED_WRITE_PATHS:
+        return False
     return any(
         str(resolved).startswith(str(root))
         for root in WRITABLE_ROOTS

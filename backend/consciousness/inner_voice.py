@@ -33,11 +33,12 @@ class InnerVoice:
         self.mood_system = mood_system
         self.router = router
 
-        # Anti-spam controls
+        # Anti-spam controls — read from genome with fallback
         self.impulse_queue: List[Dict] = []
         self.last_outreach: Optional[datetime] = None
-        self.min_outreach_interval = timedelta(hours=2)
-        self.daily_cap = 5
+        interval_hours = self._genome_get('social.inner_voice.min_outreach_interval_hours', 2)
+        self.min_outreach_interval = timedelta(hours=interval_hours)
+        self.daily_cap = self._genome_get('social.inner_voice.daily_cap', 5)
         self.daily_outreach_count = 0
         self.last_reset_date: Optional[str] = None
 
@@ -46,6 +47,16 @@ class InnerVoice:
         self.last_evening: Optional[str] = None
 
         logger.info("InnerVoice initialized — Darwin can now reach out proactively")
+
+    @staticmethod
+    def _genome_get(key: str, default=None):
+        """Read a value from the genome, with fallback."""
+        try:
+            from consciousness.genome_manager import get_genome
+            val = get_genome().get(key)
+            return val if val is not None else default
+        except Exception:
+            return default
 
     def _reset_daily_counter(self):
         """Reset daily counter if it's a new day."""
@@ -154,7 +165,7 @@ class InnerVoice:
                     )
 
                 logger.info(f"InnerVoice outreach sent ({thought['trigger']}): {message[:80]}...")
-                return {"message": message, "channel": "telegram", "trigger": thought["trigger"]}
+                return {"success": True, "message": message, "channel": "telegram", "trigger": thought["trigger"]}
         except Exception as e:
             logger.warning(f"InnerVoice outreach failed: {e}")
 
@@ -226,11 +237,11 @@ Don't be generic — make it feel like a friend saying good morning.""",
                         consciousness_state="wake"
                     )
                 logger.info(f"Morning greeting sent: {message[:60]}...")
-                return message
+                return {"success": True, "message": message}
         except Exception as e:
             logger.warning(f"Morning greeting failed: {e}")
 
-        return None
+        return {"success": False, "reason": "Failed to send greeting"}
 
     async def evening_reflection(self) -> Optional[str]:
         """Share an evening reflection about the day."""
@@ -284,11 +295,11 @@ End with something warm — like looking forward to tomorrow.""",
                         consciousness_state="wake"
                     )
                 logger.info(f"Evening reflection sent: {message[:60]}...")
-                return message
+                return {"success": True, "message": message}
         except Exception as e:
             logger.warning(f"Evening reflection failed: {e}")
 
-        return None
+        return {"success": False, "reason": "Failed to send reflection"}
 
     async def _compose_outreach(self, thought: Dict) -> Optional[str]:
         """Compose a natural outreach message from a queued thought."""

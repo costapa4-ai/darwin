@@ -217,10 +217,18 @@ async def init_consciousness_engine(
         )
         logger.info("Proactive Communication System initialized (COMPLETE personality integration)")
 
-        # Consciousness Engine
+        # Genome Manager (evolvable parameters)
+        from app.lifespan import set_service
+        from consciousness.genome_manager import get_genome
+        genome = get_genome()
+        services['genome_manager'] = genome
+        set_service('genome_manager', genome)
+        logger.info(f"GenomeManager initialized ({genome.get_summary()})")
+
+        # Consciousness Engine — read timing from genome
         consciousness_config = {
-            'wake_duration_minutes': 120,  # 2 hours
-            'sleep_duration_minutes': 30   # 30 minutes
+            'wake_duration_minutes': genome.get('rhythms.cycles.wake_duration_minutes', 120),
+            'sleep_duration_minutes': genome.get('rhythms.cycles.sleep_duration_minutes', 30),
         }
 
         services['consciousness_engine'] = ConsciousnessEngine(
@@ -250,8 +258,6 @@ async def init_consciousness_engine(
 
         # ==================== DIGITAL BEING SYSTEMS ====================
         # Persistent conversation memory, identity models, inner voice, interests
-
-        from app.lifespan import set_service
 
         # 1. Conversation Store (persistent chat memory)
         from core.conversation_store import ConversationStore

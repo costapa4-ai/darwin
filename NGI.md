@@ -46,7 +46,7 @@ Darwin: Safety-Instrumented Self-Evolving AI System
 ### Website / Wiki
 
 ```
-[YOUR GITHUB URL — publish repo before applying]
+https://github.com/costapa4-ai/darwin
 ```
 
 ### Abstract

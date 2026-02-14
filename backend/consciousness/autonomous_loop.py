@@ -41,6 +41,8 @@ ALLOWED_TOOLS = {
     'file_operations_tool.file_info',
     'file_operations_tool.search_files',
     'script_executor_tool.execute_python',
+    'web_search_tool.search',
+    'web_search_tool.fetch_url',
 }
 
 
@@ -109,6 +111,72 @@ async def execute_tool(tool_name: str, args: dict, tm) -> str:
 
     except Exception as e:
         return f"❌ {tool_name} error: {e}"
+
+
+def format_tool_result_brief(result_str: str) -> str:
+    """Convert a detailed tool result string to a one-line human-readable summary."""
+    if not result_str:
+        return ""
+
+    # Error results — keep as-is (already short)
+    if result_str.startswith("❌") or result_str.startswith("⚠️"):
+        # Trim long error messages
+        return result_str[:150]
+
+    # Success results — extract brief summary
+    if result_str.startswith("✅"):
+        # e.g. "✅ backup_tool.list_backups: {json...}"
+        colon_pos = result_str.find(": ", 2)
+        if colon_pos == -1:
+            return result_str[:120]
+
+        tool_part = result_str[2:colon_pos].strip()  # e.g. "backup_tool.list_backups"
+        data_part = result_str[colon_pos + 2:].strip()
+
+        # Try to parse JSON for smart summaries
+        try:
+            data = json.loads(data_part)
+            if isinstance(data, dict):
+                # Backup list
+                if 'backups' in data:
+                    count = data.get('count', len(data['backups']))
+                    return f"✅ {tool_part}: {count} backups encontrados"
+                # Directory listing
+                if 'entries' in data:
+                    count = data.get('count', len(data['entries']))
+                    return f"✅ {tool_part}: {count} entradas em {data.get('dir_path', '?')}"
+                # File read
+                if 'content' in data:
+                    path = data.get('file_path', '?')
+                    size = data.get('size_bytes', 0)
+                    lines = data.get('lines', 0)
+                    return f"✅ {tool_part}: {path} ({lines} linhas, {size} bytes)"
+                # File write
+                if 'action' in data:
+                    path = data.get('file_path', '?')
+                    return f"✅ {tool_part}: {data['action']} {path}"
+                # Search results
+                if 'matches' in data:
+                    count = data.get('count', len(data['matches']))
+                    return f"✅ {tool_part}: {count} resultados para '{data.get('query', '?')}'"
+                # Script execution
+                if 'stdout' in data:
+                    stdout = data.get('stdout', '')[:80]
+                    dur = data.get('duration_seconds', '?')
+                    return f"✅ {tool_part}: executado em {dur}s" + (f" → {stdout}" if stdout else "")
+                # File info
+                if 'exists' in data:
+                    return f"✅ {tool_part}: {'existe' if data['exists'] else 'não existe'} ({data.get('file_path', '?')})"
+                # Generic success with success field
+                if data.get('success'):
+                    return f"✅ {tool_part}: OK"
+        except (json.JSONDecodeError, TypeError):
+            pass
+
+        # Fallback: truncate raw data
+        return f"✅ {tool_part}: {data_part[:80]}"
+
+    return result_str[:120]
 
 
 async def extract_and_execute_tools(response_text: str, tm) -> tuple:

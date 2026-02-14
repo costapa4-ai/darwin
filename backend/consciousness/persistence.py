@@ -141,6 +141,9 @@ class PersistenceManager:
             'shared_curiosity_topics': list(self.engine.shared_curiosity_topics),
             'dedup_stats': self.dedup_store.get_stats(),
 
+            # Current project (multi-step goal tracking)
+            'current_project': getattr(self.engine, 'current_project', None),
+
             # Metadata
             'saved_at': datetime.utcnow().isoformat(),
             'version': STATE_VERSION
@@ -246,6 +249,9 @@ class PersistenceManager:
 
         # Restore shared topics
         self.engine.shared_curiosity_topics = set(state.get('shared_curiosity_topics', []))
+
+        # Restore current project
+        self.engine.current_project = state.get('current_project', None)
 
     def _dict_to_activity(self, data: Dict[str, Any]) -> Activity:
         """Convert dictionary to Activity."""

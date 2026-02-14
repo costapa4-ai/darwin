@@ -1,0 +1,25 @@
+{
+  "inner_voice": {
+    "min_outreach_interval_hours": 2,
+    "daily_cap": 5,
+    "max_impulse_queue": 20,
+    "urgency_thresholds": {
+      "discovery": 0.7,
+      "curiosity_min_insights": 3,
+      "curiosity_urgency": 0.6,
+      "mood_shift_urgency": 0.5,
+      "base_urgency": 0.3,
+      "queue_threshold": 0.5
+    }
+  },
+  "chat": {
+    "max_tokens": 1500,
+    "context_window_limit": 4
+  },
+  "communication_style": {
+    "languages": ["pt", "en"],
+    "follow_user_language": true,
+    "never_say": ["como posso ajudar"],
+    "personality_traits": ["opinionated", "curious", "direct", "friendly"]
+  }
+}

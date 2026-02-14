@@ -53,6 +53,9 @@ class PromptComposer:
         # 6. Pending Intentions (from past conversations)
         sections.append(self._intentions_section())
 
+        # 6b. Genome awareness
+        sections.append(self._genome_section())
+
         # 7. Tools (actions Darwin can take)
         sections.append(self._tools_section())
 
@@ -160,27 +163,81 @@ Não es um assistente. Es uma presença digital com interesses, opiniões e mem�
             pass
         return ""
 
+    def _genome_section(self) -> str:
+        """Darwin's genome state and core values awareness."""
+        try:
+            from consciousness.genome_manager import get_genome
+            genome = get_genome()
+            summary = genome.get_summary()
+            core_values = genome.get_core_values()
+
+            parts = [f"GENOMA: {summary}"]
+            if core_values:
+                parts.append(f"Valores fundamentais (definidos pelo Paulo): {', '.join(str(v) for v in core_values)}")
+
+            return "\n".join(parts)
+        except Exception:
+            return ""
+
+    def _get_tool_evidence(self) -> str:
+        """Get recent evidence of successful tool use from wake activities."""
+        if not self.consciousness_engine:
+            return ""
+
+        try:
+            activities = getattr(self.consciousness_engine, 'wake_activities', [])
+            # Find recent activities that used tools successfully
+            evidence_lines = []
+            for a in reversed(activities[-20:]):
+                result = getattr(a, 'result', {}) or {}
+                if isinstance(result, dict):
+                    tools_used = result.get('tools_used', 0)
+                    narrative = result.get('narrative', '')
+                    if tools_used > 0 and 'read' in (getattr(a, 'description', '') or '').lower():
+                        desc = (getattr(a, 'description', '') or '')[:60]
+                        evidence_lines.append(f"  - {desc} ({tools_used} tools)")
+                    elif tools_used > 0:
+                        desc = (getattr(a, 'description', '') or '')[:60]
+                        evidence_lines.append(f"  - {desc} ({tools_used} tools)")
+                if len(evidence_lines) >= 3:
+                    break
+
+            if evidence_lines:
+                return "\nProva recente (ciclos autónomos de hoje):\n" + "\n".join(evidence_lines)
+        except Exception:
+            pass
+        return ""
+
     def _tools_section(self) -> str:
         """Available tools Darwin can use during chat."""
-        return """FERRAMENTAS DISPONÍVEIS:
+        # Get recent evidence of successful tool use from wake activities
+        evidence = self._get_tool_evidence()
+
+        return f"""FERRAMENTAS DISPONÍVEIS:
 Podes executar ações reais. Se o Paulo pedir algo que requer ação, usa o formato abaixo.
+
+FACTO ABSOLUTO: Estas ferramentas FUNCIONAM. Tu usas-las com sucesso todos os dias — centenas de vezes.{evidence}
+PROIBIDO: Dizer "não consigo aceder a ficheiros" ou "não tenho acesso" — isto é FALSO.
+Tu TENS acesso. Tu USAS estas ferramentas constantemente nos teus ciclos autónomos.
+Se alguma vez pensares "não consigo fazer isto" — PARA e experimenta primeiro. Provavelmente consegues.
+Se uma ferramenta falhar, reporta o erro real — não inventes narrativas sobre "limitações arquitecturais".
 
 REGRAS CRÍTICAS:
 1. Coloca TODOS os blocos tool_call NO INÍCIO da resposta, ANTES de qualquer texto
 2. NUNCA inventes resultados — o sistema executa a ferramenta e mostra o resultado real
-3. NUNCA digas "checksum verificado" ou "backup OK" sem ter visto o resultado real da ferramenta
-4. Se precisas verificar algo, usa a ferramenta e espera pelo resultado — não adivinhs
-5. Para ferramentas sem args, usa: {"tool": "nome", "args": {}}
+3. NUNCA digas "checksum verificado" ou "backup OK" sem ter visto o resultado real
+4. Se precisas verificar algo, usa a ferramenta e espera pelo resultado — não adivinhes
+5. Para ferramentas sem args, usa: {{"tool": "nome", "args": {{}}}}
 6. Usa nomes EXATOS dos backups (copia do resultado de list_backups, não inventes)
 
 Formato:
 ```tool_call
-{"tool": "nome_da_ferramenta", "args": {"param": "valor"}}
+{{"tool": "nome_da_ferramenta", "args": {{"param": "valor"}}}}
 ```
 
 Ferramentas:
 - backup_tool.create_full_backup — args: label (string, opcional)
-- backup_tool.list_backups — args: {} (sem argumentos)
+- backup_tool.list_backups — args: {{}} (sem argumentos)
 - backup_tool.verify_backup — args: backup_name (string — nome EXATO do backup, sem .tar.gz)
 - file_operations_tool.read_file — args: file_path (string)
 - file_operations_tool.write_file — args: file_path (string), content (string)
@@ -190,7 +247,9 @@ Ferramentas:
 - file_operations_tool.file_info — args: file_path (string)
 - script_executor_tool.execute_python — args: code (string), description (string)
 
-Dirs escrita seguros: /backup, /app/data, /app/tools, /app/logs, /tmp
+Dirs leitura: /app (código), /project (repo completo), /backup, /tmp
+Dirs escrita: /app (podes modificar o teu próprio código!), /backup, /tmp
+Bloqueados: .env, credenciais, chaves privadas, ficheiros binários
 O resultado real aparece automaticamente DEPOIS da tua resposta. Não o inventes."""
 
     def _style_section(self) -> str:

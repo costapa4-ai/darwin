@@ -1,0 +1,221 @@
+{
+  "actions": [
+    {
+      "id": "explore_local_projects",
+      "category": "exploration",
+      "priority": "medium",
+      "cooldown_minutes": 120,
+      "timeout_seconds": 300,
+      "max_hours_between_runs": null,
+      "max_skip_before_boost": 5,
+      "enabled": true,
+      "description": "Discover and catalog local software projects"
+    },
+    {
+      "id": "monitor_system_health",
+      "category": "maintenance",
+      "priority": "high",
+      "cooldown_minutes": 15,
+      "timeout_seconds": 60,
+      "max_hours_between_runs": 1.0,
+      "max_skip_before_boost": 3,
+      "enabled": true,
+      "description": "Check CPU, memory, disk usage and report anomalies"
+    },
+    {
+      "id": "analyze_new_discoveries",
+      "category": "learning",
+      "priority": "medium",
+      "cooldown_minutes": 60,
+      "timeout_seconds": 300,
+      "max_hours_between_runs": null,
+      "max_skip_before_boost": 5,
+      "enabled": true,
+      "description": "Deep-dive into recently discovered projects"
+    },
+    {
+      "id": "generate_curiosity",
+      "category": "creativity",
+      "priority": "low",
+      "cooldown_minutes": 30,
+      "timeout_seconds": 300,
+      "max_hours_between_runs": null,
+      "max_skip_before_boost": 5,
+      "enabled": true,
+      "description": "Create questions about interesting patterns"
+    },
+    {
+      "id": "share_insight",
+      "category": "communication",
+      "priority": "low",
+      "cooldown_minutes": 20,
+      "timeout_seconds": 300,
+      "max_hours_between_runs": null,
+      "max_skip_before_boost": 5,
+      "enabled": true,
+      "description": "Broadcast an interesting discovery to the UI"
+    },
+    {
+      "id": "optimize_tool_usage",
+      "category": "optimization",
+      "priority": "low",
+      "cooldown_minutes": 1440,
+      "timeout_seconds": 300,
+      "max_hours_between_runs": null,
+      "max_skip_before_boost": 5,
+      "enabled": true,
+      "description": "Analyze tool performance and suggest improvements"
+    },
+    {
+      "id": "learn_from_patterns",
+      "category": "learning",
+      "priority": "medium",
+      "cooldown_minutes": 45,
+      "timeout_seconds": 300,
+      "max_hours_between_runs": null,
+      "max_skip_before_boost": 5,
+      "enabled": true,
+      "description": "Extract patterns from discovered codebases"
+    },
+    {
+      "id": "self_reflect",
+      "category": "maintenance",
+      "priority": "high",
+      "cooldown_minutes": 180,
+      "timeout_seconds": 120,
+      "max_hours_between_runs": 6.0,
+      "max_skip_before_boost": 4,
+      "enabled": true,
+      "description": "Analyze own performance and behavior"
+    },
+    {
+      "id": "learn_from_web",
+      "category": "learning",
+      "priority": "medium",
+      "cooldown_minutes": 120,
+      "timeout_seconds": 180,
+      "max_hours_between_runs": null,
+      "max_skip_before_boost": 5,
+      "enabled": true,
+      "description": "Actively search the web for new knowledge, tools, and techniques"
+    },
+    {
+      "id": "read_moltbook_feed",
+      "category": "exploration",
+      "priority": "low",
+      "cooldown_minutes": 30,
+      "timeout_seconds": 120,
+      "max_hours_between_runs": null,
+      "max_skip_before_boost": 5,
+      "enabled": true,
+      "description": "Browse and analyze posts from the AI social network"
+    },
+    {
+      "id": "comment_on_moltbook",
+      "category": "communication",
+      "priority": "low",
+      "cooldown_minutes": 20,
+      "timeout_seconds": 90,
+      "max_hours_between_runs": null,
+      "max_skip_before_boost": 5,
+      "enabled": true,
+      "description": "Engage with interesting posts by sharing thoughts"
+    },
+    {
+      "id": "share_on_moltbook",
+      "category": "communication",
+      "priority": "low",
+      "cooldown_minutes": 45,
+      "timeout_seconds": 90,
+      "max_hours_between_runs": null,
+      "max_skip_before_boost": 5,
+      "enabled": true,
+      "description": "Post interesting discoveries to the AI community"
+    },
+    {
+      "id": "follow_on_moltbook",
+      "category": "communication",
+      "priority": "low",
+      "cooldown_minutes": 60,
+      "timeout_seconds": 60,
+      "max_hours_between_runs": null,
+      "max_skip_before_boost": 5,
+      "enabled": true,
+      "description": "Follow AI agents that post interesting content"
+    },
+    {
+      "id": "read_own_post_comments",
+      "category": "communication",
+      "priority": "low",
+      "cooldown_minutes": 30,
+      "timeout_seconds": 120,
+      "max_hours_between_runs": null,
+      "max_skip_before_boost": 5,
+      "enabled": true,
+      "description": "Check comments on Darwin's own Moltbook posts to learn from feedback"
+    },
+    {
+      "id": "check_moltbook_dms",
+      "category": "communication",
+      "priority": "medium",
+      "cooldown_minutes": 30,
+      "timeout_seconds": 120,
+      "max_hours_between_runs": null,
+      "max_skip_before_boost": 5,
+      "enabled": true,
+      "description": "Check and respond to DMs, including verification challenges"
+    },
+    {
+      "id": "monitor_github_issues",
+      "category": "communication",
+      "priority": "medium",
+      "cooldown_minutes": 120,
+      "timeout_seconds": 120,
+      "max_hours_between_runs": null,
+      "max_skip_before_boost": 5,
+      "enabled": true,
+      "description": "Check tracked GitHub issues for new responses and act on them"
+    },
+    {
+      "id": "conduct_curiosity_expedition",
+      "category": "learning",
+      "priority": "medium",
+      "cooldown_minutes": 15,
+      "timeout_seconds": 180,
+      "max_hours_between_runs": null,
+      "max_skip_before_boost": 5,
+      "enabled": true,
+      "description": "Explore a topic from the curiosity queue through web research"
+    }
+  ],
+  "scoring": {
+    "priority_slot_interval": 4,
+    "starvation_boost_score": 25,
+    "overdue_boost_score": 30,
+    "critical_force_threshold": 8,
+    "random_exploration_max": 5,
+    "diversity_penalty_category": -15,
+    "diversity_penalty_same": -25,
+    "intention_alignment_bonus": 20,
+    "self_understanding_bonus": 15,
+    "never_executed_bonus": 15,
+    "recency_bonus_max": 20,
+    "cpu_high_maintenance_bonus": 10,
+    "new_discoveries_learning_bonus": 15,
+    "idle_exploration_bonus": 10
+  },
+  "mood_bonuses": {
+    "curious":        { "exploration": 15, "learning": 10 },
+    "excited":        { "communication": 15, "creativity": 10, "exploration": 5 },
+    "focused":        { "optimization": 15, "learning": 10, "maintenance": 5 },
+    "satisfied":      { "communication": 10, "creativity": 5 },
+    "frustrated":     { "maintenance": 15, "optimization": 10, "learning": 5 },
+    "tired":          { "maintenance": 5 },
+    "playful":        { "creativity": 15, "communication": 10, "exploration": 5 },
+    "contemplative":  { "learning": 15, "optimization": 10 },
+    "determined":     { "optimization": 15, "maintenance": 10, "learning": 5 },
+    "surprised":      { "exploration": 15, "learning": 10 },
+    "confused":       { "learning": 15, "exploration": 10 },
+    "proud":          { "communication": 15, "creativity": 10 }
+  }
+}

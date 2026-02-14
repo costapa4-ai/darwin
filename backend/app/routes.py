@@ -33,6 +33,7 @@ from api import moltbook_routes
 from api import monitor_routes
 from api import language_evolution_routes
 from api import observatory_routes
+from api import genome_routes
 from api.websocket import manager
 from utils.logger import setup_logger
 
@@ -118,6 +119,9 @@ def register_all_routes(app: FastAPI):
 
     # Observatory Dashboard routes
     app.include_router(observatory_routes.router)
+
+    # Genome & Identity routes
+    app.include_router(genome_routes.router)
 
     # WebSocket endpoint
     @app.websocket("/ws")
