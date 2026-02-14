@@ -209,7 +209,7 @@ export default function GenomeDashboard({ onBack }) {
           </h3>
           {changelog.length === 0 ? (
             <div className="text-gray-600 text-sm py-4 text-center">
-              No mutations yet. Darwin needs {genomeStatus?.mutation_cooldown_cycles || 10} cycles before first evolution.
+              No mutations yet. Darwin is ready to evolve when the sleep "evolve" mode is selected.
             </div>
           ) : (
             <div className="space-y-2 max-h-80 overflow-y-auto">

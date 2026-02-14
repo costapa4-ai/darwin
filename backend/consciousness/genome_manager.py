@@ -205,7 +205,14 @@ class GenomeManager:
     # ==================== Evolve (mutation with full logging) ====================
 
     def can_evolve(self) -> bool:
-        """Check if Darwin can evolve (cooldown met)."""
+        """Check if Darwin can evolve (cooldown met).
+
+        Cooldown only activates after a successful mutation.
+        If no mutation has ever happened, evolution is always allowed.
+        """
+        # No mutations yet — always allow
+        if self._version.get("last_mutation_at") is None:
+            return True
         cooldown = self._version.get("mutation_cooldown_cycles", MUTATION_COOLDOWN_CYCLES)
         cycles = self._version.get("cycles_since_last_mutation", 0)
         return cycles >= cooldown

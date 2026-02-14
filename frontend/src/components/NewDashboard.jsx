@@ -195,6 +195,13 @@ export default function NewDashboard({ onNavigate }) {
     setShowRouting(true);
   };
 
+  const handleExportData = (dataset = 'all', format = 'json') => {
+    const url = dataset === 'all'
+      ? `${API_BASE}/api/v1/export/all`
+      : `${API_BASE}/api/v1/export/${dataset}?format=${format}`;
+    window.open(url, '_blank');
+  };
+
   const isAwake = status?.state === 'wake';
   const progress = status ? (status.elapsed_minutes / (isAwake ? 120 : 30)) * 100 : 0;
 
@@ -301,6 +308,14 @@ export default function NewDashboard({ onNavigate }) {
                 Stats
               </button>
               <button
+                onClick={() => handleExportData('all')}
+                className="px-2 py-1 rounded-lg bg-cyan-600/60 hover:bg-cyan-600/80 transition-colors text-xs font-medium text-white flex items-center gap-1"
+                title="Download all data as JSON for graphing"
+              >
+                <span>📥</span>
+                Export
+              </button>
+              <button
                 onClick={() => {
                   const currentHost = window.location.hostname;
                   window.location.href = `http://${currentHost}:3051`;
@@ -337,7 +352,7 @@ export default function NewDashboard({ onNavigate }) {
         )}
 
         {/* Metrics - Ultra Compacto */}
-        <div className="grid grid-cols-2 gap-1.5 p-2 border-b border-slate-700">
+        <div className="grid grid-cols-3 gap-1.5 p-2 border-b border-slate-700">
           <div className="bg-slate-800 rounded-lg p-1.5">
             <div className="text-xl font-bold text-blue-400">{status?.total_activities || 0}</div>
             <div className="text-xs text-slate-400">Atividades</div>
@@ -353,14 +368,6 @@ export default function NewDashboard({ onNavigate }) {
           <div className="bg-slate-800 rounded-lg p-1.5">
             <div className="text-xl font-bold text-orange-400">{status?.wake_cycles_completed || 0}</div>
             <div className="text-xs text-slate-400">Ciclos Wake</div>
-          </div>
-          <div
-            className="bg-slate-800 rounded-lg p-1.5 cursor-pointer hover:bg-slate-700 transition-colors"
-            onClick={handleCostsClick}
-            title="Ver custos de API"
-          >
-            <div className="text-xl font-bold text-green-400">💰</div>
-            <div className="text-xs text-slate-400">Custos</div>
           </div>
         </div>
 
@@ -519,23 +526,21 @@ export default function NewDashboard({ onNavigate }) {
                 className={`border-l-4 rounded-lg p-3 ${getEventColor(event)} backdrop-blur-sm`}
               >
                 {/* Event Header */}
-                <div className="flex items-start justify-between mb-2">
-                  <div className="flex items-center gap-2">
-                    <span className="text-3xl">{getEventIcon(event)}</span>
-                    <div>
-                      <div className="font-bold text-white text-lg leading-tight">
-                        {event.eventType === 'activity' && event.description}
-                        {event.eventType === 'dream' && event.description}
-                        {event.eventType === 'curiosity' && event.topic}
-                      </div>
-                      {event.eventType === 'activity' && (
-                        <div className="text-xs text-slate-400 uppercase font-semibold mt-1">
-                          {event.type?.replace('_', ' ')}
-                        </div>
-                      )}
+                <div className="flex items-start gap-2 mb-2">
+                  <span className="text-3xl flex-shrink-0">{getEventIcon(event)}</span>
+                  <div className="flex-1 min-w-0">
+                    <div className="font-bold text-white text-lg leading-tight break-words">
+                      {event.eventType === 'activity' && event.description}
+                      {event.eventType === 'dream' && event.description}
+                      {event.eventType === 'curiosity' && event.topic}
                     </div>
+                    {event.eventType === 'activity' && (
+                      <div className="text-xs text-slate-400 uppercase font-semibold mt-1">
+                        {event.type?.replace('_', ' ')}
+                      </div>
+                    )}
                   </div>
-                  <div className="text-right">
+                  <div className="text-right flex-shrink-0">
                     <div className="text-xs text-slate-400">{formatDate(event.timestamp)}</div>
                     <div className="text-sm font-mono text-slate-300 font-semibold">{formatTime(event.timestamp)}</div>
                   </div>
