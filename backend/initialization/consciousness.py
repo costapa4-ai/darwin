@@ -340,6 +340,18 @@ async def init_consciousness_engine(
         except Exception as e:
             logger.debug(f"Could not register InnerVoice hooks: {e}")
 
+        # ==================== CONSCIOUSNESS STREAM (Global Workspace) ====================
+        try:
+            from consciousness.consciousness_stream import get_consciousness_stream
+            from consciousness.stream_bridge import register_stream_hooks
+
+            stream = get_consciousness_stream()
+            set_service('consciousness_stream', stream)
+            register_stream_hooks()
+            logger.info("ConsciousnessStream (Global Workspace) initialized and hooked")
+        except Exception as e:
+            logger.debug(f"Could not initialize ConsciousnessStream: {e}")
+
         # ==================== END DIGITAL BEING SYSTEMS ====================
 
         # Initialize routes

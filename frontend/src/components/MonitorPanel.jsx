@@ -8,6 +8,8 @@ const categoryIcons = {
   creating: '🛠️',
   executing: '⚡',
   system: '⚙️',
+  consciousness: '🌊',
+  memory: '💾',
 };
 
 const categoryColors = {
@@ -17,6 +19,8 @@ const categoryColors = {
   creating: 'text-green-400 border-green-500/30 bg-green-900/20',
   executing: 'text-yellow-400 border-yellow-500/30 bg-yellow-900/20',
   system: 'text-gray-400 border-gray-500/30 bg-gray-900/20',
+  consciousness: 'text-cyan-400 border-cyan-500/30 bg-cyan-900/20',
+  memory: 'text-teal-400 border-teal-500/30 bg-teal-900/20',
 };
 
 const statusIcons = {

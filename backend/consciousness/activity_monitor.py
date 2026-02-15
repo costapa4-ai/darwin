@@ -7,6 +7,8 @@ Tracks all Darwin activities including:
 - Thinking/Analysis (AI calls, reasoning)
 - Creating (code generation, tool creation)
 - Executing (tool runs, commands)
+- Consciousness (stream events, state transitions)
+- Memory (encoding, retrieval, consolidation)
 - Errors and failures
 
 Provides:
@@ -39,6 +41,8 @@ class ActivityCategory(Enum):
     CREATING = "creating"
     EXECUTING = "executing"
     SYSTEM = "system"
+    CONSCIOUSNESS = "consciousness"  # stream events, state transitions
+    MEMORY = "memory"                # encoding, retrieval, consolidation
 
 
 class ActivityStatus(Enum):

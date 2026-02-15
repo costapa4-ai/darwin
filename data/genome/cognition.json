@@ -23,5 +23,9 @@
   "frustration_decay_minutes": 15,
   "engagement_max_interactions": 20,
   "max_recent_tracking": 5,
-  "history_limit": 50
+  "history_limit": 50,
+  "consciousness": {
+    "salience_threshold": 0.3,
+    "stream_context_limit": 8
+  }
 }

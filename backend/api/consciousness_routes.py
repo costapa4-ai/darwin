@@ -390,6 +390,33 @@ def _safe_serialize(obj):
         return "<non-serializable>"
 
 
+@router.get("/stream")
+async def get_consciousness_stream_events(
+    limit: int = 50,
+    min_salience: float = 0.0,
+    source: str = None,
+    event_type: str = None,
+):
+    """Get unified consciousness stream events (Global Workspace)."""
+    try:
+        from consciousness.consciousness_stream import get_consciousness_stream
+        stream = get_consciousness_stream()
+        events = stream.get_recent(
+            limit=limit,
+            min_salience=min_salience,
+            source_filter=source,
+            event_type_filter=event_type,
+        )
+        stats = stream.get_stats()
+        return {
+            "events": events,
+            "count": len(events),
+            "stats": stats,
+        }
+    except Exception as e:
+        return {"events": [], "count": 0, "error": str(e)}
+
+
 @router.get("/wake-activities")
 async def get_wake_activities(limit: int = 10):
     """Get recent wake activities"""
@@ -727,6 +754,48 @@ COMO COMUNICAR:
             mood=current_mood, consciousness_state=consciousness_engine.state.value,
             personality_mode=current_mode
         )
+
+    # Publish to consciousness stream (Global Workspace)
+    try:
+        from consciousness.consciousness_stream import get_consciousness_stream, ConsciousEvent
+        get_consciousness_stream().publish(ConsciousEvent.create(
+            source="chat",
+            event_type="chat_message",
+            title=f"Chat: {msg.message[:80]}",
+            content=response[:200],
+            salience=0.5,
+            valence=0.0,
+            metadata={"channel": channel},
+        ))
+    except Exception:
+        pass
+
+    # Encode chat as episodic memory (fire-and-forget)
+    try:
+        from app.lifespan import get_service
+        from core.hierarchical_memory import EpisodeCategory
+        hm = get_service('hierarchical_memory')
+        if hm:
+            episode_id = f"chat_{datetime.utcnow().strftime('%Y%m%d_%H%M%S')}"
+            if episode_id not in hm.episodic_memory:
+                topic_words = {w for w in msg.message.lower().split()[:10] if len(w) > 3}
+                topic_words.update({'chat', 'interaction'})
+                hm.add_episode(
+                    episode_id=episode_id,
+                    category=EpisodeCategory.INTERACTION,
+                    description=f"Chat com Paulo: {msg.message[:100]}",
+                    content={
+                        'user_message': msg.message[:300],
+                        'darwin_response': response[:300],
+                        'channel': channel,
+                    },
+                    success=True,
+                    emotional_valence=0.3,
+                    importance=0.6,
+                    tags=topic_words,
+                )
+    except Exception:
+        pass
 
     # Async: extract facts about Paulo from this exchange (fire-and-forget)
     try:

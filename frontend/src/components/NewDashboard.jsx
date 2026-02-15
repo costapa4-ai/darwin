@@ -8,9 +8,6 @@ import { API_BASE } from '../utils/config';
 
 export default function NewDashboard({ onNavigate }) {
   const [status, setStatus] = useState(null);
-  const [activities, setActivities] = useState([]);
-  const [dreams, setDreams] = useState([]);
-  const [curiosities, setCuriosities] = useState([]);
   const [allEvents, setAllEvents] = useState([]);
   const [pendingChanges, setPendingChanges] = useState(0);
   const [message, setMessage] = useState('');
@@ -45,34 +42,23 @@ export default function NewDashboard({ onNavigate }) {
       const statusData = await statusRes.json();
       setStatus(statusData);
 
-      // Fetch wake activities
-      const activitiesRes = await fetch(`${API_BASE}/api/v1/consciousness/wake-activities?limit=20`);
-      const activitiesData = await activitiesRes.json();
-      const newActivities = activitiesData.activities || [];
-      setActivities(newActivities);
-
-      // Fetch sleep dreams
-      const dreamsRes = await fetch(`${API_BASE}/api/v1/consciousness/sleep-dreams?limit=20`);
-      const dreamsData = await dreamsRes.json();
-      const newDreams = dreamsData.dreams || [];
-      setDreams(newDreams);
-
-      // Fetch curiosities
-      const curiositiesRes = await fetch(`${API_BASE}/api/v1/consciousness/curiosities?limit=20`);
-      const curiositiesData = await curiositiesRes.json();
-      const newCuriosities = curiositiesData.curiosities || [];
-      setCuriosities(newCuriosities);
-
-      // Merge all events and sort by time (limit to 50 most recent)
-      const events = [
-        ...newActivities.map(a => ({ ...a, eventType: 'activity', timestamp: a.started_at })),
-        ...newDreams.map(d => ({ ...d, eventType: 'dream', timestamp: d.started_at })),
-        ...newCuriosities.map(c => ({ ...c, eventType: 'curiosity', timestamp: c.timestamp }))
-      ]
-        .sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp))
-        .slice(0, 50); // Keep only last 50 events
-
-      setAllEvents(events);
+      // Fetch unified consciousness stream (Global Workspace)
+      const streamRes = await fetch(`${API_BASE}/api/v1/consciousness/stream?limit=50`);
+      const streamData = await streamRes.json();
+      const streamEvents = (streamData.events || []).map(e => ({
+        ...e,
+        eventType: e.event_type || e.eventType || 'activity',
+        timestamp: e.timestamp,
+        // Map stream fields to legacy field names for rendering compatibility
+        description: e.title || e.description || e.content || '',
+        type: e.metadata?.type || e.event_type || '',
+        topic: e.title || e.topic || '',
+        fact: e.content || e.fact || '',
+        significance: e.metadata?.significance || '',
+        insights: e.metadata?.insights || [],
+        exploration_details: e.metadata?.exploration_details || null,
+      }));
+      setAllEvents(streamEvents);
 
       // Fetch pending changes from approval queue with timeout
       try {
@@ -214,11 +200,29 @@ export default function NewDashboard({ onNavigate }) {
         'curiosity_share': '🎯',
         'self_improvement': '🔬'
       };
-      return icons[event.type] || '🧬';
+      return icons[event.type] || '⚡';
     } else if (event.eventType === 'dream') {
       return '💭';
     } else if (event.eventType === 'curiosity') {
       return '📚';
+    } else if (event.eventType === 'mood_change') {
+      return '🎭';
+    } else if (event.eventType === 'state_transition') {
+      return '🔄';
+    } else if (event.eventType === 'discovery') {
+      return '💡';
+    } else if (event.eventType === 'genome_mutation') {
+      return '🧬';
+    } else if (event.eventType === 'chat_message') {
+      return '💬';
+    } else if (event.eventType === 'expedition') {
+      return '🗺️';
+    } else if (event.eventType === 'thought') {
+      return '🤔';
+    } else if (event.eventType === 'intention') {
+      return '🎯';
+    } else if (event.eventType === 'memory_recall') {
+      return '🧠';
     }
     return '•';
   };
@@ -237,6 +241,22 @@ export default function NewDashboard({ onNavigate }) {
       return 'border-blue-400 bg-blue-900/20';
     } else if (event.eventType === 'curiosity') {
       return 'border-purple-400 bg-purple-900/20';
+    } else if (event.eventType === 'mood_change') {
+      return 'border-yellow-400 bg-yellow-900/20';
+    } else if (event.eventType === 'state_transition') {
+      return 'border-cyan-400 bg-cyan-900/20';
+    } else if (event.eventType === 'discovery') {
+      return 'border-amber-400 bg-amber-900/20';
+    } else if (event.eventType === 'genome_mutation') {
+      return 'border-pink-400 bg-pink-900/20';
+    } else if (event.eventType === 'chat_message') {
+      return 'border-emerald-400 bg-emerald-900/20';
+    } else if (event.eventType === 'expedition') {
+      return 'border-indigo-400 bg-indigo-900/20';
+    } else if (event.eventType === 'thought') {
+      return 'border-gray-400 bg-gray-900/20';
+    } else if (event.eventType === 'memory_recall') {
+      return 'border-teal-400 bg-teal-900/20';
     }
     return 'border-slate-500 bg-slate-900/20';
   };
@@ -528,14 +548,15 @@ export default function NewDashboard({ onNavigate }) {
                   <span className="text-3xl flex-shrink-0">{getEventIcon(event)}</span>
                   <div className="flex-1 min-w-0">
                     <div className="font-bold text-white text-lg leading-tight break-words">
-                      {event.eventType === 'activity' && event.description}
-                      {event.eventType === 'dream' && event.description}
-                      {event.eventType === 'curiosity' && event.topic}
+                      {event.title || event.description || event.topic || event.content || ''}
                     </div>
-                    {event.eventType === 'activity' && (
+                    {(event.eventType === 'activity' || event.event_type) && event.type && (
                       <div className="text-xs text-slate-400 uppercase font-semibold mt-1">
-                        {event.type?.replace('_', ' ')}
+                        {(event.eventType || event.event_type)?.replace('_', ' ')}
                       </div>
+                    )}
+                    {event.content && event.content !== event.title && event.eventType !== 'chat_message' && (
+                      <div className="text-xs text-slate-400 mt-1">{event.content.slice(0, 120)}</div>
                     )}
                   </div>
                   <div className="text-right flex-shrink-0">

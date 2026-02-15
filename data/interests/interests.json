@@ -2,13 +2,25 @@
   "active_interests": {
     "finding:_system_disk:_high": {
       "topic": "Finding: System DISK: HIGH",
-      "depth": 0,
-      "enthusiasm": 0.7496511713224537,
+      "depth": 1,
+      "enthusiasm": 0.7993544975532408,
       "sessions": [
         {
           "date": "2026-02-15",
           "duration_min": 0.05081365,
           "summary": "A 0-minute journey into Finding: System DISK: HIGH. Discovered 5 interesting findings and gained 1 insights. Most notable: 100% disk usage caused by windows \"system\" process.",
+          "sources": [
+            "",
+            "",
+            "",
+            "",
+            ""
+          ]
+        },
+        {
+          "date": "2026-02-15",
+          "duration_min": 0.047756766666666665,
+          "summary": "A 0-minute journey into Finding: System DISK: HIGH. Discovered 5 interesting findings and gained 1 insights. Most notable: Why Is My System Using 100% of My Disk? Understanding and Resolving ....",
           "sources": [
             "",
             "",
@@ -23,21 +35,28 @@
         "Experiencinghighdiskusage can slow down your computer and cause applications to freeze or crash.This",
         "Systemandcompressed memory is a process responsible forhighdiskusage.Thispost shows youhowto fix 100",
         "HighdiskI/O in Windows can pin storage at 100% active time, turning simple tasks like launching apps",
-        "On the Processes tab, you can find out which process is causinghighdiskusage. The new Task Manager i"
+        "On the Processes tab, you can find out which process is causinghighdiskusage. The new Task Manager i",
+        "Understandingwhy yoursystemis using 100% of yourdiskis essential for maintaining optimal performance",
+        "OpenSystemProperties > Advanced > Performance Settings > Advanced > Virtual Memory > Change. Select ",
+        "How to FixHighDiskUsage on Windows 10 Most of the time, the fixes forhighdiskusage come down tofindi",
+        "Are you seeing 100%diskusage on your Windows computer? Here's how to reducediskusage on your Windows",
+        "How to Fix 100%DiskUsage Issue on Windows 10 or 11 [18 Ways] Experiencing 100%diskusage on your Wind"
       ],
       "related_interests": [
         "How Finding: System DISK: HIGH might change in the next decade",
-        "Surprising connections between Finding: System DISK: HIGH and other fields"
+        "Surprising connections between Finding: System DISK: HIGH and other fields",
+        "Debates and controversies around Finding: System DISK: HIGH",
+        "Finding: System DISK: HIGH in different cultures and contexts"
       ],
       "sparked_by": "expedition",
-      "last_explored": "2026-02-15T17:36:41.941354",
-      "total_time_minutes": 0.05081365,
+      "last_explored": "2026-02-15T20:41:39.259493",
+      "total_time_minutes": 0.09857041666666666,
       "created_at": "2026-02-15"
     },
     "how_finding:_system_disk:_high_might_change_in_the_next_decade": {
       "topic": "How Finding: System DISK: HIGH might change in the next decade",
       "depth": 0,
-      "enthusiasm": 0.3996511713784722,
+      "enthusiasm": 0.3967856740219907,
       "sessions": [],
       "discoveries": [],
       "related_interests": [],
@@ -49,12 +68,36 @@
     "surprising_connections_between_finding:_system_disk:_high_and_other_fields": {
       "topic": "Surprising connections between Finding: System DISK: HIGH and other fields",
       "depth": 0,
-      "enthusiasm": 0.39965117143194445,
+      "enthusiasm": 0.39678567412916665,
       "sessions": [],
       "discoveries": [],
       "related_interests": [],
       "sparked_by": "expedition:Finding: System DISK: HIGH",
       "last_explored": "2026-02-15T17:36:41.941840",
+      "total_time_minutes": 0,
+      "created_at": "2026-02-15"
+    },
+    "debates_and_controversies_around_finding:_system_disk:_high": {
+      "topic": "Debates and controversies around Finding: System DISK: HIGH",
+      "depth": 0,
+      "enthusiasm": 0.3997033263310185,
+      "sessions": [],
+      "discoveries": [],
+      "related_interests": [],
+      "sparked_by": "expedition:Finding: System DISK: HIGH",
+      "last_explored": "2026-02-15T20:41:39.259939",
+      "total_time_minutes": 0,
+      "created_at": "2026-02-15"
+    },
+    "finding:_system_disk:_high_in_different_cultures_and_contexts": {
+      "topic": "Finding: System DISK: HIGH in different cultures and contexts",
+      "depth": 0,
+      "enthusiasm": 0.3997033263928241,
+      "sessions": [],
+      "discoveries": [],
+      "related_interests": [],
+      "sparked_by": "expedition:Finding: System DISK: HIGH",
+      "last_explored": "2026-02-15T20:41:39.260209",
       "total_time_minutes": 0,
       "created_at": "2026-02-15"
     }
@@ -78,7 +121,19 @@
       "event": "discovered",
       "detail": "expedition:Finding: System DISK: HIGH",
       "timestamp": "2026-02-15T17:36:41.941843"
+    },
+    {
+      "interest": "debates_and_controversies_around_finding:_system_disk:_high",
+      "event": "discovered",
+      "detail": "expedition:Finding: System DISK: HIGH",
+      "timestamp": "2026-02-15T20:41:39.259942"
+    },
+    {
+      "interest": "finding:_system_disk:_high_in_different_cultures_and_contexts",
+      "event": "discovered",
+      "detail": "expedition:Finding: System DISK: HIGH",
+      "timestamp": "2026-02-15T20:41:39.260212"
     }
   ],
-  "last_updated": "2026-02-15T18:01:48.881272"
+  "last_updated": "2026-02-15T21:03:00.890218"
 }

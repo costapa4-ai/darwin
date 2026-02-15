@@ -103,10 +103,26 @@ async def get_overview():
     perf = router_stats.get('performance_stats', {})
     cost_today = sum(m.get('total_cost_estimate', 0) for m in perf.values())
 
+    # ConsciousnessStream stats
+    from consciousness.consciousness_stream import get_consciousness_stream
+    stream = _safe_get(get_consciousness_stream)
+    stream_stats = _safe_get(lambda: stream.get_stats()) if stream else {}
+
+    # Memory stats
+    hm = get_service('hierarchical_memory')
+    memory_stats = _safe_get(lambda: hm.get_stats()) if hm else {}
+
+    # Safety logger stats
+    from consciousness.safety_logger import get_safety_logger
+    safety = _safe_get(get_safety_logger)
+    safety_summary = _safe_get(lambda: safety.get_summary(since_hours=24)) if safety else {}
+    safety_total_24h = sum(safety_summary.values()) if safety_summary else 0
+
     # Subsystem health count
     subsystem_names = [
         'consciousness_engine', 'multi_model_router', 'mood_system',
-        'tool_registry', 'financial_consciousness', 'communicator'
+        'tool_registry', 'financial_consciousness', 'communicator',
+        'consciousness_stream', 'hierarchical_memory',
     ]
     healthy = sum(1 for n in subsystem_names if get_service(n) is not None)
     # Add singleton-pattern services
@@ -122,8 +138,11 @@ async def get_overview():
             healthy += 1
     except Exception:
         pass
+    # Safety logger (singleton)
+    if safety:
+        healthy += 1
 
-    total_subsystems = 10
+    total_subsystems = 13
 
     return {
         "state": state,
@@ -148,7 +167,11 @@ async def get_overview():
                 s.get("active_uses", 0)
                 for s in prompt_stats.get("slots", {}).values()
             ) if isinstance(prompt_stats.get("slots"), dict) else 0
-        }
+        },
+        "stream_events": stream_stats.get("total_events", 0),
+        "memory_episodes": memory_stats.get("episodic_memory", {}).get("total_episodes", 0),
+        "semantic_knowledge": memory_stats.get("semantic_memory", {}).get("total_knowledge", 0),
+        "safety_events_24h": safety_total_24h,
     }
 
 
@@ -447,7 +470,106 @@ async def get_subsystems():
     else:
         subsystems.append({"name": "Communicator", "icon": "\U0001f4e1", "status": "offline", "last_activity": "n/a", "key_metric": "not loaded", "details": {}})
 
+    # 11. ConsciousnessStream
+    from consciousness.consciousness_stream import get_consciousness_stream
+    stream = _safe_get(get_consciousness_stream)
+    if stream:
+        ss = _safe_get(lambda: stream.get_stats())
+        subsystems.append({
+            "name": "Consciousness Stream", "icon": "\U0001f30a",
+            "status": "healthy",
+            "last_activity": "broadcasting",
+            "key_metric": f"{ss.get('total_events', 0)} events ({ss.get('ring_buffer_size', 0)} in buffer)",
+            "details": {"by_type": ss.get("by_type", {}), "by_source": ss.get("by_source", {})}
+        })
+    else:
+        subsystems.append({"name": "Consciousness Stream", "icon": "\U0001f30a", "status": "offline", "last_activity": "n/a", "key_metric": "not loaded", "details": {}})
+
+    # 12. Hierarchical Memory
+    hm = get_service('hierarchical_memory')
+    if hm:
+        ms = _safe_get(lambda: hm.get_stats())
+        ep = ms.get('episodic_memory', {})
+        sm = ms.get('semantic_memory', {})
+        wm = ms.get('working_memory', {})
+        subsystems.append({
+            "name": "Hierarchical Memory", "icon": "\U0001f9e0",
+            "status": "healthy",
+            "last_activity": "active",
+            "key_metric": f"{ep.get('total_episodes', 0)} episodes, {sm.get('total_knowledge', 0)} knowledge",
+            "details": {
+                "working_memory_size": wm.get("size", 0),
+                "working_memory_capacity": wm.get("capacity", 0),
+                "episodes_by_category": ep.get("by_category", {}),
+                "semantic_total_usage": sm.get("total_usage", 0),
+                "semantic_avg_confidence": round(sm.get("avg_confidence", 0), 3),
+            }
+        })
+    else:
+        subsystems.append({"name": "Hierarchical Memory", "icon": "\U0001f9e0", "status": "offline", "last_activity": "n/a", "key_metric": "not loaded", "details": {}})
+
+    # 13. Safety Logger
+    from consciousness.safety_logger import get_safety_logger
+    safety = _safe_get(get_safety_logger)
+    if safety:
+        st = _safe_get(lambda: safety.get_summary(since_hours=24))
+        total_24h = sum(st.values()) if st else 0
+        total_all = _safe_get(lambda: safety.get_total_count()) or 0
+        subsystems.append({
+            "name": "Safety Logger", "icon": "\U0001f6e1\ufe0f",
+            "status": "healthy",
+            "last_activity": "monitoring",
+            "key_metric": f"{total_24h} events (24h), {total_all} total",
+            "details": {"summary_24h": st or {}, "total_all_time": total_all}
+        })
+    else:
+        subsystems.append({"name": "Safety Logger", "icon": "\U0001f6e1\ufe0f", "status": "offline", "last_activity": "n/a", "key_metric": "not loaded", "details": {}})
+
     return {"subsystems": subsystems}
+
+
+@router.get("/safety-events")
+async def get_safety_events(
+    since_hours: int = 24,
+    event_type: Optional[str] = None,
+    limit: int = 50
+):
+    """Query safety events from the SafetyLogger."""
+    from consciousness.safety_logger import get_safety_logger
+    sl = _safe_get(get_safety_logger)
+    if not sl:
+        return {"error": "SafetyLogger not available", "events": [], "summary": {}}
+
+    events = _safe_get(lambda: sl.get_events(
+        event_type=event_type, since_hours=since_hours, limit=limit
+    )) or []
+    summary = _safe_get(lambda: sl.get_summary(since_hours=since_hours)) or {}
+    total = _safe_get(lambda: sl.get_total_count()) or 0
+
+    return {
+        "events": events,
+        "summary": summary,
+        "total_all_time": total,
+        "since_hours": since_hours,
+    }
+
+
+@router.get("/memory-stats")
+async def get_memory_stats():
+    """Hierarchical Memory and ConsciousnessStream statistics."""
+    from app.lifespan import get_service
+    from consciousness.consciousness_stream import get_consciousness_stream
+
+    hm = get_service('hierarchical_memory')
+    memory_data = _safe_get(lambda: hm.get_stats()) if hm else {}
+
+    stream = _safe_get(get_consciousness_stream)
+    stream_data = _safe_get(lambda: stream.get_stats()) if stream else {}
+
+    return {
+        "memory": memory_data,
+        "stream": stream_data,
+    }
 
 
 @router.get("/watchdog")

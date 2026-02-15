@@ -229,6 +229,13 @@ class StateManager:
         # Print activity summary
         self._print_wake_summary()
 
+        # Clear working memory before consolidation (fresh start after sleep)
+        try:
+            if hasattr(self.engine, 'hierarchical_memory') and self.engine.hierarchical_memory:
+                self.engine.hierarchical_memory.clear_working_memory()
+        except Exception:
+            pass
+
         # Run memory consolidation during sleep transition
         await self._consolidate_memories()
 
@@ -240,6 +247,13 @@ class StateManager:
 
         # Trim wake activities (keep last 50)
         self._trim_activities()
+
+        # Clean old consciousness stream events (keep 7 days)
+        try:
+            from consciousness.consciousness_stream import get_consciousness_stream
+            get_consciousness_stream().cleanup_old(days=7)
+        except Exception:
+            pass
 
         # Record genome cycle (half-cycle: wake complete)
         try:

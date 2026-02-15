@@ -197,6 +197,15 @@ class InnerVoice:
             top = self.darwin_self_model.current_interests[0]
             parts.append(f"Estou entusiasmado com: {top['topic']}")
 
+        # Add consciousness stream context (Global Workspace)
+        try:
+            from consciousness.consciousness_stream import get_consciousness_stream
+            stream_ctx = get_consciousness_stream().get_context_summary(limit=5, min_salience=0.4)
+            if stream_ctx:
+                parts.append(stream_ctx)
+        except Exception:
+            pass
+
         context_text = "\n".join(parts) if parts else "É um novo dia."
 
         # Generate greeting with LLM or use template
@@ -258,6 +267,15 @@ Don't be generic — make it feel like a friend saying good morning.""",
             today_msgs = self.conversation_store.get_today_messages()
             if today_msgs:
                 parts.append(f"Tivemos {len(today_msgs)} mensagens hoje")
+
+        # Add consciousness stream context (Global Workspace)
+        try:
+            from consciousness.consciousness_stream import get_consciousness_stream
+            stream_ctx = get_consciousness_stream().get_context_summary(limit=5, min_salience=0.4)
+            if stream_ctx:
+                parts.append(stream_ctx)
+        except Exception:
+            pass
 
         if self.router:
             try:

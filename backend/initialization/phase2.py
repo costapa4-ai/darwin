@@ -13,6 +13,7 @@ from typing import Dict, Any, Optional
 
 from config import get_settings
 from utils.logger import setup_logger
+from app.lifespan import set_service
 
 logger = setup_logger(__name__)
 settings = get_settings()
@@ -53,6 +54,7 @@ async def init_phase2_services(core: Dict[str, Any]) -> Dict[str, Any]:
         services['hierarchical_memory'] = HierarchicalMemory(
             storage_path="./data/memory"
         )
+        set_service('hierarchical_memory', services['hierarchical_memory'])
         logger.info("Hierarchical Memory initialized (Working, Episodic, Semantic)")
     except Exception as e:
         logger.error(f"Failed to initialize Hierarchical Memory: {e}")

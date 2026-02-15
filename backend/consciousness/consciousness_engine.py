@@ -418,6 +418,25 @@ class ConsciousnessEngine:
             await asyncio.sleep(activity_interval * 60)
             return
 
+        # Sync working memory with recent high-salience stream events
+        try:
+            if self.hierarchical_memory:
+                from consciousness.consciousness_stream import get_consciousness_stream
+                recent = get_consciousness_stream().get_recent(limit=10, min_salience=0.5)
+                for event in recent:
+                    key = f"stream_{event.get('id', '')}"
+                    self.hierarchical_memory.add_to_working_memory(
+                        key=key,
+                        content={
+                            'title': event.get('title', ''),
+                            'type': event.get('event_type', ''),
+                            'source': event.get('source', ''),
+                        },
+                        importance=event.get('salience', 0.5),
+                    )
+        except Exception:
+            pass
+
         try:
             # 1. Gather context about Darwin's current state
             context = self._build_wake_context()
@@ -461,6 +480,32 @@ class ConsciousnessEngine:
             )
             self.wake_activities.append(activity)
             self.total_activities_completed += 1
+
+            # Publish to consciousness stream (Global Workspace)
+            try:
+                from consciousness.consciousness_stream import get_consciousness_stream, ConsciousEvent
+                get_consciousness_stream().publish(ConsciousEvent.create(
+                    source="wake_cycle",
+                    event_type="activity",
+                    title=goal[:200],
+                    content=narrative[:300],
+                    salience=0.6 if tools_used > 0 else 0.4,
+                    valence=0.3,
+                    metadata={"tools_used": tools_used, "type": "autonomous_goal"},
+                ))
+            except Exception:
+                pass
+
+            # Add to working memory
+            try:
+                if self.hierarchical_memory:
+                    self.hierarchical_memory.add_to_working_memory(
+                        key=f"goal_{datetime.utcnow().strftime('%H%M%S')}",
+                        content={'goal': goal[:100], 'tools_used': tools_used, 'narrative': narrative[:200]},
+                        importance=0.6 if tools_used > 0 else 0.4,
+                    )
+            except Exception:
+                pass
 
             # 5. Feed findings back into project (if active)
             if self.current_project and narrative:
@@ -577,6 +622,63 @@ class ConsciousnessEngine:
                 f"  Findings so far: {proj.get('findings', 'none yet')}\n"
                 f"  Next: advance to the next phase"
             )
+
+        # Memory retrieval — recall relevant past experiences and knowledge
+        try:
+            if self.hierarchical_memory:
+                query_parts = [
+                    a.description[:40] for a in self.wake_activities[-3:]
+                    if a.type == 'autonomous_goal'
+                ]
+                query = ' '.join(query_parts) if query_parts else 'tool code learning improvement'
+
+                mem_ctx = self.hierarchical_memory.get_memory_context(
+                    query=query,
+                    include_working=False,
+                    include_episodic=True,
+                    include_semantic=True,
+                )
+
+                episodes = mem_ctx.get('recent_episodes', [])
+                if episodes:
+                    ep_lines = []
+                    for ep in episodes[:5]:
+                        desc = ep.get('description', '')[:80]
+                        success = 'OK' if ep.get('success') else 'FAIL'
+                        ep_lines.append(f"  - [{success}] {desc}")
+                    parts.append("RELEVANT PAST EXPERIENCES:\n" + "\n".join(ep_lines))
+
+                knowledge = mem_ctx.get('semantic_knowledge', [])
+                if knowledge:
+                    k_lines = [f"  - {k.get('concept', '')}: {k.get('description', '')[:80]}" for k in knowledge[:3]]
+                    parts.append("CONSOLIDATED KNOWLEDGE:\n" + "\n".join(k_lines))
+
+                # Publish memory recall to stream (visible to all channels)
+                if episodes or knowledge:
+                    try:
+                        from consciousness.consciousness_stream import get_consciousness_stream, ConsciousEvent
+                        get_consciousness_stream().publish(ConsciousEvent.create(
+                            source="memory",
+                            event_type="memory_recall",
+                            title=f"Recalled {len(episodes)} episodes, {len(knowledge)} knowledge items",
+                            content="; ".join(ep.get('description', '')[:60] for ep in episodes[:3])[:300],
+                            salience=0.4,
+                            valence=0.1,
+                            metadata={'episodes_count': len(episodes), 'knowledge_count': len(knowledge)},
+                        ))
+                    except Exception:
+                        pass
+                    # Audit trail
+                    try:
+                        from consciousness.activity_monitor import get_activity_monitor, ActivityCategory
+                        get_activity_monitor().log_activity(
+                            ActivityCategory.MEMORY, "memory_retrieval",
+                            f"Retrieved {len(episodes)} episodes, {len(knowledge)} knowledge for wake context"
+                        )
+                    except Exception:
+                        pass
+        except Exception as e:
+            print(f"   Memory retrieval failed (non-critical): {e}")
 
         return "\n".join(parts)
 
@@ -2437,6 +2539,21 @@ Just output the tool name, nothing else."""
                 )
                 self.sleep_dreams.append(dream)
                 self.total_discoveries_made += 1
+
+                # Publish to consciousness stream (Global Workspace)
+                try:
+                    from consciousness.consciousness_stream import get_consciousness_stream, ConsciousEvent
+                    get_consciousness_stream().publish(ConsciousEvent.create(
+                        source="sleep_cycle",
+                        event_type="dream",
+                        title=f"Sonho ({sleep_mode}): {thought[:100]}",
+                        content=thought[:300],
+                        salience=0.6,
+                        valence=0.2,
+                        metadata={"mode": sleep_mode},
+                    ))
+                except Exception:
+                    pass
 
                 # If planning mode, store as intention for next wake cycle
                 if sleep_mode == "plan":

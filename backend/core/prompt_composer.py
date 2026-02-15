@@ -47,8 +47,11 @@ class PromptComposer:
         # 4. Conversation Memory
         sections.append(self._conversation_section())
 
-        # 5. Activity Context
+        # 5. Activity Context (from consciousness stream)
         sections.append(self._activity_section())
+
+        # 5b. Memory recall (relevant past experiences)
+        sections.append(self._memory_section(user_message))
 
         # 6. Pending Intentions (from past conversations)
         sections.append(self._intentions_section())
@@ -132,23 +135,65 @@ Não es um assistente. Es uma presença digital com interesses, opiniões e mem�
         return "\n\n".join(parts) if parts else ""
 
     def _activity_section(self) -> str:
-        """What Darwin has been doing."""
+        """What Darwin has been doing — reads from unified consciousness stream."""
+        # Try consciousness stream first (Global Workspace — unified view)
+        try:
+            from consciousness.consciousness_stream import get_consciousness_stream
+            stream = get_consciousness_stream()
+            summary = stream.get_context_summary(limit=6, min_salience=0.3)
+            if summary:
+                return summary
+        except Exception:
+            pass
+
+        # Fallback to old behavior if stream unavailable
         if not self.consciousness_engine:
             return ""
 
-        parts = []
-
         try:
-            # Recent activities (keep brief)
             activities = getattr(self.consciousness_engine, 'wake_activities', [])
             if activities:
                 recent = activities[-3:]
                 activity_lines = [a.description[:60] if hasattr(a, 'description') else str(a)[:60] for a in recent]
-                parts.append("ATIVIDADES RECENTES: " + "; ".join(activity_lines))
+                return "ATIVIDADES RECENTES: " + "; ".join(activity_lines)
         except Exception:
             pass
 
-        return "\n\n".join(parts) if parts else ""
+        return ""
+
+    def _memory_section(self, user_message: str) -> str:
+        """Relevant memories for the current conversation topic."""
+        try:
+            from app.lifespan import get_service
+            hm = get_service('hierarchical_memory')
+            if not hm:
+                return ""
+
+            mem_ctx = hm.get_memory_context(
+                query=user_message,
+                include_working=False,
+                include_episodic=True,
+                include_semantic=True,
+            )
+
+            parts = []
+
+            episodes = mem_ctx.get('recent_episodes', [])
+            if episodes:
+                ep_lines = [ep.get('description', '')[:80] for ep in episodes[:3]]
+                parts.append("Experiencias relevantes: " + "; ".join(ep_lines))
+
+            knowledge = mem_ctx.get('semantic_knowledge', [])
+            if knowledge:
+                k_lines = [k.get('concept', '') for k in knowledge[:3]]
+                parts.append("Conhecimento consolidado: " + ", ".join(k_lines))
+
+            if not parts:
+                return ""
+
+            return "MEMORIAS RELEVANTES:\n" + "\n".join(f"- {p}" for p in parts)
+        except Exception:
+            return ""
 
     def _intentions_section(self) -> str:
         """What Darwin intends to do (from past conversations)."""

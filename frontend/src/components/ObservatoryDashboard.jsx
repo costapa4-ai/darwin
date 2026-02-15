@@ -203,23 +203,26 @@ export default function ObservatoryDashboard({ onBack }) {
   const [aiRouting, setAiRouting] = useState(null);
   const [evolution, setEvolution] = useState(null);
   const [subsystems, setSubsystems] = useState(null);
+  const [safetyEvents, setSafetyEvents] = useState(null);
   const [lastRefresh, setLastRefresh] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
 
   const fetchAll = useCallback(async () => {
     try {
-      const [ovRes, aiRes, evoRes, subRes] = await Promise.allSettled([
+      const [ovRes, aiRes, evoRes, subRes, safetyRes] = await Promise.allSettled([
         fetch(`${API_BASE}/api/v1/observatory/overview`).then(r => r.json()),
         fetch(`${API_BASE}/api/v1/observatory/ai-routing`).then(r => r.json()),
         fetch(`${API_BASE}/api/v1/observatory/evolution`).then(r => r.json()),
         fetch(`${API_BASE}/api/v1/observatory/subsystems`).then(r => r.json()),
+        fetch(`${API_BASE}/api/v1/observatory/safety-events`).then(r => r.json()),
       ]);
 
       if (ovRes.status === 'fulfilled') setOverview(ovRes.value);
       if (aiRes.status === 'fulfilled') setAiRouting(aiRes.value);
       if (evoRes.status === 'fulfilled') setEvolution(evoRes.value);
       if (subRes.status === 'fulfilled') setSubsystems(subRes.value);
+      if (safetyRes.status === 'fulfilled') setSafetyEvents(safetyRes.value);
 
       setLastRefresh(new Date());
       setError(null);
@@ -476,10 +479,72 @@ export default function ObservatoryDashboard({ onBack }) {
                 </div>
               </div>
             </div>
+            {/* Stream / Memory / Safety stats */}
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mt-4">
+              <StatCard label="Stream Events" value={overview.stream_events ?? 0} icon="🌊" color="cyan"
+                sub="total consciousness events" />
+              <StatCard label="Memory Episodes" value={overview.memory_episodes ?? 0} icon="🧠" color="purple"
+                sub={`${overview.semantic_knowledge ?? 0} semantic knowledge`} />
+              <StatCard label="Safety Events" value={overview.safety_events_24h ?? 0} icon="🛡️" color="yellow"
+                sub="last 24 hours" />
+              <StatCard label="Subsystems" value={`${overview.subsystem_count?.healthy ?? 0}/${overview.subsystem_count?.total ?? 0}`} icon="✅" color="green"
+                sub={`${overview.subsystem_count?.degraded ?? 0} degraded`} />
+            </div>
           </>
         )}
 
-        {/* SECTION 5: Findings & Knowledge */}
+        {/* SECTION 5: Safety & Audit Trail */}
+        {safetyEvents && Object.keys(safetyEvents.summary || {}).length > 0 && (
+          <>
+            <SectionHeader title="Safety & Audit Trail" icon="🛡️" />
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div className="bg-slate-900 rounded-xl p-4 border border-slate-700/50">
+                <h3 className="text-sm font-medium text-slate-300 mb-3">Safety Events (24h)</h3>
+                <div className="space-y-2">
+                  {Object.entries(safetyEvents.summary).map(([type, count]) => {
+                    const maxCount = Math.max(...Object.values(safetyEvents.summary), 1);
+                    const typeColors = {
+                      model_fallback: COLORS.yellow,
+                      routing_decision: COLORS.cyan,
+                      truncation_retry: COLORS.orange,
+                      code_validation_fail: COLORS.red,
+                      code_validation_corrected: COLORS.green,
+                      tool_rejected: COLORS.red,
+                      prompt_rollback: COLORS.orange,
+                      prompt_promoted: COLORS.green,
+                      protected_file_redirect: COLORS.purple,
+                      early_stop: COLORS.slate,
+                    };
+                    return (
+                      <div key={type} className="flex items-center gap-2">
+                        <span className="text-xs text-slate-400 w-40 truncate" title={type}>
+                          {type.replace(/_/g, ' ')}
+                        </span>
+                        <div className="flex-1 bg-slate-700 rounded-full h-3">
+                          <div className="h-3 rounded-full transition-all" style={{
+                            width: `${Math.min((count / maxCount) * 100, 100)}%`,
+                            backgroundColor: typeColors[type] || COLORS.slate
+                          }} />
+                        </div>
+                        <span className="text-xs text-white font-medium w-8 text-right">{count}</span>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+              <div className="bg-slate-900 rounded-xl p-4 border border-slate-700/50 flex flex-col items-center justify-center">
+                <h3 className="text-sm font-medium text-slate-300 mb-4">Total Safety Events</h3>
+                <div className="text-5xl font-bold text-yellow-400">{safetyEvents.total_all_time ?? 0}</div>
+                <div className="text-xs text-slate-500 mt-2">all time</div>
+                <div className="text-lg font-medium text-slate-300 mt-3">
+                  {Object.values(safetyEvents.summary || {}).reduce((a, b) => a + b, 0)} <span className="text-xs text-slate-500">last 24h</span>
+                </div>
+              </div>
+            </div>
+          </>
+        )}
+
+        {/* SECTION 6: Findings & Knowledge */}
         {subsystems && (
           <>
             <SectionHeader title="Findings & Knowledge" icon="📚" />
@@ -487,7 +552,7 @@ export default function ObservatoryDashboard({ onBack }) {
           </>
         )}
 
-        {/* SECTION 6: Subsystem Health Grid */}
+        {/* SECTION 7: Subsystem Health Grid */}
         {subsystems?.subsystems && (
           <>
             <SectionHeader title="Subsystem Health" icon="🟢" />
