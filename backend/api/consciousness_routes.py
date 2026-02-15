@@ -833,6 +833,15 @@ COMO COMUNICAR:
     except Exception:
         pass
 
+    # InterestWatchdog: discover topics from chat
+    try:
+        from app.lifespan import get_service
+        watchdog = get_service('interest_watchdog')
+        if watchdog and len(chat_messages) >= 2:
+            watchdog.observe_chat(chat_messages[-6:])
+    except Exception:
+        pass
+
     return darwin_msg
 
 

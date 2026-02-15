@@ -218,7 +218,7 @@ async def init_consciousness_engine(
         logger.info("Proactive Communication System initialized (COMPLETE personality integration)")
 
         # Genome Manager (evolvable parameters)
-        from app.lifespan import set_service
+        from app.lifespan import set_service, get_service
         from consciousness.genome_manager import get_genome
         genome = get_genome()
         services['genome_manager'] = genome
@@ -351,6 +351,18 @@ async def init_consciousness_engine(
             logger.info("ConsciousnessStream (Global Workspace) initialized and hooked")
         except Exception as e:
             logger.debug(f"Could not initialize ConsciousnessStream: {e}")
+
+        # ==================== INTEREST WATCHDOG ====================
+        try:
+            from consciousness.interest_watchdog import InterestWatchdog
+            interest_graph = get_service('interest_graph')
+            h_memory = services.get('hierarchical_memory')
+            if interest_graph:
+                watchdog = InterestWatchdog(interest_graph, h_memory)
+                set_service('interest_watchdog', watchdog)
+                logger.info("InterestWatchdog initialized — organic topic discovery active")
+        except Exception as e:
+            logger.debug(f"Could not initialize InterestWatchdog: {e}")
 
         # ==================== END DIGITAL BEING SYSTEMS ====================
 

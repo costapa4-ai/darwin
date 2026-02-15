@@ -237,6 +237,15 @@ class FindingsInbox:
         except Exception as e:
             logger.debug(f"Could not send WebSocket notification: {e}")
 
+        # InterestWatchdog: discover topics from findings
+        try:
+            from app.lifespan import get_service
+            watchdog = get_service('interest_watchdog')
+            if watchdog:
+                watchdog.observe_finding(title, description, source)
+        except Exception:
+            pass
+
         # Broadcast high-priority findings to channels
         if self.channel_gateway and priority in [FindingPriority.HIGH, FindingPriority.URGENT]:
             try:

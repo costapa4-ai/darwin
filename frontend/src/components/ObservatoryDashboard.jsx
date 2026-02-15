@@ -206,13 +206,14 @@ export default function ObservatoryDashboard({ onBack }) {
   const [safetyEvents, setSafetyEvents] = useState(null);
   const [moodEnv, setMoodEnv] = useState(null);
   const [growthIdentity, setGrowthIdentity] = useState(null);
+  const [watchdogData, setWatchdogData] = useState(null);
   const [lastRefresh, setLastRefresh] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
 
   const fetchAll = useCallback(async () => {
     try {
-      const [ovRes, aiRes, evoRes, subRes, safetyRes, moodRes, growthRes] = await Promise.allSettled([
+      const [ovRes, aiRes, evoRes, subRes, safetyRes, moodRes, growthRes, wdRes] = await Promise.allSettled([
         fetch(`${API_BASE}/api/v1/observatory/overview`).then(r => r.json()),
         fetch(`${API_BASE}/api/v1/observatory/ai-routing`).then(r => r.json()),
         fetch(`${API_BASE}/api/v1/observatory/evolution`).then(r => r.json()),
@@ -220,6 +221,7 @@ export default function ObservatoryDashboard({ onBack }) {
         fetch(`${API_BASE}/api/v1/observatory/safety-events`).then(r => r.json()),
         fetch(`${API_BASE}/api/v1/observatory/mood-environment`).then(r => r.json()),
         fetch(`${API_BASE}/api/v1/observatory/growth-identity`).then(r => r.json()),
+        fetch(`${API_BASE}/api/v1/observatory/interest-watchdog`).then(r => r.json()),
       ]);
 
       if (ovRes.status === 'fulfilled') setOverview(ovRes.value);
@@ -229,6 +231,7 @@ export default function ObservatoryDashboard({ onBack }) {
       if (safetyRes.status === 'fulfilled') setSafetyEvents(safetyRes.value);
       if (moodRes.status === 'fulfilled') setMoodEnv(moodRes.value);
       if (growthRes.status === 'fulfilled') setGrowthIdentity(growthRes.value);
+      if (wdRes.status === 'fulfilled') setWatchdogData(wdRes.value);
 
       setLastRefresh(new Date());
       setError(null);
@@ -752,6 +755,33 @@ export default function ObservatoryDashboard({ onBack }) {
           </>
         )}
 
+        {/* SECTION 7B: Interest Watchdog */}
+        {watchdogData && watchdogData.status === 'active' && (
+          <>
+            <SectionHeader title="Interest Watchdog" icon="🔍" />
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+              <StatCard label="Observations" value={watchdogData.stats?.total_observations ?? 0}
+                icon="👁" color="purple" />
+              <StatCard label="Registered" value={watchdogData.stats?.total_registered ?? 0}
+                icon="✅" color="green" />
+              <StatCard label="This Cycle" value={`${watchdogData.stats?.new_this_cycle ?? 0}/${watchdogData.stats?.max_per_cycle ?? 3}`}
+                icon="🔄" color="cyan" />
+              <StatCard label="Seen Topics" value={watchdogData.stats?.seen_topics_count ?? 0}
+                icon="📝" color="yellow" />
+            </div>
+            {watchdogData.history?.length > 0 && (
+              <div className="mt-4 bg-slate-900 rounded-xl p-4 border border-slate-700/50">
+                <h3 className="text-sm font-medium text-slate-300 mb-3">Recent Observations</h3>
+                <div className="space-y-2 max-h-80 overflow-y-auto">
+                  {watchdogData.history.map((obs, i) => (
+                    <WatchdogObservation key={i} obs={obs} />
+                  ))}
+                </div>
+              </div>
+            )}
+          </>
+        )}
+
         {/* SECTION 8: Safety & Audit Trail */}
         {safetyEvents && Object.keys(safetyEvents.summary || {}).length > 0 && (
           <>
@@ -985,6 +1015,56 @@ function InterestCard({ interest }) {
         <span>{interest.discoveries} discoveries</span>
         <span>{Math.round(interest.total_time_minutes)}min</span>
       </div>
+    </div>
+  );
+}
+
+function WatchdogObservation({ obs }) {
+  const sourceColors = { chat: COLORS.cyan, activity: COLORS.purple, finding: COLORS.green };
+  const sourceColor = sourceColors[obs.source] || COLORS.slate;
+  const hasRegistered = !!obs.registered;
+  const time = obs.timestamp ? new Date(obs.timestamp + 'Z').toLocaleTimeString('pt-PT', {
+    hour: '2-digit', minute: '2-digit'
+  }) : '';
+
+  return (
+    <div className={`flex items-start gap-3 p-2 rounded-lg ${hasRegistered ? 'bg-green-950/30 border border-green-800/30' : 'bg-slate-800/50'}`}>
+      <div className="flex flex-col items-center gap-1 min-w-[52px]">
+        <span className="text-[10px] font-medium px-1.5 py-0.5 rounded-full"
+          style={{ backgroundColor: sourceColor + '22', color: sourceColor }}>
+          {obs.source}
+        </span>
+        <span className="text-[10px] text-slate-600">{time}</span>
+      </div>
+      <div className="flex-1 min-w-0">
+        <div className="text-xs text-slate-400 truncate" title={obs.input_preview}>
+          {obs.input_preview}
+        </div>
+        {obs.extracted_topics?.length > 0 && (
+          <div className="flex flex-wrap gap-1 mt-1">
+            {obs.extracted_topics.map((topic, j) => (
+              <span key={j} className={`text-[10px] px-1.5 py-0.5 rounded ${
+                topic === obs.registered
+                  ? 'bg-green-900/50 text-green-300 ring-1 ring-green-500/30'
+                  : 'bg-slate-700/50 text-slate-400'
+              }`}>
+                {topic === obs.registered && '✓ '}{topic}
+              </span>
+            ))}
+          </div>
+        )}
+        {obs.extracted_topics?.length === 0 && obs.rejected?.length > 0 && (
+          <span className="text-[10px] text-slate-600 italic">
+            {obs.rejected[0]}
+          </span>
+        )}
+        {obs.rejected?.length > 0 && obs.extracted_topics?.length > 0 && (
+          <div className="text-[10px] text-slate-600 mt-0.5">
+            {obs.rejected.map((r, k) => <span key={k} className="mr-2">{r}</span>)}
+          </div>
+        )}
+      </div>
+      <span className="text-[10px] text-slate-600 whitespace-nowrap">#{obs.cycle_count}</span>
     </div>
   );
 }

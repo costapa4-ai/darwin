@@ -609,6 +609,11 @@ class StateManager:
                 interest_graph.evolve_interests()
                 logger.info("Interest graph evolved")
 
+            # Reset InterestWatchdog cycle counters
+            watchdog = get_service('interest_watchdog')
+            if watchdog:
+                watchdog.reset_cycle()
+
             # Expire stale intentions and clean up duplicates
             intention_store = get_service('intention_store')
             if intention_store:

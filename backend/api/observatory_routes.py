@@ -698,6 +698,26 @@ async def get_watchdog():
         }
 
 
+@router.get("/interest-watchdog")
+async def get_interest_watchdog(limit: int = 30):
+    """InterestWatchdog observation history — what topics were detected, registered, or rejected."""
+    from app.lifespan import get_service
+
+    watchdog = _safe_get(lambda: get_service('interest_watchdog'))
+    if not watchdog:
+        return {
+            "status": "unavailable",
+            "stats": {},
+            "history": [],
+        }
+
+    return {
+        "status": "active",
+        "stats": watchdog.get_stats(),
+        "history": watchdog.get_history(limit),
+    }
+
+
 @router.post("/moltbook-pause")
 async def pause_moltbook(until: str = None, hours: float = None):
     """

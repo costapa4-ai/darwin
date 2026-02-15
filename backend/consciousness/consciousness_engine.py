@@ -503,6 +503,15 @@ class ConsciousnessEngine:
             self.wake_activities.append(activity)
             self.total_activities_completed += 1
 
+            # InterestWatchdog: discover topics from activity
+            try:
+                from app.lifespan import get_service
+                watchdog = get_service('interest_watchdog')
+                if watchdog:
+                    watchdog.observe_activity(goal, narrative)
+            except Exception:
+                pass
+
             # Publish to consciousness stream (Global Workspace)
             try:
                 from consciousness.consciousness_stream import get_consciousness_stream, ConsciousEvent
