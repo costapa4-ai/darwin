@@ -660,9 +660,14 @@ async def send_chat_message(msg: ChatMessage):
             for d in recent_dreams:
                 context_parts.append(f"- {d.description}")
 
-        # Conversation context from store or cache
+        # Conversation context from store or cache (genome-driven window)
+        try:
+            from consciousness.genome_manager import get_genome
+            _ctx_window = get_genome().get('social.chat.context_window_limit') or 10
+        except Exception:
+            _ctx_window = 10
         if conversation_store:
-            context_parts.append(f"\n{conversation_store.get_context_window(10)}")
+            context_parts.append(f"\n{conversation_store.get_context_window(_ctx_window)}")
         else:
             recent_conv = chat_messages[-4:-1] if len(chat_messages) > 1 else []
             for m in recent_conv[-3:]:
@@ -690,11 +695,16 @@ COMO COMUNICAR:
 
         if router_service:
             # Use agentic loop: LLM → tools → results → LLM → ... until done
+            try:
+                from consciousness.genome_manager import get_genome
+                _chat_max_tokens = get_genome().get('social.chat.max_tokens') or 2500
+            except Exception:
+                _chat_max_tokens = 2500
             response = await _run_agent_loop(
                 user_message=msg.message,
                 system_prompt=system_prompt,
                 router_service=router_service,
-                max_tokens=2500,
+                max_tokens=_chat_max_tokens,
             )
         else:
             # Fallback to direct Claude if router not available

@@ -63,7 +63,7 @@ DEFAULT_ACTION_TIMEOUT_SECONDS = 300  # Fallback constant
 
 # Error escalation thresholds (can be overridden via config)
 def get_error_escalation_settings() -> tuple:
-    """Get error escalation settings from config or use defaults."""
+    """Get error escalation settings from config, then genome, then defaults."""
     try:
         from config import get_settings
         settings = get_settings()
@@ -73,7 +73,17 @@ def get_error_escalation_settings() -> tuple:
             settings.total_error_threshold
         )
     except Exception:
-        return (3, 30, 10)  # Defaults
+        # Try genome
+        try:
+            from consciousness.genome_manager import get_genome
+            g = get_genome()
+            return (
+                g.get('rhythms.error_handling.max_consecutive_failures') or 3,
+                g.get('rhythms.error_handling.error_disable_minutes') or 30,
+                g.get('rhythms.error_handling.total_error_threshold') or 10,
+            )
+        except Exception:
+            return (3, 30, 10)  # Defaults
 
 
 # Fallback constants
@@ -292,7 +302,7 @@ class ProactiveEngine:
         # Diversity tracking - prevent same category domination
         self._recent_categories: List[ActionCategory] = []
         self._recent_action_ids: List[str] = []
-        self._max_recent_tracking = 5  # Track last 5 actions
+        self._max_recent_tracking = self._genome_get('cognition.max_recent_tracking', 5)
 
         # Priority guarantee tracking
         self._selection_counter = 0          # Total selections made
@@ -314,6 +324,7 @@ class ProactiveEngine:
         self._load_moltbook_history()
 
         self._register_default_actions()
+        self._apply_genome_action_config()
 
         logger.info("ProactiveEngine initialized with diversity tracking and mood integration")
 
@@ -727,6 +738,52 @@ class ProactiveEngine:
             timeout_seconds=60,
             action_fn=self._system_watchdog
         ))
+
+    def _apply_genome_action_config(self):
+        """Overlay genome action configs onto registered actions.
+
+        The genome ``actions.actions`` list stores per-action overrides for
+        cooldown_minutes, timeout_seconds, priority, max_hours_between_runs,
+        max_skip_before_boost, and enabled.  Code-provided ``action_fn``
+        callbacks are preserved.
+        """
+        genome_actions = self._genome_get('actions.actions')
+        if not genome_actions or not isinstance(genome_actions, list):
+            return
+
+        priority_map = {
+            'low': ActionPriority.LOW,
+            'medium': ActionPriority.MEDIUM,
+            'high': ActionPriority.HIGH,
+            'critical': ActionPriority.CRITICAL,
+        }
+
+        for ga in genome_actions:
+            if not isinstance(ga, dict):
+                continue
+            action_id = ga.get('id')
+            if not action_id or action_id not in self.actions:
+                continue
+
+            action = self.actions[action_id]
+
+            # Overlay genome values (only if present)
+            if 'cooldown_minutes' in ga:
+                action.cooldown_minutes = ga['cooldown_minutes']
+            if 'timeout_seconds' in ga:
+                action.timeout_seconds = ga['timeout_seconds']
+            if 'priority' in ga:
+                p = priority_map.get(ga['priority'].lower() if isinstance(ga['priority'], str) else '', None)
+                if p is not None:
+                    action.priority = p
+            if 'max_hours_between_runs' in ga:
+                action.max_hours_between_runs = ga['max_hours_between_runs']
+            if 'max_skip_before_boost' in ga:
+                action.max_skip_before_boost = ga['max_skip_before_boost']
+            if 'enabled' in ga:
+                action.enabled = ga['enabled']
+
+        logger.info(f"Genome action config applied to {len(self.actions)} actions")
 
     def register_action(self, action: ProactiveAction):
         """Register a new proactive action."""

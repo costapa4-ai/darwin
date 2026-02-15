@@ -13,7 +13,17 @@ class CuriosityEngine:
     def __init__(self):
         self.questions_asked = []
         self.anomalies_detected = []
-        self.curiosity_level = 0.7  # 0-1
+        self.curiosity_level = self._genome_get('cognition.curiosity_level', 0.7)
+
+    @staticmethod
+    def _genome_get(key: str, default=None):
+        """Read a value from the genome, with fallback."""
+        try:
+            from consciousness.genome_manager import get_genome
+            val = get_genome().get(key)
+            return val if val is not None else default
+        except Exception:
+            return default
 
     async def process_result(self, result: Dict) -> Optional[Dict]:
         """

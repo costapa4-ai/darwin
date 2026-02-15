@@ -143,7 +143,9 @@ class ConsciousnessEngine:
         # Persistence
         self.state_file = Path("./data/consciousness_state.json")
         self.last_save_time = datetime.utcnow()
-        self.save_interval_seconds = 300  # 5 minutes
+        self.save_interval_seconds = self._genome_get(
+            'rhythms.state_persistence.save_interval_seconds', 300
+        )
 
         # Initialize extracted managers (v4.1 module decomposition)
         self._state_manager = StateManager(self)
@@ -152,6 +154,18 @@ class ConsciousnessEngine:
             state_file=self.state_file,
             dedup_store=self._dedup_store
         )
+
+    # ==================== Genome Integration ====================
+
+    @staticmethod
+    def _genome_get(key: str, default=None):
+        """Read a value from the genome, with fallback."""
+        try:
+            from consciousness.genome_manager import get_genome
+            val = get_genome().get(key)
+            return val if val is not None else default
+        except Exception:
+            return default
 
     # ==================== Deduplication Methods ====================
 
@@ -174,7 +188,7 @@ class ConsciousnessEngine:
     # ==================== Memory Management Methods ====================
 
     def _init_memory_limits(self):
-        """Initialize memory limits from config."""
+        """Initialize memory limits from config, then genome, then hardcoded."""
         try:
             from config import get_settings
             settings = get_settings()
@@ -183,11 +197,19 @@ class ConsciousnessEngine:
             self._max_curiosity_moments = settings.max_curiosity_moments
             self._memory_cleanup_interval = settings.memory_cleanup_interval
         except Exception:
-            # Defaults if config fails
-            self._max_wake_activities = 100
-            self._max_sleep_dreams = 50
-            self._max_curiosity_moments = 100
-            self._memory_cleanup_interval = 300
+            # Try genome, then hardcoded defaults
+            self._max_wake_activities = self._genome_get(
+                'rhythms.memory_limits.max_wake_activities', 100
+            )
+            self._max_sleep_dreams = self._genome_get(
+                'rhythms.memory_limits.max_sleep_dreams', 50
+            )
+            self._max_curiosity_moments = self._genome_get(
+                'rhythms.memory_limits.max_curiosity_moments', 100
+            )
+            self._memory_cleanup_interval = self._genome_get(
+                'rhythms.memory_limits.memory_cleanup_interval_seconds', 300
+            )
 
         self._last_memory_cleanup = datetime.utcnow()
 
@@ -747,8 +769,9 @@ Goal:""",
         proj = self.current_project
         proj['activities_count'] = proj.get('activities_count', 0) + 1
 
-        # After 3 activities on the same project, wrap up and move on
-        if proj['activities_count'] >= 3:
+        # After max activities on the same project, wrap up and move on
+        max_activities = self._genome_get('creativity.project_continuity.max_activities_per_project', 3)
+        if proj['activities_count'] >= max_activities:
             # Reflect and close
             goal = f"REFLECT on project '{proj['theme'][:60]}': summarize what was learned and what concrete next steps remain. Write conclusions to /app/data/notes/. Then move on."
             self.current_project = None  # Clear project after this
@@ -1830,7 +1853,7 @@ Just output the tool name, nothing else."""
             return
 
         try:
-            poetry_type = random.choice(['haiku', 'narrative', 'diary'])
+            poetry_type = self._genome_get('creativity.poetry_style', 'narrative')
 
             if poetry_type == 'haiku' and self.code_narrator:
                 # Generate a haiku about recent activities

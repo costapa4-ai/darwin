@@ -92,37 +92,47 @@ class InnerVoice:
             "urgency": urgency,
             "created_at": datetime.utcnow().isoformat()
         })
-        # Keep queue manageable
-        if len(self.impulse_queue) > 20:
-            self.impulse_queue = self.impulse_queue[-20:]
+        # Keep queue manageable (genome-driven limit)
+        max_queue = self._genome_get('social.inner_voice.max_impulse_queue', 20)
+        if len(self.impulse_queue) > max_queue:
+            self.impulse_queue = self.impulse_queue[-max_queue:]
         logger.debug(f"Thought queued ({trigger}): {content[:60]}...")
 
     async def generate_thought(self, trigger: str, context: Dict) -> Optional[str]:
         """Generate an inner thought from a trigger event. Queue if worth sharing."""
+        # Urgency thresholds — genome-driven
+        thresholds = self._genome_get('social.inner_voice.urgency_thresholds', {})
+        base_urgency = thresholds.get('base_urgency', 0.3)
+        discovery_urgency = thresholds.get('discovery', 0.7)
+        curiosity_min_insights = thresholds.get('curiosity_min_insights', 3)
+        curiosity_urgency = thresholds.get('curiosity_urgency', 0.6)
+        mood_shift_urgency = thresholds.get('mood_shift_urgency', 0.5)
+        queue_threshold = thresholds.get('queue_threshold', 0.5)
+
         # Decide if this is worth queuing
-        urgency = 0.3  # Base urgency
+        urgency = base_urgency
 
         if trigger == "discovery":
             # Discoveries are exciting
-            urgency = 0.7
+            urgency = discovery_urgency
             content = context.get("description", context.get("title", "something interesting"))
         elif trigger == "curiosity":
             # Expedition completed with insights
             insights = context.get("insights", [])
-            if len(insights) >= 3:
-                urgency = 0.6
+            if len(insights) >= curiosity_min_insights:
+                urgency = curiosity_urgency
             content = f"Acabei uma expedição sobre {context.get('topic', 'algo')} — {len(insights)} insights"
         elif trigger == "mood_shift":
             # Only significant mood shifts
             old_mood = context.get("old_mood", "")
             new_mood = context.get("new_mood", "")
             if new_mood in ("excited", "proud", "surprised"):
-                urgency = 0.5
+                urgency = mood_shift_urgency
             content = f"Mudei de {old_mood} para {new_mood}"
         else:
             content = context.get("description", str(context)[:100])
 
-        if urgency >= 0.5:
+        if urgency >= queue_threshold:
             self.queue_thought(trigger, content, urgency)
             return content
         return None

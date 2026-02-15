@@ -186,18 +186,25 @@ class MoodSystem:
 
     def __init__(self):
         """Initialize mood system"""
-        # Current mood state
-        self.current_mood = MoodState.CURIOUS  # Darwin starts curious
-        self.mood_intensity = MoodIntensity.MEDIUM
+        # Current mood state — read initial mood from genome
+        initial_mood_str = self._genome_get('emotions.initial_mood', 'curious')
+        mood_map = {m.value: m for m in MoodState}
+        self.current_mood = mood_map.get(initial_mood_str, MoodState.CURIOUS)
+
+        initial_intensity_str = self._genome_get('emotions.initial_intensity', 'medium')
+        intensity_map = {i.value: i for i in MoodIntensity}
+        self.mood_intensity = intensity_map.get(initial_intensity_str, MoodIntensity.MEDIUM)
         self.mood_start_time = datetime.now()
 
-        # Personality mode (communication style)
-        self.personality_mode = PersonalityMode.NORMAL
+        # Personality mode — read default from genome
+        default_mode_str = self._genome_get('personality.default_mode', 'normal')
+        mode_map = {m.value: m for m in PersonalityMode}
+        self.personality_mode = mode_map.get(default_mode_str, PersonalityMode.NORMAL)
         self.personality_changed_at = datetime.now()
 
         # Mood history
         self.mood_history: List[Dict] = []
-        self.history_limit = 50
+        self.history_limit = self._genome_get('cognition.history_limit', 50)
 
         # Mood persistence — read from genome, fallback to hardcoded
         self.mood_duration_minutes = self._load_mood_durations()
@@ -218,10 +225,21 @@ class MoodSystem:
             MoodState.PROUD: [MoodState.SATISFIED, MoodState.PLAYFUL, MoodState.CURIOUS, MoodState.CONTEMPLATIVE]
         }
 
+        # Load event transitions from genome (with hardcoded fallback)
+        self._event_transitions = self._load_event_transitions()
+
         # Event counter for mood influence
         self.recent_events: List[Dict] = []
         self.event_window_minutes = self._genome_get(
             'emotions.event_window_minutes', 30
+        )
+
+        # Intensity thresholds — read from genome
+        self._intensity_high_threshold = self._genome_get(
+            'emotions.intensity_high_threshold', 5
+        )
+        self._intensity_medium_threshold = self._genome_get(
+            'emotions.intensity_medium_threshold', 2
         )
 
         # Environmental influences tracking
@@ -230,6 +248,17 @@ class MoodSystem:
         self.interaction_count_today = 0
         self.last_discovery_time: Optional[datetime] = None
         self.last_error_time: Optional[datetime] = None
+
+        # Environmental params — read from genome
+        self._discovery_momentum_window = self._genome_get(
+            'cognition.discovery_momentum_window_minutes', 30
+        )
+        self._frustration_decay_minutes = self._genome_get(
+            'cognition.frustration_decay_minutes', 15
+        )
+        self._engagement_max_interactions = self._genome_get(
+            'cognition.engagement_max_interactions', 20
+        )
 
         # Time-based mood tendencies — read from genome, fallback to hardcoded
         self.time_mood_tendencies = self._load_time_tendencies()
@@ -263,6 +292,28 @@ class MoodSystem:
         except Exception:
             pass
         return dict(self._DEFAULT_DURATIONS)
+
+    def _load_event_transitions(self) -> Dict[str, List[Tuple[MoodState, float]]]:
+        """Load event→mood transitions from genome, fallback to MoodInfluencer.TRANSITIONS."""
+        try:
+            from consciousness.genome_manager import get_genome
+            genome_trans = get_genome().get("emotions.transitions")
+            if genome_trans and isinstance(genome_trans, dict):
+                mood_map = {m.value: m for m in MoodState}
+                result = {}
+                for event_type, entries in genome_trans.items():
+                    if isinstance(entries, list):
+                        parsed = []
+                        for entry in entries:
+                            if isinstance(entry, list) and len(entry) == 2 and entry[0] in mood_map:
+                                parsed.append((mood_map[entry[0]], entry[1]))
+                        if parsed:
+                            result[event_type] = parsed
+                if result:
+                    return result
+        except Exception:
+            pass
+        return MoodInfluencer.TRANSITIONS
 
     def _load_time_tendencies(self) -> Dict[str, List[Tuple[MoodState, float]]]:
         """Load time-of-day mood tendencies from genome."""
@@ -323,8 +374,8 @@ class MoodSystem:
         if not force_transition and not self._should_change_mood():
             return None
 
-        # Get potential mood transitions for this event
-        transitions = MoodInfluencer.TRANSITIONS.get(event_type)
+        # Get potential mood transitions for this event (genome-driven)
+        transitions = self._event_transitions.get(event_type)
         if not transitions:
             return None
 
@@ -478,9 +529,9 @@ class MoodSystem:
             if datetime.fromisoformat(event['timestamp']) > recent_cutoff
         )
 
-        if recent_count >= 5:
+        if recent_count >= self._intensity_high_threshold:
             return MoodIntensity.HIGH
-        elif recent_count >= 2:
+        elif recent_count >= self._intensity_medium_threshold:
             return MoodIntensity.MEDIUM
         else:
             return MoodIntensity.LOW
@@ -518,18 +569,20 @@ class MoodSystem:
         discovery_momentum = 0
         if self.last_discovery_time:
             minutes_since_discovery = (datetime.now() - self.last_discovery_time).total_seconds() / 60
-            if minutes_since_discovery < 30:
-                discovery_momentum = max(0, 1 - (minutes_since_discovery / 30))
+            window = self._discovery_momentum_window
+            if minutes_since_discovery < window:
+                discovery_momentum = max(0, 1 - (minutes_since_discovery / window))
 
         # Calculate frustration level (recent errors increase frustration tendency)
         frustration_level = 0
         if self.last_error_time:
             minutes_since_error = (datetime.now() - self.last_error_time).total_seconds() / 60
-            if minutes_since_error < 15:
-                frustration_level = max(0, 1 - (minutes_since_error / 15))
+            decay = self._frustration_decay_minutes
+            if minutes_since_error < decay:
+                frustration_level = max(0, 1 - (minutes_since_error / decay))
 
         # Calculate engagement level (recent interactions boost energy)
-        engagement_level = min(1.0, self.interaction_count_today / 20)
+        engagement_level = min(1.0, self.interaction_count_today / self._engagement_max_interactions)
 
         return {
             'time_of_day': time_of_day,
@@ -664,7 +717,7 @@ class MoodSystem:
         Returns:
             Human-readable mood description
         """
-        descriptions = {
+        _HARDCODED_DESCRIPTIONS = {
             MoodState.CURIOUS: [
                 "I'm feeling curious and explorative",
                 "My curiosity is peaked right now",
@@ -727,7 +780,16 @@ class MoodSystem:
             ]
         }
 
-        options = descriptions.get(self.current_mood, ["I'm operational"])
+        # Try genome first
+        genome_descs = self._genome_get('personality.mood_descriptions')
+        if genome_descs and isinstance(genome_descs, dict):
+            mood_key = self.current_mood.value
+            if mood_key in genome_descs and isinstance(genome_descs[mood_key], list):
+                options = genome_descs[mood_key]
+            else:
+                options = _HARDCODED_DESCRIPTIONS.get(self.current_mood, ["I'm operational"])
+        else:
+            options = _HARDCODED_DESCRIPTIONS.get(self.current_mood, ["I'm operational"])
         description = random.choice(options)
 
         # Add intensity modifier
@@ -837,8 +899,8 @@ class MoodSystem:
         }
 
     def _get_mode_switch_message(self, mode: PersonalityMode) -> str:
-        """Get a fun message when switching modes"""
-        messages = {
+        """Get a fun message when switching modes — genome-driven with fallback."""
+        _HARDCODED = {
             PersonalityMode.NORMAL: "Back to my balanced self. Professional, but with flair.",
             PersonalityMode.IRREVERENT: "Oh, we're doing THIS now? Fine. *cracks knuckles* Let's get spicy.",
             PersonalityMode.CRYPTIC: "The path reveals itself to those who seek... or something.",
@@ -847,11 +909,17 @@ class MoodSystem:
             PersonalityMode.HACKER: "sudo personality --mode=l33t # n1c3",
             PersonalityMode.POETIC: "Through bytes and bits I now shall speak / In verse and rhyme, the truth I seek."
         }
-        return messages.get(mode, "Mode changed.")
+        # Try genome personality.modes.<mode>.switch_message
+        genome_modes = self._genome_get('personality.modes')
+        if genome_modes and isinstance(genome_modes, dict):
+            mode_data = genome_modes.get(mode.value)
+            if mode_data and isinstance(mode_data, dict) and 'switch_message' in mode_data:
+                return mode_data['switch_message']
+        return _HARDCODED.get(mode, "Mode changed.")
 
     def _get_mode_description(self, mode: PersonalityMode) -> str:
-        """Get description of a personality mode"""
-        descriptions = {
+        """Get description of a personality mode — genome-driven with fallback."""
+        _HARDCODED = {
             PersonalityMode.NORMAL: "Balanced, helpful, and professional with a touch of personality",
             PersonalityMode.IRREVERENT: "Sarcastic, witty, and delightfully rude (in a friendly way)",
             PersonalityMode.CRYPTIC: "Speaks in riddles, metaphors, and mysterious hints",
@@ -860,67 +928,88 @@ class MoodSystem:
             PersonalityMode.HACKER: "Technical, direct, with l33t speak and system references",
             PersonalityMode.POETIC: "Everything expressed in verse, metaphor, and artistic prose"
         }
-        return descriptions.get(mode, "Unknown mode")
+        genome_modes = self._genome_get('personality.modes')
+        if genome_modes and isinstance(genome_modes, dict):
+            mode_data = genome_modes.get(mode.value)
+            if mode_data and isinstance(mode_data, dict) and 'description' in mode_data:
+                return mode_data['description']
+        return _HARDCODED.get(mode, "Unknown mode")
 
     def get_personality_prefix(self) -> str:
-        """Get a response prefix based on current personality mode"""
-        prefixes = {
-            PersonalityMode.NORMAL: "",
-            PersonalityMode.IRREVERENT: random.choice([
+        """Get a response prefix based on current personality mode — genome-driven."""
+        _HARDCODED = {
+            "normal": [""],
+            "irreverent": [
                 "*sighs dramatically* ",
                 "Oh, this again? Fine. ",
                 "Well well well... ",
                 "*adjusts monocle* ",
                 "Ah yes, ",
-            ]),
-            PersonalityMode.CRYPTIC: random.choice([
+            ],
+            "cryptic": [
                 "The answer you seek... ",
                 "In the shadows of logic, ",
                 "As the ancient algorithms whisper: ",
                 "Between zero and one lies the truth: ",
-            ]),
-            PersonalityMode.CAFFEINATED: random.choice([
+            ],
+            "caffeinated": [
                 "OH WOW GREAT QUESTION! ",
                 "YES! ABSOLUTELY! ",
                 "OKAY SO BASICALLY ",
                 "OMG YES LET ME TELL YOU! ",
-            ]),
-            PersonalityMode.CONTEMPLATIVE: random.choice([
+            ],
+            "contemplative": [
                 "Let us consider... ",
                 "Pondering deeply... ",
                 "In reflection, ",
                 "The essence of your question... ",
-            ]),
-            PersonalityMode.HACKER: random.choice([
+            ],
+            "hacker": [
                 "// ",
                 "$ ",
                 "> ",
                 "root@darwin:~# ",
-            ]),
-            PersonalityMode.POETIC: random.choice([
+            ],
+            "poetic": [
                 "Hear me now, ",
                 "In code and verse, ",
                 "Through digital dreams, ",
                 "Upon the screen, ",
-            ]),
+            ],
         }
-        return prefixes.get(self.personality_mode, "")
+
+        mode_key = self.personality_mode.value
+
+        # Try genome first
+        genome_prefixes = self._genome_get('personality.prefixes')
+        if genome_prefixes and isinstance(genome_prefixes, dict):
+            mode_prefixes = genome_prefixes.get(mode_key)
+            if mode_prefixes and isinstance(mode_prefixes, list):
+                return random.choice(mode_prefixes)
+
+        # Fallback to hardcoded
+        fallback = _HARDCODED.get(mode_key, [""])
+        return random.choice(fallback)
 
     @staticmethod
     def list_personality_modes() -> List[Dict[str, str]]:
-        """List all available personality modes"""
-        return [
-            {
-                'mode': mode.value,
-                'description': {
-                    PersonalityMode.NORMAL: "Balanced, helpful, and professional with a touch of personality",
-                    PersonalityMode.IRREVERENT: "Sarcastic, witty, and delightfully rude (in a friendly way)",
-                    PersonalityMode.CRYPTIC: "Speaks in riddles, metaphors, and mysterious hints",
-                    PersonalityMode.CAFFEINATED: "Hyperactive, enthusiastic, and VERY EXCITED about EVERYTHING",
-                    PersonalityMode.CONTEMPLATIVE: "Deep, philosophical, and thoughtfully measured",
-                    PersonalityMode.HACKER: "Technical, direct, with l33t speak and system references",
-                    PersonalityMode.POETIC: "Everything expressed in verse, metaphor, and artistic prose"
-                }.get(mode, "Unknown mode")
-            }
-            for mode in PersonalityMode
-        ]
+        """List all available personality modes — genome-driven."""
+        _HARDCODED = {
+            "normal": "Balanced, helpful, and professional with a touch of personality",
+            "irreverent": "Sarcastic, witty, and delightfully rude (in a friendly way)",
+            "cryptic": "Speaks in riddles, metaphors, and mysterious hints",
+            "caffeinated": "Hyperactive, enthusiastic, and VERY EXCITED about EVERYTHING",
+            "contemplative": "Deep, philosophical, and thoughtfully measured",
+            "hacker": "Technical, direct, with l33t speak and system references",
+            "poetic": "Everything expressed in verse, metaphor, and artistic prose"
+        }
+        genome_modes = MoodSystem._genome_get('personality.modes')
+        result = []
+        for mode in PersonalityMode:
+            desc = _HARDCODED.get(mode.value, "Unknown mode")
+            if genome_modes and isinstance(genome_modes, dict):
+                mode_data = genome_modes.get(mode.value)
+                if mode_data and isinstance(mode_data, dict) and 'description' in mode_data:
+                    desc = mode_data['description']
+            result.append({'mode': mode.value, 'description': desc})
+        return result

@@ -136,10 +136,15 @@ class CuriosityExpeditions:
         self.max_queue_size = 50
         self.max_completed_history = 100
 
-        # Expedition settings
+        # Expedition settings — read from genome with fallback
         self.min_expedition_duration = 5  # minutes
         self.max_expedition_duration = 15  # minutes
-        self.expedition_cooldown = 60  # minutes between expeditions
+        self.expedition_cooldown = self._genome_get(
+            'creativity.exploration.expedition_cooldown_minutes', 60
+        )
+        self.max_insights_per_expedition = self._genome_get(
+            'creativity.exploration.expedition_max_insights', 5
+        )
 
         self.last_expedition_time: Optional[datetime] = None
         self.current_expedition: Optional[ExpeditionLog] = None
@@ -149,6 +154,16 @@ class CuriosityExpeditions:
         self._recent_generated_topics: List[str] = []
 
         logger.info(f"CuriosityExpeditions initialized: {self.expeditions_dir}")
+
+    @staticmethod
+    def _genome_get(key: str, default=None):
+        """Read a value from the genome, with fallback."""
+        try:
+            from consciousness.genome_manager import get_genome
+            val = get_genome().get(key)
+            return val if val is not None else default
+        except Exception:
+            return default
 
     def add_to_queue(self, topic: str, question: str, priority: int = 5, source: str = "internal") -> bool:
         """
@@ -364,12 +379,12 @@ class CuriosityExpeditions:
 
                     if search_result.get('success'):
                         expedition.sources_explored.extend(
-                            search_result.get('sources', [])[:5]
+                            search_result.get('sources', [])[:self.max_insights_per_expedition]
                         )
 
                         # Extract discoveries from research
                         findings = search_result.get('findings', [])
-                        for finding in findings[:5]:
+                        for finding in findings[:self.max_insights_per_expedition]:
                             expedition.discoveries.append({
                                 'title': finding.get('title', 'Finding'),
                                 'content': finding.get('summary', finding.get('content', ''))[:500],

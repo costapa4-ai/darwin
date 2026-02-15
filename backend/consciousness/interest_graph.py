@@ -76,7 +76,25 @@ class Interest:
 class InterestGraph:
     """Manages Darwin's evolving interests and learning journeys."""
 
-    MAX_ACTIVE = 7
+    _DEFAULT_MAX_ACTIVE = 7
+
+    @staticmethod
+    def _genome_get(key: str, default=None):
+        """Read a value from the genome, with fallback."""
+        try:
+            from consciousness.genome_manager import get_genome
+            val = get_genome().get(key)
+            return val if val is not None else default
+        except Exception:
+            return default
+
+    @property
+    def MAX_ACTIVE(self):
+        """Max active interests — genome-driven."""
+        return self._genome_get(
+            'creativity.exploration.max_active_interests',
+            self._DEFAULT_MAX_ACTIVE
+        )
 
     def __init__(self, storage_path: str = "./data/interests/interests.json"):
         self.storage_path = Path(storage_path)
@@ -288,9 +306,14 @@ class InterestGraph:
         """
         to_retire = []
 
+        interest_decay_days = self._genome_get(
+            'creativity.exploration.interest_decay_days', 30
+        )
+        decay_rate = 1.0 / max(1, interest_decay_days)
+
         for key, interest in self.active_interests.items():
-            # Natural enthusiasm decay (0.02/day)
-            decay = interest.days_since_explored * 0.02
+            # Natural enthusiasm decay (genome-driven rate per day)
+            decay = interest.days_since_explored * decay_rate
             interest.enthusiasm = max(0.0, interest.enthusiasm - decay)
 
             # Retire conditions
