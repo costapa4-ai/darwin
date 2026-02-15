@@ -410,6 +410,13 @@ class GenomeManager:
                 self._version["stats"]["rolledback_mutations"] = \
                     self._version["stats"].get("rolledback_mutations", 0) + 1
 
+        # Reset cooldown so evolution can try again immediately
+        self._version["cycles_since_last_mutation"] = 0
+        # If the only mutation was rolled back, clear the timestamp
+        active_mutations = [c for c in self._version.get("changelog", []) if c.get("status") != "rolledback"]
+        if not active_mutations:
+            self._version["last_mutation_at"] = None
+
         self._version["rollback_available"] = False
         self._save_version()
 

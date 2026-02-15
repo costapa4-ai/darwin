@@ -252,85 +252,113 @@ export default function NewDashboard({ onNavigate }) {
   };
 
   return (
-    <div className="h-screen bg-slate-950 flex overflow-hidden">
-      {/* LEFT SIDEBAR - Status & Chat */}
-      <div className="w-80 bg-slate-900 border-r border-slate-700 flex flex-col h-screen">
-        {/* Header - Ultra Compacto */}
-        <div className="bg-gradient-to-r from-blue-600 to-purple-600 p-2">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-2">
-              <span className="text-2xl">🧬</span>
-              <div>
-                <h1 className="text-lg font-bold text-white">Darwin</h1>
-                <p className="text-blue-100 text-xs">v4.0</p>
-              </div>
-            </div>
-            {/* Switch to 3D Brain View */}
-            <div className="flex items-center gap-1">
-              <button
-                onClick={handleCostsClick}
-                className="px-2 py-1 rounded-lg bg-green-600/60 hover:bg-green-600/80 transition-colors text-xs font-medium text-white flex items-center gap-1"
-                title="API Cost Summary"
-              >
-                <span>💰</span>
-                Costs
-              </button>
-              <button
-                onClick={handleRoutingClick}
-                className="px-2 py-1 rounded-lg bg-purple-600/60 hover:bg-purple-600/80 transition-colors text-xs font-medium text-white flex items-center gap-1"
-                title="AI Model Routing & Free Ratio"
-              >
-                <span>📈</span>
-                Routing
-              </button>
-              <button
-                onClick={() => onNavigate && onNavigate('genome')}
-                className="px-2 py-1 rounded-lg bg-emerald-600/60 hover:bg-emerald-600/80 transition-colors text-xs font-medium text-white flex items-center gap-1"
-                title="Genome Dashboard"
-              >
-                <span>🧬</span>
-                Genome
-              </button>
-              <button
-                onClick={() => onNavigate && onNavigate('core-values')}
-                className="px-2 py-1 rounded-lg bg-amber-600/60 hover:bg-amber-600/80 transition-colors text-xs font-medium text-white flex items-center gap-1"
-                title="Core Values & Identity"
-              >
-                <span>🔮</span>
-                Values
-              </button>
-              <button
-                onClick={() => onNavigate && onNavigate('observatory')}
-                className="px-2 py-1 rounded-lg bg-white/20 hover:bg-white/30 transition-colors text-xs font-medium text-white flex items-center gap-1"
-                title="Open Observatory Dashboard"
-              >
-                <span>📊</span>
-                Stats
-              </button>
-              <button
-                onClick={() => handleExportData('all')}
-                className="px-2 py-1 rounded-lg bg-cyan-600/60 hover:bg-cyan-600/80 transition-colors text-xs font-medium text-white flex items-center gap-1"
-                title="Download all data as JSON for graphing"
-              >
-                <span>📥</span>
-                Export
-              </button>
-              <button
-                onClick={() => {
-                  const currentHost = window.location.hostname;
-                  window.location.href = `http://${currentHost}:3051`;
-                }}
-                className="px-2 py-1 rounded-lg bg-white/20 hover:bg-white/30 transition-colors text-xs font-medium text-white flex items-center gap-1"
-                title="Switch to 3D Brain View"
-              >
-                <span>🧠</span>
-                3D
-              </button>
-            </div>
+    <div className="h-screen bg-slate-950 flex flex-col overflow-hidden">
+
+      {/* ==================== TOP NAVIGATION BAR ==================== */}
+      <nav className="bg-slate-900 border-b border-slate-700 px-4 flex items-center justify-between flex-shrink-0 h-10">
+        {/* Left: Logo + State */}
+        <div className="flex items-center gap-3">
+          <div className="flex items-center gap-1.5">
+            <span className="text-lg">🧬</span>
+            <span className="text-sm font-bold text-white">Darwin</span>
+            <span className="text-xs text-slate-500">v4.0</span>
           </div>
+          {status && (
+            <div className={`flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium ${
+              isAwake
+                ? 'bg-orange-900/40 text-orange-300 border border-orange-700/50'
+                : 'bg-blue-900/40 text-blue-300 border border-blue-700/50'
+            }`}>
+              <span>{isAwake ? '🌅' : '😴'}</span>
+              {isAwake ? 'Awake' : 'Sleep'} {Math.round(status.elapsed_minutes)}m
+            </div>
+          )}
         </div>
 
-        {/* Current State - Ultra Compacto */}
+        {/* Center: Page Navigation */}
+        <div className="flex items-center gap-1">
+          <button
+            className="px-3 py-1 rounded text-sm font-medium text-white bg-white/10 border-b-2 border-blue-500"
+          >
+            Dashboard
+          </button>
+          <button
+            onClick={() => onNavigate && onNavigate('genome')}
+            className="px-3 py-1 rounded text-sm font-medium text-slate-400 hover:text-white hover:bg-white/5 transition-colors"
+          >
+            🧬 Genome
+          </button>
+          <button
+            onClick={() => onNavigate && onNavigate('core-values')}
+            className="px-3 py-1 rounded text-sm font-medium text-slate-400 hover:text-white hover:bg-white/5 transition-colors"
+          >
+            🔮 Values
+          </button>
+          <button
+            onClick={() => onNavigate && onNavigate('observatory')}
+            className="px-3 py-1 rounded text-sm font-medium text-slate-400 hover:text-white hover:bg-white/5 transition-colors"
+          >
+            📊 Observatory
+          </button>
+        </div>
+
+        {/* Right: Action Buttons */}
+        <div className="flex items-center gap-1">
+          <button
+            onClick={handleCostsClick}
+            className="px-2 py-1 rounded text-xs font-medium text-slate-300 hover:text-white hover:bg-white/10 transition-colors flex items-center gap-1"
+            title="API Cost Summary"
+          >
+            💰 Costs
+          </button>
+          <button
+            onClick={handleRoutingClick}
+            className="px-2 py-1 rounded text-xs font-medium text-slate-300 hover:text-white hover:bg-white/10 transition-colors flex items-center gap-1"
+            title="AI Model Routing Stats"
+          >
+            📈 Routing
+          </button>
+          <button
+            onClick={() => setShowMonitor(true)}
+            className="px-2 py-1 rounded text-xs font-medium text-slate-300 hover:text-white hover:bg-white/10 transition-colors flex items-center gap-1"
+            title="Activity Monitor"
+          >
+            📊 Monitor
+          </button>
+          <button
+            onClick={() => setShowLanguageEvolution(true)}
+            className="px-2 py-1 rounded text-xs font-medium text-slate-300 hover:text-white hover:bg-white/10 transition-colors flex items-center gap-1"
+            title="Language Evolution"
+          >
+            🗣️ Lang
+          </button>
+          <button
+            onClick={() => handleExportData('all')}
+            className="px-2 py-1 rounded text-xs font-medium text-slate-300 hover:text-white hover:bg-white/10 transition-colors flex items-center gap-1"
+            title="Download all data as JSON"
+          >
+            📥 Export
+          </button>
+          <button
+            onClick={() => {
+              const currentHost = window.location.hostname;
+              window.location.href = `http://${currentHost}:3051`;
+            }}
+            className="px-2 py-1 rounded text-xs font-medium text-slate-300 hover:text-white hover:bg-white/10 transition-colors flex items-center gap-1"
+            title="3D Brain Visualization"
+          >
+            🧠 3D
+          </button>
+        </div>
+      </nav>
+
+      {/* ==================== MAIN CONTENT (3-column) ==================== */}
+      <div className="flex-1 flex overflow-hidden">
+
+      {/* LEFT SIDEBAR - Status & Chat */}
+      <div className="w-80 bg-slate-900 border-r border-slate-700 flex flex-col">
+
+        {/* Current State */}
         {status && (
           <div className={`p-2 border-b border-slate-700 ${isAwake ? 'bg-orange-900/30' : 'bg-blue-900/30'}`}>
             <div className="flex items-center gap-2 mb-1">
@@ -351,7 +379,7 @@ export default function NewDashboard({ onNavigate }) {
           </div>
         )}
 
-        {/* Metrics - Ultra Compacto */}
+        {/* Metrics */}
         <div className="grid grid-cols-3 gap-1.5 p-2 border-b border-slate-700">
           <div className="bg-slate-800 rounded-lg p-1.5">
             <div className="text-xl font-bold text-blue-400">{status?.total_activities || 0}</div>
@@ -368,36 +396,6 @@ export default function NewDashboard({ onNavigate }) {
           <div className="bg-slate-800 rounded-lg p-1.5">
             <div className="text-xl font-bold text-orange-400">{status?.wake_cycles_completed || 0}</div>
             <div className="text-xs text-slate-400">Ciclos Wake</div>
-          </div>
-        </div>
-
-        {/* Activity Monitor */}
-        <div
-          className="mx-2 my-1 bg-green-900/30 border border-green-500/50 rounded-lg p-1.5 cursor-pointer hover:bg-green-900/40 transition-colors"
-          onClick={() => setShowMonitor(true)}
-          title="Activity Monitor - Live system activity"
-        >
-          <div className="flex items-center gap-1.5">
-            <span className="text-xl">📊</span>
-            <div className="flex-1">
-              <div className="font-bold text-green-300 text-xs">Monitor</div>
-            </div>
-            <span className="text-base text-green-300">▶</span>
-          </div>
-        </div>
-
-        {/* Language Evolution Indicator */}
-        <div
-          className="mx-2 my-1 bg-cyan-900/30 border border-cyan-500/50 rounded-lg p-1.5 cursor-pointer hover:bg-cyan-900/40 transition-colors"
-          onClick={() => setShowLanguageEvolution(true)}
-          title="Language Evolution - Darwin's writing patterns"
-        >
-          <div className="flex items-center gap-1.5">
-            <span className="text-xl">📈</span>
-            <div className="flex-1">
-              <div className="font-bold text-cyan-300 text-xs">Language Evolution</div>
-            </div>
-            <span className="text-base text-cyan-300">▶</span>
           </div>
         </div>
 
@@ -486,7 +484,7 @@ export default function NewDashboard({ onNavigate }) {
       </div>
 
       {/* CENTER - Activity Feed */}
-      <div className="flex-1 flex flex-col h-screen overflow-hidden">
+      <div className="flex-1 flex flex-col overflow-hidden">
 
         {/* Feed Header - Compacto para 1080p */}
         <div className="bg-slate-900 border-b border-slate-700 p-3 flex-shrink-0">
@@ -1029,9 +1027,11 @@ export default function NewDashboard({ onNavigate }) {
       )}
 
       {/* RIGHT PANEL - Darwin Messages */}
-      <div className="w-96 bg-slate-900 border-l border-slate-700 flex flex-col h-screen">
+      <div className="w-96 bg-slate-900 border-l border-slate-700 flex flex-col overflow-hidden">
         <DarwinMessages />
       </div>
+
+      </div>{/* closes flex-1 flex overflow-hidden (3-column wrapper) */}
     </div>
   );
 }

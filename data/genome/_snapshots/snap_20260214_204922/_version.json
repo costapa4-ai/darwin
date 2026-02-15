@@ -1,0 +1,52 @@
+{
+  "version": 1,
+  "created_at": "2026-02-14T00:00:00",
+  "last_mutation_at": null,
+  "cycles_since_last_mutation": 3,
+  "mutation_cooldown_cycles": 10,
+  "rollback_available": true,
+  "changelog": [],
+  "stats": {
+    "total_mutations": 0,
+    "kept_mutations": 0,
+    "rolledback_mutations": 0,
+    "rejected_mutations": 0,
+    "per_domain": {
+      "emotions": {
+        "mutations": 0,
+        "kept": 0,
+        "rolledback": 0
+      },
+      "actions": {
+        "mutations": 0,
+        "kept": 0,
+        "rolledback": 0
+      },
+      "rhythms": {
+        "mutations": 0,
+        "kept": 0,
+        "rolledback": 0
+      },
+      "personality": {
+        "mutations": 0,
+        "kept": 0,
+        "rolledback": 0
+      },
+      "cognition": {
+        "mutations": 0,
+        "kept": 0,
+        "rolledback": 0
+      },
+      "social": {
+        "mutations": 0,
+        "kept": 0,
+        "rolledback": 0
+      },
+      "creativity": {
+        "mutations": 0,
+        "kept": 0,
+        "rolledback": 0
+      }
+    }
+  }
+}

@@ -1,8 +1,8 @@
 {
-  "version": 3,
+  "version": 2,
   "created_at": "2026-02-14T00:00:00",
-  "last_mutation_at": "2026-02-15T09:48:15.380009",
-  "cycles_since_last_mutation": 3,
+  "last_mutation_at": "2026-02-14T21:14:11.592402",
+  "cycles_since_last_mutation": 10,
   "mutation_cooldown_cycles": 10,
   "rollback_available": true,
   "changelog": [
@@ -16,22 +16,11 @@
       "reason": "Recent activities show deep reflection on projects, self-analysis, and investigation work that requires thoughtful consideration rather than balanced baseline responses",
       "snapshot_before": "snap_20260214_211411",
       "status": "applied"
-    },
-    {
-      "version": 3,
-      "timestamp": "2026-02-15T09:48:15.380009",
-      "domain": "rhythms",
-      "key": "rhythms.cycles.wake_duration_minutes",
-      "old_value": 120,
-      "new_value": 144,
-      "reason": "Recent activities show sustained focus on complex tasks (audit framework, Python script building, error analysis across 47 files). Current 120-minute wake cycles appear too short for deep work completion. Increasing to 144 minutes (+20%) allows better task momentum while maintaining regular sleep reflection cycles for genome evolution.",
-      "snapshot_before": "snap_20260215_094815",
-      "status": "applied"
     }
   ],
   "stats": {
-    "total_mutations": 2,
-    "kept_mutations": 2,
+    "total_mutations": 1,
+    "kept_mutations": 1,
     "rolledback_mutations": 0,
     "rejected_mutations": 0,
     "per_domain": {
@@ -46,8 +35,8 @@
         "rolledback": 0
       },
       "rhythms": {
-        "mutations": 1,
-        "kept": 1,
+        "mutations": 0,
+        "kept": 0,
         "rolledback": 0
       },
       "personality": {

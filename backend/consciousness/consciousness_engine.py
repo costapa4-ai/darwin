@@ -2415,8 +2415,9 @@ Just output the tool name, nothing else."""
                     sleep_mode = random.choices(modes, weights=weights, k=1)[0]
                 else:
                     sleep_mode = random.choice(["reflect", "connect", "plan"])
-            except Exception:
-                sleep_mode = random.choice(["reflect", "connect", "plan"])
+            except Exception as e:
+                print(f"   ⚠️ Genome sleep modes read failed ({e}), using fallback (no evolve!)")
+                sleep_mode = random.choice(["reflect", "connect", "plan", "evolve"])
 
             print(f"\n😴 [SLEEP] Mode: {sleep_mode}")
 
@@ -2559,6 +2560,8 @@ Write ONE clear, specific, actionable goal.""",
             from consciousness.genome_manager import get_genome, DOMAINS
             genome = get_genome()
 
+            print(f"   🧬 Genome evolution attempt (can_evolve={genome.can_evolve()})")
+
             if not genome.can_evolve():
                 stats = genome.get_stats()
                 cycles = stats.get("cycles_since_last_mutation", 0)
@@ -2570,25 +2573,35 @@ Write ONE clear, specific, actionable goal.""",
             domain = random.choice(DOMAINS)
             current = genome.get_domain(domain)
 
+            # Collect the available keys with their current values for this domain
+            def _flatten(d, prefix=""):
+                items = []
+                for k, v in d.items():
+                    full = f"{prefix}{k}" if prefix else k
+                    if isinstance(v, dict):
+                        items.extend(_flatten(v, full + "."))
+                    else:
+                        items.append(f"  {domain}.{full} = {v}")
+                return items
+            key_list = "\n".join(_flatten(current)[:40])  # Cap at 40 keys
+
             result = await router.generate(
                 task_description="genome self-evolution",
-                prompt=f"""You are Darwin, reflecting on your own behavioral parameters (genome).
-You are looking at your "{domain}" configuration.
+                prompt=f"""You are Darwin, reflecting on your own behavioral genome.
+Domain: "{domain}"
 
-Current values:
-{_json.dumps(current, indent=2, ensure_ascii=False)[:2000]}
+Available keys (you MUST use one of these exact keys):
+{key_list}
 
 Recent experience:
 {context[:500]}
 
-Propose ONE small change to improve how you function. Rules:
-- Numbers can only change by ±20%
-- Give a concrete reason based on your recent experience
-- Pick something that would genuinely help based on what you've been doing
+Pick ONE numeric key and propose a small change (±20% max for numbers).
+Give a concrete reason based on recent experience.
 
-Return ONLY valid JSON:
-{{"key": "{domain}.full.path.to.value", "new_value": ..., "reason": "..."}}""",
-                system_prompt="You are Darwin evolving your genome. Return ONLY valid JSON with one mutation proposal.",
+Return ONLY valid JSON — no markdown, no explanation:
+{{"key": "{domain}.example.key", "new_value": 0.7, "reason": "because ..."}}""",
+                system_prompt="Return ONLY a single JSON object with keys: key, new_value, reason. No markdown fences, no extra text.",
                 context={'activity_type': 'genome_evolution'},
                 preferred_model='haiku',  # Quick + cheap for structured output
                 max_tokens=200,
@@ -2597,16 +2610,25 @@ Return ONLY valid JSON:
             )
 
             response = result.get("result", "").strip()
+            # Strip markdown fences if present
+            import re
+            response = re.sub(r'^```(?:json)?\s*', '', response)
+            response = re.sub(r'\s*```$', '', response)
+            response = response.strip()
+            print(f"   🧬 Genome LLM response ({len(response)} chars): {response[:120]}")
             if not response:
                 return None
 
-            # Parse the JSON response
-            import re
-            json_match = re.search(r'\{[^}]+\}', response)
+            # Parse the JSON response — find outermost { ... }
+            json_match = re.search(r'\{[^{}]*(?:\{[^{}]*\}[^{}]*)*\}', response)
             if not json_match:
-                return f"Evolution reflection (no valid proposal): {response[:100]}"
-
-            proposal = _json.loads(json_match.group())
+                # Try direct parse as fallback
+                try:
+                    proposal = _json.loads(response)
+                except Exception:
+                    return f"Evolution reflection (no valid proposal): {response[:100]}"
+            else:
+                proposal = _json.loads(json_match.group())
             key = proposal.get("key", "")
             new_value = proposal.get("new_value")
             reason = proposal.get("reason", "self-evolution")

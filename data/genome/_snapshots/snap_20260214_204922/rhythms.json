@@ -1,6 +1,6 @@
 {
   "cycles": {
-    "wake_duration_minutes": 144,
+    "wake_duration_minutes": 120,
     "sleep_duration_minutes": 30,
     "wake_activity_interval_min": 3,
     "wake_activity_interval_max": 8,
