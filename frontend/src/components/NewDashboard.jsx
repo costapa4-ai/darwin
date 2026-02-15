@@ -556,7 +556,9 @@ export default function NewDashboard({ onNavigate }) {
                       </div>
                     )}
                     {event.content && event.content !== event.title && event.eventType !== 'chat_message' && (
-                      <div className="text-xs text-slate-400 mt-1">{event.content.slice(0, 120)}</div>
+                      <div className="text-xs text-slate-400 mt-1 break-words">
+                        {event.content.length > 300 ? event.content.slice(0, 300) + '...' : event.content}
+                      </div>
                     )}
                   </div>
                   <div className="text-right flex-shrink-0">
