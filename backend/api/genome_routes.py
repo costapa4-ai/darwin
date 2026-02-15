@@ -92,6 +92,26 @@ async def genome_rollback(req: RollbackRequest):
         raise HTTPException(status_code=500, detail=str(e))
 
 
+class CooldownUpdate(BaseModel):
+    cycles: int
+
+
+@router.put("/genome/cooldown")
+async def update_cooldown(req: CooldownUpdate):
+    """Update mutation cooldown cycles (Paulo only)."""
+    if req.cycles < 2 or req.cycles > 20:
+        raise HTTPException(status_code=400, detail="Cooldown must be between 2 and 20 cycles")
+    try:
+        genome = _get_genome()
+        old = genome._version.get("mutation_cooldown_cycles", 10)
+        genome._version["mutation_cooldown_cycles"] = req.cycles
+        genome._save_version()
+        logger.info(f"Genome cooldown updated by Paulo: {old} → {req.cycles}")
+        return {"success": True, "old_cooldown": old, "new_cooldown": req.cycles}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 # ==================== Identity / Core Values Endpoints ====================
 
 @router.get("/identity/core-values")

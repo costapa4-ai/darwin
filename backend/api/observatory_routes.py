@@ -75,11 +75,13 @@ async def get_overview():
     total_discoveries = engine_status.get('total_discoveries', 0)
     elapsed = engine_status.get('elapsed_minutes', 0)
 
-    # Cycle progress
+    # Cycle progress (use actual durations from engine, not hardcoded)
+    wake_dur = engine_status.get('wake_duration', 120)
+    sleep_dur = engine_status.get('sleep_duration', 30)
     if state == 'wake':
-        cycle_progress = min(elapsed / 120.0, 1.0) if elapsed else 0
+        cycle_progress = min(elapsed / wake_dur, 1.0) if elapsed else 0
     elif state == 'sleep':
-        cycle_progress = min(elapsed / 30.0, 1.0) if elapsed else 0
+        cycle_progress = min(elapsed / sleep_dur, 1.0) if elapsed else 0
     else:
         cycle_progress = 0
 
@@ -148,6 +150,8 @@ async def get_overview():
         "state": state,
         "uptime_minutes": round(elapsed, 1),
         "cycle_progress": round(cycle_progress, 3),
+        "wake_duration": wake_dur,
+        "sleep_duration": sleep_dur,
         "wake_cycles": wake_cycles,
         "sleep_cycles": sleep_cycles,
         "total_activities": total_activities,
@@ -569,6 +573,96 @@ async def get_memory_stats():
     return {
         "memory": memory_data,
         "stream": stream_data,
+    }
+
+
+@router.get("/mood-environment")
+async def get_mood_environment():
+    """Mood statistics and environmental influence factors."""
+    from app.lifespan import get_service
+
+    mood = get_service('mood_system')
+    if not mood:
+        return {"error": "Mood system not available", "statistics": {}, "environment": {}, "history": []}
+
+    statistics = _safe_get(lambda: mood.get_mood_statistics()) or {}
+    environment = _safe_get(lambda: mood.get_environmental_influence()) or {}
+    history = _safe_get(lambda: mood.get_mood_history(10)) or []
+
+    return {
+        "statistics": statistics,
+        "environment": environment,
+        "history": history,
+    }
+
+
+@router.get("/growth-identity")
+async def get_growth_identity():
+    """Growth metrics: conversations, intentions, interests, genome, language, identity."""
+    from app.lifespan import get_service
+    from consciousness.genome_manager import get_genome
+    from services.language_evolution import get_language_evolution_service
+
+    # Conversation Store
+    conv_store = get_service('conversation_store')
+    conversation_stats = _safe_get(lambda: conv_store.get_stats()) if conv_store else {}
+
+    # Intention Store
+    intention_store = get_service('intention_store')
+    intention_stats = _safe_get(lambda: intention_store.get_stats()) if intention_store else {}
+
+    # Interest Graph
+    interest_graph = get_service('interest_graph')
+    interest_stats = _safe_get(lambda: interest_graph.get_stats()) if interest_graph else {}
+
+    # Genome
+    genome = _safe_get(get_genome)
+    genome_stats = _safe_get(lambda: genome.get_stats()) if genome else {}
+
+    # Language Evolution
+    lang_svc = _safe_get(get_language_evolution_service)
+    language_summary = _safe_get(lambda: lang_svc.get_summary()) if lang_svc else {}
+
+    # Identity
+    paulo_model = get_service('paulo_model')
+    darwin_self = get_service('darwin_self_model')
+
+    paulo_stats = {}
+    if paulo_model:
+        facts = _safe_get(lambda: paulo_model.known_facts) or []
+        interests = _safe_get(lambda: paulo_model.interests) or []
+        paulo_stats = {
+            "known_facts": len(facts),
+            "interests": len(interests),
+        }
+
+    darwin_identity = {}
+    if darwin_self:
+        core_vals = _safe_get(lambda: darwin_self.core_values) or []
+        curr_interests = _safe_get(lambda: darwin_self.current_interests) or []
+        opinions = _safe_get(lambda: darwin_self.opinions) or {}
+        milestones = _safe_get(lambda: darwin_self.growth_milestones) or []
+        notes = _safe_get(lambda: darwin_self.personality_notes) or []
+        darwin_identity = {
+            "core_values": core_vals,
+            "interests_count": len(curr_interests),
+            "interests": [
+                {"topic": i.get("topic", ""), "enthusiasm": i.get("enthusiasm", 0)}
+                for i in curr_interests[:7]
+            ],
+            "opinions_count": len(opinions),
+            "milestones_count": len(milestones),
+            "personality_notes_count": len(notes),
+        }
+
+    return {
+        "conversations": conversation_stats,
+        "intentions": intention_stats,
+        "interests": interest_stats,
+        "genome": genome_stats,
+        "language": language_summary,
+        "paulo_model": paulo_stats,
+        "darwin_identity": darwin_identity,
     }
 
 

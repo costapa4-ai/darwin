@@ -344,6 +344,16 @@ class StateManager:
             genome = get_genome()
             genome.record_cycle()
 
+            # Re-read durations from genome (may have evolved)
+            new_wake = genome.get('rhythms.cycles.wake_duration_minutes', 120)
+            new_sleep = genome.get('rhythms.cycles.sleep_duration_minutes', 30)
+            if new_wake != self.engine.wake_duration:
+                logger.info(f"Genome wake_duration updated: {self.engine.wake_duration} → {new_wake}")
+                self.engine.wake_duration = new_wake
+            if new_sleep != self.engine.sleep_duration:
+                logger.info(f"Genome sleep_duration updated: {self.engine.sleep_duration} → {new_sleep}")
+                self.engine.sleep_duration = new_sleep
+
             # Check if Paulo changed core values
             cv_change = genome.check_core_values_changed()
             if cv_change:

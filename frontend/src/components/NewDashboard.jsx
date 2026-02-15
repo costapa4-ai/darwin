@@ -188,7 +188,10 @@ export default function NewDashboard({ onNavigate }) {
   };
 
   const isAwake = status?.state === 'wake';
-  const progress = status ? (status.elapsed_minutes / (isAwake ? 120 : 30)) * 100 : 0;
+  const wakeDur = status?.wake_duration || 120;
+  const sleepDur = status?.sleep_duration || 30;
+  const cycleDur = isAwake ? wakeDur : sleepDur;
+  const progress = status ? (status.elapsed_minutes / cycleDur) * 100 : 0;
 
   const getEventIcon = (event) => {
     if (event.eventType === 'activity') {
@@ -293,7 +296,7 @@ export default function NewDashboard({ onNavigate }) {
                 : 'bg-blue-900/40 text-blue-300 border border-blue-700/50'
             }`}>
               <span>{isAwake ? '🌅' : '😴'}</span>
-              {isAwake ? 'Awake' : 'Sleep'} {Math.round(status.elapsed_minutes)}m
+              {isAwake ? 'Awake' : 'Sleep'} {Math.round(status.elapsed_minutes)}m/{cycleDur}m
             </div>
           )}
         </div>
@@ -380,27 +383,6 @@ export default function NewDashboard({ onNavigate }) {
 
       {/* LEFT SIDEBAR - Status & Chat */}
       <div className="w-96 bg-slate-900 border-r border-slate-700 flex flex-col">
-
-        {/* Current State */}
-        {status && (
-          <div className={`p-2 border-b border-slate-700 ${isAwake ? 'bg-orange-900/30' : 'bg-blue-900/30'}`}>
-            <div className="flex items-center gap-2 mb-1">
-              <span className="text-2xl">{isAwake ? '🌅' : '😴'}</span>
-              <div className="flex-1">
-                <div className="font-bold text-white text-base uppercase">{isAwake ? 'Acordado' : 'A Dormir'}</div>
-                <div className="text-xs text-slate-300">
-                  {Math.round(status.elapsed_minutes)}min / {isAwake ? '120min' : '30min'}
-                </div>
-              </div>
-            </div>
-            <div className="w-full bg-slate-700 rounded-full h-1.5">
-              <div
-                className={`h-full rounded-full transition-all ${isAwake ? 'bg-gradient-to-r from-orange-500 to-yellow-500' : 'bg-gradient-to-r from-blue-500 to-purple-500'}`}
-                style={{ width: `${progress}%` }}
-              ></div>
-            </div>
-          </div>
-        )}
 
         {/* Metrics */}
         <div className="grid grid-cols-3 gap-1.5 p-2 border-b border-slate-700">

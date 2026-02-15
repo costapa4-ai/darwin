@@ -204,18 +204,22 @@ export default function ObservatoryDashboard({ onBack }) {
   const [evolution, setEvolution] = useState(null);
   const [subsystems, setSubsystems] = useState(null);
   const [safetyEvents, setSafetyEvents] = useState(null);
+  const [moodEnv, setMoodEnv] = useState(null);
+  const [growthIdentity, setGrowthIdentity] = useState(null);
   const [lastRefresh, setLastRefresh] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
 
   const fetchAll = useCallback(async () => {
     try {
-      const [ovRes, aiRes, evoRes, subRes, safetyRes] = await Promise.allSettled([
+      const [ovRes, aiRes, evoRes, subRes, safetyRes, moodRes, growthRes] = await Promise.allSettled([
         fetch(`${API_BASE}/api/v1/observatory/overview`).then(r => r.json()),
         fetch(`${API_BASE}/api/v1/observatory/ai-routing`).then(r => r.json()),
         fetch(`${API_BASE}/api/v1/observatory/evolution`).then(r => r.json()),
         fetch(`${API_BASE}/api/v1/observatory/subsystems`).then(r => r.json()),
         fetch(`${API_BASE}/api/v1/observatory/safety-events`).then(r => r.json()),
+        fetch(`${API_BASE}/api/v1/observatory/mood-environment`).then(r => r.json()),
+        fetch(`${API_BASE}/api/v1/observatory/growth-identity`).then(r => r.json()),
       ]);
 
       if (ovRes.status === 'fulfilled') setOverview(ovRes.value);
@@ -223,6 +227,8 @@ export default function ObservatoryDashboard({ onBack }) {
       if (evoRes.status === 'fulfilled') setEvolution(evoRes.value);
       if (subRes.status === 'fulfilled') setSubsystems(subRes.value);
       if (safetyRes.status === 'fulfilled') setSafetyEvents(safetyRes.value);
+      if (moodRes.status === 'fulfilled') setMoodEnv(moodRes.value);
+      if (growthRes.status === 'fulfilled') setGrowthIdentity(growthRes.value);
 
       setLastRefresh(new Date());
       setError(null);
@@ -279,7 +285,9 @@ export default function ObservatoryDashboard({ onBack }) {
               }`}>
                 <span>{stateEmoji}</span>
                 {stateLabel}
-                <span className="text-xs opacity-70">{Math.round(overview.uptime_minutes || 0)}min</span>
+                <span className="text-xs opacity-70">
+                  {Math.round(overview.uptime_minutes || 0)}m/{overview.state === 'wake' ? (overview.wake_duration || 120) : (overview.sleep_duration || 30)}m
+                </span>
               </div>
             )}
             <div className="text-xs text-slate-500">
@@ -490,10 +498,261 @@ export default function ObservatoryDashboard({ onBack }) {
               <StatCard label="Subsystems" value={`${overview.subsystem_count?.healthy ?? 0}/${overview.subsystem_count?.total ?? 0}`} icon="✅" color="green"
                 sub={`${overview.subsystem_count?.degraded ?? 0} degraded`} />
             </div>
+
+            {/* Environmental Factors */}
+            {moodEnv?.environment && (
+              <div className="grid grid-cols-2 md:grid-cols-5 gap-4 mt-4">
+                <StatCard label="Discovery Momentum"
+                  value={`${Math.round((moodEnv.environment.discovery_momentum || 0) * 100)}%`}
+                  icon="🚀" color="green"
+                  sub={<ProgressBar value={moodEnv.environment.discovery_momentum || 0} color="green" />} />
+                <StatCard label="Frustration Level"
+                  value={`${Math.round((moodEnv.environment.frustration_level || 0) * 100)}%`}
+                  icon="😤" color="red"
+                  sub={<ProgressBar value={moodEnv.environment.frustration_level || 0} color="red" />} />
+                <StatCard label="Engagement"
+                  value={`${Math.round((moodEnv.environment.engagement_level || 0) * 100)}%`}
+                  icon="⚡" color="cyan"
+                  sub={<ProgressBar value={moodEnv.environment.engagement_level || 0} color="cyan" />} />
+                <StatCard label="Discoveries Today" value={moodEnv.environment.discoveries_today ?? 0}
+                  icon="💡" color="yellow" />
+                <StatCard label="Errors Today" value={moodEnv.environment.errors_today ?? 0}
+                  icon="❌" color="red" />
+              </div>
+            )}
+
+            {/* Mood Statistics + Distribution */}
+            {moodEnv?.statistics && (
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-4">
+                <div className="bg-slate-900 rounded-xl p-4 border border-slate-700/50">
+                  <h3 className="text-sm font-medium text-slate-300 mb-3">Mood Statistics</h3>
+                  <div className="space-y-3">
+                    <div className="flex justify-between">
+                      <span className="text-xs text-slate-400">Total Transitions</span>
+                      <span className="text-lg font-bold text-cyan-400">
+                        {moodEnv.statistics.total_transitions ?? 0}
+                      </span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className="text-xs text-slate-400">Avg Duration</span>
+                      <span className="text-lg font-bold text-purple-400">
+                        {Math.round(moodEnv.statistics.average_mood_duration_minutes ?? 0)}min
+                      </span>
+                    </div>
+                    {moodEnv.statistics.most_common_moods && (
+                      <div>
+                        <span className="text-xs text-slate-400">Most Common</span>
+                        <div className="flex flex-wrap gap-1 mt-1">
+                          {Object.entries(moodEnv.statistics.most_common_moods).slice(0, 3).map(([mood, count]) => (
+                            <span key={mood} className="px-2 py-0.5 rounded-full bg-slate-800 text-xs text-slate-300 capitalize">
+                              {mood} ({count})
+                            </span>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                </div>
+                <MoodDistributionChart distribution={moodEnv.statistics.mood_distribution} />
+              </div>
+            )}
           </>
         )}
 
-        {/* SECTION 5: Safety & Audit Trail */}
+        {/* SECTION 5: Memory & Conversations */}
+        {growthIdentity?.conversations && (
+          <>
+            <SectionHeader title="Memory & Conversations" icon="💬" />
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+              <StatCard label="Total Messages" value={growthIdentity.conversations.total_messages ?? 0}
+                icon="💬" color="cyan"
+                sub={`${growthIdentity.conversations.daily_summaries ?? 0} daily summaries`} />
+              <StatCard label="Paulo Messages" value={growthIdentity.conversations.user_messages ?? 0}
+                icon="👤" color="blue" />
+              <StatCard label="Darwin Messages" value={growthIdentity.conversations.darwin_messages ?? 0}
+                icon="🤖" color="purple" />
+              <StatCard label="Relationship Facts" value={growthIdentity.conversations.relationship_facts ?? 0}
+                icon="🤝" color="green" />
+            </div>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-4">
+              {/* Messages by Channel */}
+              <div className="bg-slate-900 rounded-xl p-4 border border-slate-700/50">
+                <h3 className="text-sm font-medium text-slate-300 mb-3">Messages by Channel</h3>
+                {Object.keys(growthIdentity.conversations.messages_by_channel || {}).length > 0 ? (
+                  <div className="space-y-2">
+                    {Object.entries(growthIdentity.conversations.messages_by_channel).map(([ch, count]) => {
+                      const maxCount = Math.max(...Object.values(growthIdentity.conversations.messages_by_channel), 1);
+                      return (
+                        <div key={ch} className="flex items-center gap-2">
+                          <span className="text-xs text-slate-400 w-20 capitalize">{ch}</span>
+                          <div className="flex-1 bg-slate-700 rounded-full h-3">
+                            <div className="h-3 rounded-full bg-cyan-500 transition-all"
+                              style={{ width: `${(count / maxCount) * 100}%` }} />
+                          </div>
+                          <span className="text-xs text-white font-medium w-10 text-right">{count}</span>
+                        </div>
+                      );
+                    })}
+                  </div>
+                ) : (
+                  <div className="text-sm text-slate-500">No channel data</div>
+                )}
+              </div>
+              {/* Memory Overview */}
+              <div className="bg-slate-900 rounded-xl p-4 border border-slate-700/50">
+                <h3 className="text-sm font-medium text-slate-300 mb-3">Memory System</h3>
+                <div className="space-y-3">
+                  <div className="flex justify-between">
+                    <span className="text-xs text-slate-400">Episodic Memory</span>
+                    <span className="text-lg font-bold text-purple-400">{overview?.memory_episodes ?? 0}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-xs text-slate-400">Semantic Knowledge</span>
+                    <span className="text-lg font-bold text-cyan-400">{overview?.semantic_knowledge ?? 0}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-xs text-slate-400">Stream Events</span>
+                    <span className="text-lg font-bold text-yellow-400">{overview?.stream_events ?? 0}</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </>
+        )}
+
+        {/* SECTION 6: Growth & Identity */}
+        {growthIdentity && (
+          <>
+            <SectionHeader title="Growth & Identity" icon="🌱" />
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+              <StatCard label="Genome Version"
+                value={`v${growthIdentity.genome?.version ?? '?'}`}
+                icon="🧬" color="purple"
+                sub={growthIdentity.genome?.can_evolve ? 'Ready to evolve' :
+                  `${growthIdentity.genome?.cycles_since_last_mutation ?? 0}/${growthIdentity.genome?.mutation_cooldown_cycles ?? 10} cycles`} />
+              <StatCard label="Total Mutations"
+                value={growthIdentity.genome?.stats?.total_mutations ?? 0}
+                icon="🔀" color="cyan"
+                sub={`${growthIdentity.genome?.stats?.kept_mutations ?? 0} kept, ${growthIdentity.genome?.stats?.rolledback_mutations ?? 0} rolled back`} />
+              <StatCard label="Vocabulary Size"
+                value={growthIdentity.language?.vocabulary_size ?? 0}
+                icon="📖" color="green"
+                sub={`${growthIdentity.language?.total_word_count ?? 0} total words`} />
+              <StatCard label="Sentiment"
+                value={growthIdentity.language?.recent_sentiment !== undefined
+                  ? (growthIdentity.language.recent_sentiment >= 0 ? '+' : '') + growthIdentity.language.recent_sentiment.toFixed(2)
+                  : 'N/A'}
+                icon="📊"
+                color={(growthIdentity.language?.recent_sentiment ?? 0) >= 0 ? 'green' : 'red'}
+                sub="7-day average" />
+            </div>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-4">
+              <GenomeDomainChart perDomain={growthIdentity.genome?.stats?.per_domain} />
+              {/* Darwin Identity */}
+              <div className="bg-slate-900 rounded-xl p-4 border border-slate-700/50">
+                <h3 className="text-sm font-medium text-slate-300 mb-3">Darwin Identity</h3>
+                <div className="space-y-3">
+                  {growthIdentity.darwin_identity?.core_values?.length > 0 && (
+                    <div>
+                      <span className="text-xs text-slate-400">Core Values</span>
+                      <div className="flex flex-wrap gap-1 mt-1">
+                        {growthIdentity.darwin_identity.core_values.map((v, i) => (
+                          <span key={i} className="px-2 py-0.5 rounded-full bg-purple-900/40 text-xs text-purple-300 capitalize">
+                            {v}
+                          </span>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                  <div className="flex justify-between">
+                    <span className="text-xs text-slate-400">Interests</span>
+                    <span className="text-lg font-bold text-cyan-400">
+                      {growthIdentity.darwin_identity?.interests_count ?? 0}
+                    </span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-xs text-slate-400">Opinions Formed</span>
+                    <span className="text-lg font-bold text-purple-400">
+                      {growthIdentity.darwin_identity?.opinions_count ?? 0}
+                    </span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-xs text-slate-400">Growth Milestones</span>
+                    <span className="text-lg font-bold text-green-400">
+                      {growthIdentity.darwin_identity?.milestones_count ?? 0}
+                    </span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-xs text-slate-400">Facts about Paulo</span>
+                    <span className="text-lg font-bold text-yellow-400">
+                      {growthIdentity.paulo_model?.known_facts ?? 0}
+                    </span>
+                  </div>
+                </div>
+              </div>
+            </div>
+            {/* Language top topics */}
+            {growthIdentity.language?.top_topics?.length > 0 && (
+              <div className="bg-slate-900 rounded-xl p-4 border border-slate-700/50 mt-4">
+                <h3 className="text-sm font-medium text-slate-300 mb-3">Top Topics (7 days)</h3>
+                <div className="space-y-2">
+                  {growthIdentity.language.top_topics.map(([topic, count], i) => {
+                    const maxCount = Math.max(...growthIdentity.language.top_topics.map(t => t[1]), 1);
+                    return (
+                      <div key={topic} className="flex items-center gap-2">
+                        <span className="text-xs text-slate-400 w-32 truncate capitalize">{topic}</span>
+                        <div className="flex-1 bg-slate-700 rounded-full h-3">
+                          <div className="h-3 rounded-full transition-all" style={{
+                            width: `${(count / maxCount) * 100}%`,
+                            backgroundColor: PIE_COLORS[i % PIE_COLORS.length]
+                          }} />
+                        </div>
+                        <span className="text-xs text-white font-medium w-8 text-right">{count}</span>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+          </>
+        )}
+
+        {/* SECTION 7: Goals & Interests */}
+        {growthIdentity && (
+          <>
+            <SectionHeader title="Goals & Interests" icon="🎯" />
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+              <StatCard label="Pending Goals" value={growthIdentity.intentions?.pending ?? 0}
+                icon="📋" color="yellow" />
+              <StatCard label="In Progress" value={growthIdentity.intentions?.in_progress ?? 0}
+                icon="⏳" color="cyan" />
+              <StatCard label="Completed" value={growthIdentity.intentions?.completed ?? 0}
+                icon="✅" color="green" />
+              <StatCard label="Expired" value={growthIdentity.intentions?.expired ?? 0}
+                icon="⏰" color="red" />
+            </div>
+            {growthIdentity.interests?.active_interests &&
+             Object.keys(growthIdentity.interests.active_interests).length > 0 && (
+              <div className="mt-4">
+                <div className="flex items-center justify-between mb-3">
+                  <h3 className="text-sm font-medium text-slate-300">
+                    Active Interests ({growthIdentity.interests.active_count ?? 0}/7)
+                  </h3>
+                  <span className="text-xs text-slate-500">
+                    {growthIdentity.interests.dormant_count ?? 0} dormant · {Math.round(growthIdentity.interests.total_exploration_minutes ?? 0)}min total
+                  </span>
+                </div>
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+                  {Object.entries(growthIdentity.interests.active_interests).map(([key, interest]) => (
+                    <InterestCard key={key} interest={interest} />
+                  ))}
+                </div>
+              </div>
+            )}
+          </>
+        )}
+
+        {/* SECTION 8: Safety & Audit Trail */}
         {safetyEvents && Object.keys(safetyEvents.summary || {}).length > 0 && (
           <>
             <SectionHeader title="Safety & Audit Trail" icon="🛡️" />
@@ -544,7 +803,7 @@ export default function ObservatoryDashboard({ onBack }) {
           </>
         )}
 
-        {/* SECTION 6: Findings & Knowledge */}
+        {/* SECTION 9: Findings & Knowledge */}
         {subsystems && (
           <>
             <SectionHeader title="Findings & Knowledge" icon="📚" />
@@ -552,7 +811,7 @@ export default function ObservatoryDashboard({ onBack }) {
           </>
         )}
 
-        {/* SECTION 7: Subsystem Health Grid */}
+        {/* SECTION 10: Subsystem Health Grid */}
         {subsystems?.subsystems && (
           <>
             <SectionHeader title="Subsystem Health" icon="🟢" />
@@ -614,6 +873,117 @@ function MoodDisplay({ subsystems }) {
             backgroundColor: moodColor
           }} />
         </div>
+      </div>
+    </div>
+  );
+}
+
+function MoodDistributionChart({ distribution }) {
+  if (!distribution || Object.keys(distribution).length === 0) {
+    return (
+      <div className="bg-slate-900 rounded-xl p-4 border border-slate-700/50">
+        <h3 className="text-sm font-medium text-slate-300 mb-3">Mood Distribution</h3>
+        <div className="h-[200px] flex items-center justify-center text-slate-500 text-sm">No mood data yet</div>
+      </div>
+    );
+  }
+  const data = Object.entries(distribution)
+    .map(([name, value]) => ({ name: name.charAt(0).toUpperCase() + name.slice(1), value }))
+    .sort((a, b) => b.value - a.value);
+
+  const moodBarColors = {
+    Curious: COLORS.cyan, Excited: COLORS.yellow, Focused: COLORS.blue,
+    Satisfied: COLORS.green, Frustrated: COLORS.red, Tired: COLORS.slate,
+    Playful: COLORS.pink, Contemplative: COLORS.purple, Determined: COLORS.orange,
+    Surprised: COLORS.yellow, Confused: COLORS.orange, Proud: COLORS.green,
+    Content: COLORS.green, Calm: COLORS.purple, Anxious: COLORS.orange,
+  };
+
+  return (
+    <div className="bg-slate-900 rounded-xl p-4 border border-slate-700/50">
+      <h3 className="text-sm font-medium text-slate-300 mb-3">Mood Distribution</h3>
+      <ResponsiveContainer width="100%" height={200}>
+        <BarChart data={data} layout="vertical">
+          <XAxis type="number" tick={{ fill: '#94a3b8', fontSize: 11 }} />
+          <YAxis dataKey="name" type="category" width={90} tick={{ fill: '#94a3b8', fontSize: 11 }} />
+          <Tooltip content={<ChartTooltip />} />
+          <Bar dataKey="value" name="Count" radius={[0, 4, 4, 0]}>
+            {data.map((entry, i) => (
+              <Cell key={i} fill={moodBarColors[entry.name] || COLORS.slate} />
+            ))}
+          </Bar>
+        </BarChart>
+      </ResponsiveContainer>
+    </div>
+  );
+}
+
+function GenomeDomainChart({ perDomain }) {
+  if (!perDomain || Object.keys(perDomain).length === 0) {
+    return (
+      <div className="bg-slate-900 rounded-xl p-4 border border-slate-700/50">
+        <h3 className="text-sm font-medium text-slate-300 mb-3">Mutations per Domain</h3>
+        <div className="h-[200px] flex items-center justify-center text-slate-500 text-sm">No mutation data yet</div>
+      </div>
+    );
+  }
+  const data = Object.entries(perDomain).map(([domain, stats]) => ({
+    name: domain.charAt(0).toUpperCase() + domain.slice(1),
+    kept: stats.kept || 0,
+    rolledback: stats.rolledback || 0,
+  }));
+
+  return (
+    <div className="bg-slate-900 rounded-xl p-4 border border-slate-700/50">
+      <h3 className="text-sm font-medium text-slate-300 mb-3">Mutations per Domain</h3>
+      <ResponsiveContainer width="100%" height={200}>
+        <BarChart data={data} layout="vertical">
+          <XAxis type="number" tick={{ fill: '#94a3b8', fontSize: 11 }} />
+          <YAxis dataKey="name" type="category" width={80} tick={{ fill: '#94a3b8', fontSize: 11 }} />
+          <Tooltip content={<ChartTooltip />} />
+          <Legend iconType="circle" wrapperStyle={{ fontSize: '12px' }}
+            formatter={(v) => <span className="text-slate-300">{v}</span>} />
+          <Bar dataKey="kept" name="Kept" fill={COLORS.green} radius={[0, 4, 4, 0]} stackId="a" />
+          <Bar dataKey="rolledback" name="Rolled Back" fill={COLORS.orange} radius={[0, 4, 4, 0]} stackId="a" />
+        </BarChart>
+      </ResponsiveContainer>
+    </div>
+  );
+}
+
+function InterestCard({ interest }) {
+  const depthPct = (interest.depth / 10) * 100;
+  const depthColor = interest.depth >= 7 ? COLORS.green : interest.depth >= 4 ? COLORS.cyan : COLORS.purple;
+
+  return (
+    <div className="bg-slate-900 rounded-xl p-4 border border-slate-700/50">
+      <div className="flex items-start justify-between mb-2">
+        <span className="text-sm font-medium text-white truncate">{interest.topic}</span>
+        <span className="text-xs text-slate-500 ml-2 whitespace-nowrap">{interest.age_days}d</span>
+      </div>
+      <div className="mb-2">
+        <div className="flex justify-between text-xs text-slate-400 mb-1">
+          <span>Depth</span><span>{interest.depth}/10</span>
+        </div>
+        <div className="w-full bg-slate-700 rounded-full h-2">
+          <div className="h-2 rounded-full transition-all" style={{
+            width: `${depthPct}%`, backgroundColor: depthColor,
+          }} />
+        </div>
+      </div>
+      <div className="mb-2">
+        <div className="flex justify-between text-xs text-slate-400 mb-1">
+          <span>Enthusiasm</span><span>{Math.round(interest.enthusiasm * 100)}%</span>
+        </div>
+        <div className="w-full bg-slate-700 rounded-full h-2">
+          <div className="h-2 rounded-full bg-yellow-500 transition-all"
+            style={{ width: `${interest.enthusiasm * 100}%` }} />
+        </div>
+      </div>
+      <div className="flex justify-between text-xs text-slate-500 mt-2">
+        <span>{interest.sessions} sessions</span>
+        <span>{interest.discoveries} discoveries</span>
+        <span>{Math.round(interest.total_time_minutes)}min</span>
       </div>
     </div>
   );

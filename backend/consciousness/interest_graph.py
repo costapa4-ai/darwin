@@ -119,6 +119,33 @@ class InterestGraph:
         }
         self.storage_path.write_text(json.dumps(data, indent=2, ensure_ascii=False))
 
+    def get_stats(self) -> dict:
+        """Get interest statistics for Observatory dashboard."""
+        active = {}
+        total_time = 0.0
+        total_disc = 0
+        for key, interest in self.active_interests.items():
+            active[key] = {
+                "topic": interest.topic,
+                "depth": interest.depth,
+                "enthusiasm": round(interest.enthusiasm, 2),
+                "sessions": len(interest.sessions),
+                "discoveries": len(interest.discoveries),
+                "total_time_minutes": round(interest.total_time_minutes, 1),
+                "days_since_explored": round(interest.days_since_explored, 1),
+                "age_days": interest.age_days,
+            }
+            total_time += interest.total_time_minutes
+            total_disc += len(interest.discoveries)
+        return {
+            "active_count": len(self.active_interests),
+            "dormant_count": len(self.dormant_interests),
+            "total_exploration_minutes": round(total_time, 1),
+            "total_discoveries": total_disc,
+            "active_interests": active,
+            "recent_events": self.interest_history[-5:],
+        }
+
     def _key(self, topic: str) -> str:
         """Normalize topic to key."""
         return topic.lower().strip().replace(" ", "_")

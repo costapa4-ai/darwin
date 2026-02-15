@@ -91,8 +91,25 @@ export default function GenomeDashboard({ onBack }) {
     );
   }
 
+  const updateCooldown = async (newCycles) => {
+    try {
+      const res = await fetch(`${API_BASE}/api/v1/genome/cooldown`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ cycles: newCycles })
+      });
+      const data = await res.json();
+      if (data.success) {
+        fetchGenomeStatus();
+      }
+    } catch (err) {
+      console.error('Failed to update cooldown:', err);
+    }
+  };
+
   const stats = genomeStatus?.stats || {};
   const perDomain = stats.per_domain || {};
+  const currentCooldown = genomeStatus?.mutation_cooldown_cycles || 10;
 
   return (
     <div className="min-h-screen bg-gray-950 text-gray-100">
@@ -115,7 +132,7 @@ export default function GenomeDashboard({ onBack }) {
       <div className="max-w-7xl mx-auto px-6 py-6 space-y-6">
         {/* Status Banner */}
         <div className="bg-gray-900/60 border border-gray-800 rounded-xl p-5">
-          <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
+          <div className="grid grid-cols-2 md:grid-cols-6 gap-4">
             <div>
               <div className="text-xs text-gray-500 uppercase tracking-wide">Version</div>
               <div className="text-2xl font-bold text-white">v{genomeStatus?.version || 1}</div>
@@ -139,9 +156,29 @@ export default function GenomeDashboard({ onBack }) {
                   <span className="text-green-400">READY</span>
                 ) : (
                   <span className="text-yellow-400">
-                    {genomeStatus?.cycles_since_last_mutation || 0}/{genomeStatus?.mutation_cooldown_cycles || 10} cycles
+                    {genomeStatus?.cycles_since_last_mutation || 0}/{currentCooldown} cycles
                   </span>
                 )}
+              </div>
+            </div>
+            <div>
+              <div className="text-xs text-gray-500 uppercase tracking-wide">Cooldown</div>
+              <div className="flex items-center gap-2 mt-1">
+                <button
+                  onClick={() => updateCooldown(Math.max(2, currentCooldown - 1))}
+                  disabled={currentCooldown <= 2}
+                  className="w-7 h-7 rounded bg-gray-800 hover:bg-gray-700 border border-gray-700 text-gray-300 text-sm font-bold transition disabled:opacity-30 disabled:cursor-not-allowed"
+                >
+                  -
+                </button>
+                <span className="text-lg font-bold text-cyan-400 w-8 text-center">{currentCooldown}</span>
+                <button
+                  onClick={() => updateCooldown(Math.min(20, currentCooldown + 1))}
+                  disabled={currentCooldown >= 20}
+                  className="w-7 h-7 rounded bg-gray-800 hover:bg-gray-700 border border-gray-700 text-gray-300 text-sm font-bold transition disabled:opacity-30 disabled:cursor-not-allowed"
+                >
+                  +
+                </button>
               </div>
             </div>
             <div>
