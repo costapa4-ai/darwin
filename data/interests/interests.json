@@ -1,6 +1,84 @@
 {
-  "active_interests": {},
+  "active_interests": {
+    "finding:_system_disk:_high": {
+      "topic": "Finding: System DISK: HIGH",
+      "depth": 0,
+      "enthusiasm": 0.7496511713224537,
+      "sessions": [
+        {
+          "date": "2026-02-15",
+          "duration_min": 0.05081365,
+          "summary": "A 0-minute journey into Finding: System DISK: HIGH. Discovered 5 interesting findings and gained 1 insights. Most notable: 100% disk usage caused by windows \"system\" process.",
+          "sources": [
+            "",
+            "",
+            "",
+            "",
+            ""
+          ]
+        }
+      ],
+      "discoveries": [
+        "According to your description, the 100%diskusagecausedby the Windows \"system\" process may be related",
+        "Experiencinghighdiskusage can slow down your computer and cause applications to freeze or crash.This",
+        "Systemandcompressed memory is a process responsible forhighdiskusage.Thispost shows youhowto fix 100",
+        "HighdiskI/O in Windows can pin storage at 100% active time, turning simple tasks like launching apps",
+        "On the Processes tab, you can find out which process is causinghighdiskusage. The new Task Manager i"
+      ],
+      "related_interests": [
+        "How Finding: System DISK: HIGH might change in the next decade",
+        "Surprising connections between Finding: System DISK: HIGH and other fields"
+      ],
+      "sparked_by": "expedition",
+      "last_explored": "2026-02-15T17:36:41.941354",
+      "total_time_minutes": 0.05081365,
+      "created_at": "2026-02-15"
+    },
+    "how_finding:_system_disk:_high_might_change_in_the_next_decade": {
+      "topic": "How Finding: System DISK: HIGH might change in the next decade",
+      "depth": 0,
+      "enthusiasm": 0.3996511713784722,
+      "sessions": [],
+      "discoveries": [],
+      "related_interests": [],
+      "sparked_by": "expedition:Finding: System DISK: HIGH",
+      "last_explored": "2026-02-15T17:36:41.941604",
+      "total_time_minutes": 0,
+      "created_at": "2026-02-15"
+    },
+    "surprising_connections_between_finding:_system_disk:_high_and_other_fields": {
+      "topic": "Surprising connections between Finding: System DISK: HIGH and other fields",
+      "depth": 0,
+      "enthusiasm": 0.39965117143194445,
+      "sessions": [],
+      "discoveries": [],
+      "related_interests": [],
+      "sparked_by": "expedition:Finding: System DISK: HIGH",
+      "last_explored": "2026-02-15T17:36:41.941840",
+      "total_time_minutes": 0,
+      "created_at": "2026-02-15"
+    }
+  },
   "dormant_interests": {},
-  "interest_history": [],
-  "last_updated": "2026-02-15T18:00:00.000000"
+  "interest_history": [
+    {
+      "interest": "finding:_system_disk:_high",
+      "event": "discovered",
+      "detail": "expedition",
+      "timestamp": "2026-02-15T17:36:41.941078"
+    },
+    {
+      "interest": "how_finding:_system_disk:_high_might_change_in_the_next_decade",
+      "event": "discovered",
+      "detail": "expedition:Finding: System DISK: HIGH",
+      "timestamp": "2026-02-15T17:36:41.941608"
+    },
+    {
+      "interest": "surprising_connections_between_finding:_system_disk:_high_and_other_fields",
+      "event": "discovered",
+      "detail": "expedition:Finding: System DISK: HIGH",
+      "timestamp": "2026-02-15T17:36:41.941843"
+    }
+  ],
+  "last_updated": "2026-02-15T18:01:48.881272"
 }

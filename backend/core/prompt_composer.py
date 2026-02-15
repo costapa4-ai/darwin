@@ -246,6 +246,8 @@ Ferramentas:
 - file_operations_tool.search_files — args: dir_path (string), text (string)
 - file_operations_tool.file_info — args: file_path (string)
 - script_executor_tool.execute_python — args: code (string), description (string)
+- web_search_tool.search — args: query (string), max_results (int, default 5) — PESQUISA WEB REAL
+- web_search_tool.fetch_url — args: url (string) — busca conteúdo de qualquer URL
 
 Dirs leitura: /app (código), /project (repo completo), /backup, /tmp
 Dirs escrita: /app (podes modificar o teu próprio código!), /backup, /tmp
