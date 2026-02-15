@@ -1,6 +1,5 @@
 import { useState, useEffect } from 'react';
 import ApprovalsPanel from './ApprovalsPanel';
-import DarwinMessages from './DarwinMessages';
 import FindingsInbox from './FindingsInbox';
 import LanguageEvolutionPanel from './LanguageEvolutionPanel';
 import MonitorPanel from './MonitorPanel';
@@ -223,6 +222,8 @@ export default function NewDashboard({ onNavigate }) {
       return '🎯';
     } else if (event.eventType === 'memory_recall') {
       return '🧠';
+    } else if (event.eventType === 'inner_voice') {
+      return '🗣️';
     }
     return '•';
   };
@@ -257,6 +258,8 @@ export default function NewDashboard({ onNavigate }) {
       return 'border-gray-400 bg-gray-900/20';
     } else if (event.eventType === 'memory_recall') {
       return 'border-teal-400 bg-teal-900/20';
+    } else if (event.eventType === 'inner_voice') {
+      return 'border-orange-400 bg-orange-900/20';
     }
     return 'border-slate-500 bg-slate-900/20';
   };
@@ -376,7 +379,7 @@ export default function NewDashboard({ onNavigate }) {
       <div className="flex-1 flex overflow-hidden">
 
       {/* LEFT SIDEBAR - Status & Chat */}
-      <div className="w-80 bg-slate-900 border-r border-slate-700 flex flex-col">
+      <div className="w-96 bg-slate-900 border-r border-slate-700 flex flex-col">
 
         {/* Current State */}
         {status && (
@@ -1049,12 +1052,7 @@ export default function NewDashboard({ onNavigate }) {
         </div>
       )}
 
-      {/* RIGHT PANEL - Darwin Messages */}
-      <div className="w-96 bg-slate-900 border-l border-slate-700 flex flex-col overflow-hidden">
-        <DarwinMessages />
-      </div>
-
-      </div>{/* closes flex-1 flex overflow-hidden (3-column wrapper) */}
+      </div>{/* closes flex-1 flex overflow-hidden (2-column wrapper) */}
     </div>
   );
 }

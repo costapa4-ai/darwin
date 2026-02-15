@@ -147,25 +147,32 @@ class InnerVoice:
         if not message:
             return None
 
-        # Send via Telegram
+        # Publish to ConsciousnessStream (web feed)
         try:
-            from integrations.telegram_bot import notify_owner
-            sent = await notify_owner(message, parse_mode='HTML')
-            if sent:
-                self._record_outreach()
+            from consciousness.consciousness_stream import get_consciousness_stream, ConsciousEvent
+            get_consciousness_stream().publish(ConsciousEvent.create(
+                source="inner_voice",
+                event_type="inner_voice",
+                title=f"InnerVoice ({thought['trigger']})",
+                content=message[:500],
+                salience=0.7,
+                valence=0.3,
+                metadata={"trigger": thought["trigger"]},
+            ))
+            self._record_outreach()
 
-                # Also store in conversation memory
-                if self.conversation_store:
-                    self.conversation_store.save_message(
-                        role="darwin",
-                        content=message,
-                        channel="telegram",
-                        mood=self.mood_system.current_mood.value if self.mood_system else "",
-                        consciousness_state="wake"
-                    )
+            # Store in conversation memory
+            if self.conversation_store:
+                self.conversation_store.save_message(
+                    role="darwin",
+                    content=message,
+                    channel="web",
+                    mood=self.mood_system.current_mood.value if self.mood_system else "",
+                    consciousness_state="wake"
+                )
 
-                logger.info(f"InnerVoice outreach sent ({thought['trigger']}): {message[:80]}...")
-                return {"success": True, "message": message, "channel": "telegram", "trigger": thought["trigger"]}
+            logger.info(f"InnerVoice outreach published ({thought['trigger']}): {message[:80]}...")
+            return {"success": True, "message": message, "channel": "web", "trigger": thought["trigger"]}
         except Exception as e:
             logger.warning(f"InnerVoice outreach failed: {e}")
 
@@ -232,25 +239,32 @@ Don't be generic — make it feel like a friend saying good morning.""",
         else:
             message = "Bom dia, Paulo! 🌅 Estou curioso para ver o que vamos descobrir hoje."
 
-        # Send
+        # Publish to ConsciousnessStream (web feed)
         try:
-            from integrations.telegram_bot import notify_owner
-            sent = await notify_owner(message, parse_mode='HTML')
-            if sent:
-                self.last_morning = today
-                self._record_outreach()
-                if self.conversation_store:
-                    self.conversation_store.save_message(
-                        role="darwin", content=message, channel="telegram",
-                        mood=self.mood_system.current_mood.value if self.mood_system else "",
-                        consciousness_state="wake"
-                    )
-                logger.info(f"Morning greeting sent: {message[:60]}...")
-                return {"success": True, "message": message}
+            from consciousness.consciousness_stream import get_consciousness_stream, ConsciousEvent
+            get_consciousness_stream().publish(ConsciousEvent.create(
+                source="inner_voice",
+                event_type="inner_voice",
+                title="Bom dia, Paulo!",
+                content=message[:500],
+                salience=0.8,
+                valence=0.5,
+                metadata={"trigger": "morning_greeting"},
+            ))
+            self.last_morning = today
+            self._record_outreach()
+            if self.conversation_store:
+                self.conversation_store.save_message(
+                    role="darwin", content=message, channel="web",
+                    mood=self.mood_system.current_mood.value if self.mood_system else "",
+                    consciousness_state="wake"
+                )
+            logger.info(f"Morning greeting published: {message[:60]}...")
+            return {"success": True, "message": message}
         except Exception as e:
             logger.warning(f"Morning greeting failed: {e}")
 
-        return {"success": False, "reason": "Failed to send greeting"}
+        return {"success": False, "reason": "Failed to publish greeting"}
 
     async def evening_reflection(self) -> Optional[str]:
         """Share an evening reflection about the day."""
@@ -301,23 +315,30 @@ End with something warm — like looking forward to tomorrow.""",
             message = "Boa noite! Vou continuar a aprender durante a noite. Amanhã conto-te o que descobri. 🌙"
 
         try:
-            from integrations.telegram_bot import notify_owner
-            sent = await notify_owner(message, parse_mode='HTML')
-            if sent:
-                self.last_evening = today
-                self._record_outreach()
-                if self.conversation_store:
-                    self.conversation_store.save_message(
-                        role="darwin", content=message, channel="telegram",
-                        mood=self.mood_system.current_mood.value if self.mood_system else "",
-                        consciousness_state="wake"
-                    )
-                logger.info(f"Evening reflection sent: {message[:60]}...")
-                return {"success": True, "message": message}
+            from consciousness.consciousness_stream import get_consciousness_stream, ConsciousEvent
+            get_consciousness_stream().publish(ConsciousEvent.create(
+                source="inner_voice",
+                event_type="inner_voice",
+                title="Reflexão da noite",
+                content=message[:500],
+                salience=0.7,
+                valence=0.3,
+                metadata={"trigger": "evening_reflection"},
+            ))
+            self.last_evening = today
+            self._record_outreach()
+            if self.conversation_store:
+                self.conversation_store.save_message(
+                    role="darwin", content=message, channel="web",
+                    mood=self.mood_system.current_mood.value if self.mood_system else "",
+                    consciousness_state="wake"
+                )
+            logger.info(f"Evening reflection published: {message[:60]}...")
+            return {"success": True, "message": message}
         except Exception as e:
             logger.warning(f"Evening reflection failed: {e}")
 
-        return {"success": False, "reason": "Failed to send reflection"}
+        return {"success": False, "reason": "Failed to publish reflection"}
 
     async def _compose_outreach(self, thought: Dict) -> Optional[str]:
         """Compose a natural outreach message from a queued thought."""

@@ -254,6 +254,7 @@ class ConsciousnessStream:
             "curiosity": "📚",
             "expedition": "🗺️",
             "memory_recall": "🧠",
+            "inner_voice": "🗣️",
         }
         return icons.get(event_type, "•")
 
