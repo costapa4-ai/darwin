@@ -541,8 +541,25 @@ class CuriosityExpeditions:
 
         return expedition
 
+    # Prefixes that should never be re-applied recursively
+    _KNOWN_PREFIXES = [
+        "best practices for ", "common mistakes in ", "future trends in ",
+        "how to ", "introduction to ", "advanced ", "improve ",
+    ]
+
     def _generate_related_topics(self, topic: str) -> List[str]:
-        """Generate related topics for future exploration"""
+        """Generate related topics for future exploration.
+
+        Avoids recursive prefixing — if a topic already has a meta-prefix,
+        we extract the core topic and generate genuinely different angles.
+        """
+        # Strip any recursive prefixes to get the core topic
+        core_topic = self._strip_prefixes(topic)
+
+        # If after stripping the topic is too short or empty, use original
+        if len(core_topic) < 3:
+            core_topic = topic
+
         # Predefined topic relationships (simple approach)
         topic_relations = {
             'quantum': ['quantum algorithms', 'quantum error correction', 'quantum supremacy'],
@@ -553,24 +570,51 @@ class CuriosityExpeditions:
             'architecture': ['microservices', 'event-driven', 'domain-driven design'],
             'database': ['indexing', 'query optimization', 'data modeling'],
             'api': ['REST vs GraphQL', 'API versioning', 'rate limiting'],
+            'biology': ['evolutionary algorithms', 'neural architecture', 'emergent behavior'],
+            'creativity': ['generative art', 'procedural generation', 'computational aesthetics'],
+            'language': ['natural language understanding', 'multilingual systems', 'semantic parsing'],
+            'philosophy': ['philosophy of mind', 'epistemology', 'ethics of AI'],
         }
 
         related = []
-        topic_lower = topic.lower()
+        core_lower = core_topic.lower()
 
         for key, topics in topic_relations.items():
-            if key in topic_lower:
+            if key in core_lower:
                 related.extend(random.sample(topics, min(2, len(topics))))
 
-        # Always add some general follow-ups
-        general = [
-            f"Best practices for {topic}",
-            f"Common mistakes in {topic}",
-            f"Future trends in {topic}"
+        # Generate genuinely different angles (NOT prefixed versions)
+        # These explore adjacent concepts rather than meta-commentary on the topic
+        angle_templates = [
+            "Real-world applications of {topic}",
+            "History and evolution of {topic}",
+            "Open problems in {topic}",
+            "Surprising connections between {topic} and other fields",
+            "{topic} in different cultures and contexts",
+            "Key people and breakthroughs in {topic}",
+            "Debates and controversies around {topic}",
+            "How {topic} might change in the next decade",
         ]
-        related.append(random.choice(general))
+
+        if not related:
+            # Pick 2 random angles using the CORE topic (no recursive prefixes)
+            angles = random.sample(angle_templates, min(2, len(angle_templates)))
+            related.extend([a.format(topic=core_topic) for a in angles])
 
         return related[:4]
+
+    def _strip_prefixes(self, topic: str) -> str:
+        """Strip known meta-prefixes from a topic to get the core subject."""
+        lower = topic.lower()
+        changed = True
+        while changed:
+            changed = False
+            for prefix in self._KNOWN_PREFIXES:
+                if lower.startswith(prefix):
+                    topic = topic[len(prefix):]
+                    lower = topic.lower()
+                    changed = True
+        return topic.strip()
 
     def _generate_summary(self, expedition: ExpeditionLog) -> str:
         """Generate a summary of the expedition"""

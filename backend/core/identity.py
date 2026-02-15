@@ -287,28 +287,57 @@ class DarwinSelfModel:
     def add_opinion(self, topic: str, position: str, confidence: float = 0.6,
                     formed_from: str = "experience"):
         """Form or update an opinion."""
-        self.opinions[topic.lower()] = {
+        topic_key = topic.lower()
+
+        # Guard: reject opinions about the same narrow theme (dedup by keyword overlap)
+        # Check if we already have 3+ opinions with >50% word overlap
+        topic_words = set(topic_key.split())
+        similar_count = 0
+        for existing_key in self.opinions:
+            existing_words = set(existing_key.split())
+            if topic_words and existing_words:
+                overlap = len(topic_words & existing_words) / max(len(topic_words), len(existing_words))
+                if overlap > 0.5:
+                    similar_count += 1
+        if similar_count >= 3:
+            logger.info(f"Rejected similar opinion (already {similar_count} on this theme): {topic[:50]}")
+            return
+
+        self.opinions[topic_key] = {
             "position": position,
             "confidence": confidence,
             "formed_from": formed_from,
             "formed_date": datetime.utcnow().isoformat()[:10]
         }
-        # Keep max 30 opinions
-        if len(self.opinions) > 30:
+        # Keep max 15 opinions (was 30 — too many led to prompt bloat)
+        if len(self.opinions) > 15:
             # Remove lowest confidence
             sorted_ops = sorted(self.opinions.items(), key=lambda x: x[1]["confidence"])
-            self.opinions = dict(sorted_ops[5:])  # Remove 5 weakest
+            self.opinions = dict(sorted_ops[3:])  # Remove 3 weakest
         self._save()
 
     def add_milestone(self, milestone: str, emotional_impact: str = "proud"):
         """Record a growth milestone."""
+        # Guard: reject milestones that are too similar to recent ones
+        milestone_lower = milestone.lower()
+        for recent in self.growth_milestones[-5:]:
+            recent_lower = recent["milestone"].lower()
+            # Check word overlap
+            m_words = set(milestone_lower.split())
+            r_words = set(recent_lower.split())
+            if m_words and r_words:
+                overlap = len(m_words & r_words) / max(len(m_words), len(r_words))
+                if overlap > 0.6:
+                    logger.info(f"Rejected similar milestone: {milestone[:50]}")
+                    return
+
         self.growth_milestones.append({
             "date": datetime.utcnow().isoformat()[:10],
             "milestone": milestone,
             "emotional_impact": emotional_impact
         })
-        # Keep last 50 milestones
-        self.growth_milestones = self.growth_milestones[-50:]
+        # Keep last 10 milestones (was 50 — too many cluttered the model)
+        self.growth_milestones = self.growth_milestones[-10:]
         self._save()
         logger.info(f"Growth milestone: {milestone[:60]}")
 
@@ -364,7 +393,7 @@ class DarwinSelfModel:
         try:
             result = await router.generate(
                 task_description="self-reflection for personal growth",
-                prompt=f"""You are Darwin, reflecting on your recent experiences to update your self-model.
+                prompt=f"""You are Darwin, reflecting on your recent experiences.
 
 Current self-model:
 {current_state}
@@ -373,12 +402,16 @@ Recent experiences:
 {experiences_text}
 
 Based on these experiences, provide a JSON object with optional fields:
-- "new_interest": {{"topic": "...", "reason": "..."}} (if something sparked genuine curiosity)
-- "new_opinion": {{"topic": "...", "position": "...", "confidence": 0.0-1.0}} (if formed a view)
-- "personality_note": "..." (if noticed something about your own behavior/preferences)
-- "milestone": "..." (if achieved something notable)
+- "new_interest": {{"topic": "...", "reason": "..."}} — an OUTWARD-FACING curiosity about the world (science, technology, art, nature, philosophy, culture — NOT about your own limitations or architecture)
+- "new_opinion": {{"topic": "...", "position": "...", "confidence": 0.0-1.0}} — a view on something in the world
+- "personality_note": "..." — a brief self-observation (max 1 sentence)
+- "milestone": "..." — only for genuinely NEW achievements (not variations of previous ones)
 
-Only include fields where there's genuine insight. Return {{}} if nothing notable.
+IMPORTANT RULES:
+- Interests must be about THE WORLD, not about yourself or your constraints
+- Do NOT create interests/opinions about "filesystem access", "constraint knowledge", "architectural limitations", or similar self-referential topics
+- If experiences are mostly failures, look for what was INTERESTING in the attempt, not the failure pattern
+- Return {{}} if nothing genuinely new. Quality over quantity.
 Return JSON only:""",
                 system_prompt="You are a reflective AI. Return valid JSON only, no markdown.",
                 context={"activity_type": "self_reflection"},

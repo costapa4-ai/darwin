@@ -123,8 +123,31 @@ class InterestGraph:
         """Normalize topic to key."""
         return topic.lower().strip().replace(" ", "_")
 
+    # Prefixes that indicate a meta/recursive topic
+    _META_PREFIXES = [
+        "best practices for", "common mistakes in", "future trends in",
+        "how to", "introduction to", "improve",
+    ]
+
+    def _is_recursive_topic(self, topic: str) -> bool:
+        """Detect topics that are recursive prefix chains."""
+        lower = topic.lower().strip()
+        # Check if topic contains the same prefix twice (recursive)
+        for prefix in self._META_PREFIXES:
+            if lower.count(prefix) >= 2:
+                return True
+        # Reject topics that are too long (sign of prefix accumulation)
+        if len(topic) > 100:
+            return True
+        return False
+
     def discover_interest(self, topic: str, sparked_by: str, enthusiasm: float = 0.7) -> Interest:
         """Register a new interest sparked by an experience."""
+        # Guard: reject recursive prefix chains
+        if self._is_recursive_topic(topic):
+            logger.warning(f"Rejected recursive topic: {topic[:80]}...")
+            return Interest({"topic": topic, "enthusiasm": 0})
+
         key = self._key(topic)
 
         # Already active?
