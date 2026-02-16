@@ -273,6 +273,22 @@ async def init_consciousness_engine(
         set_service('intention_store', intention_store)
         logger.info("IntentionStore initialized (chat→consciousness bridge)")
 
+        # 1c. Curiosity Engine (human-aligned exploration cycle)
+        from consciousness.curiosity_engine import CuriosityEngine
+        curiosity_engine = CuriosityEngine(db_path="./data/darwin.db")
+        services['curiosity_engine'] = curiosity_engine
+        set_service('curiosity_engine', curiosity_engine)
+
+        # Seed curiosity queue from intentions (interests seeded at first wake cycle)
+        try:
+            seeded = curiosity_engine.seed_from_intentions(intention_store)
+            if seeded:
+                logger.info(f"Seeded {seeded} curiosity items from intentions")
+        except Exception as e:
+            logger.debug(f"Curiosity seeding skipped: {e}")
+
+        logger.info("CuriosityEngine initialized (human-aligned exploration)")
+
         # 2. Identity Core (Paulo model + Darwin self-model)
         from core.identity import PauloModel, DarwinSelfModel
         paulo_model = PauloModel(storage_path="./data/identity/paulo.json")

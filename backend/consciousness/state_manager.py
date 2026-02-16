@@ -556,9 +556,19 @@ class StateManager:
         except Exception as e:
             logger.warning(f"Memory consolidation failed: {e}")
 
-        # === Digital Being: conversation summarization + identity reflection ===
+        # === Curiosity queue cleanup ===
         try:
             from app.lifespan import get_service
+            ce = get_service('curiosity_engine')
+            if ce:
+                cleaned = ce.cleanup()
+                if cleaned > 0:
+                    logger.info(f"Curiosity queue cleanup: {cleaned} items cleaned")
+        except Exception as e:
+            logger.debug(f"Curiosity cleanup skipped: {e}")
+
+        # === Digital Being: conversation summarization + identity reflection ===
+        try:
             store = get_service('conversation_store')
             router = get_service('multi_model_router')
 
@@ -652,6 +662,7 @@ class StateManager:
             'idea_implementation': EpisodeCategory.PROBLEM_SOLVING,
             'curiosity_share': EpisodeCategory.WEB_DISCOVERY,
             'curiosity': EpisodeCategory.WEB_DISCOVERY,
+            'curiosity_exploration': EpisodeCategory.LEARNING,
             'poetry': EpisodeCategory.REFLECTION,
             'learning': EpisodeCategory.LEARNING,
         }
@@ -672,7 +683,16 @@ class StateManager:
                 continue
 
             category = category_map.get(activity.type, EpisodeCategory.INTERACTION)
-            success = bool(activity.result and activity.result.get('success', False))
+            if activity.result and isinstance(activity.result, dict):
+                # curiosity_exploration uses 'knowledge_stored' / 'satisfaction'
+                if activity.result.get('knowledge_stored'):
+                    success = True
+                elif activity.result.get('satisfaction', 0) >= 80:
+                    success = True
+                else:
+                    success = bool(activity.result.get('success', False))
+            else:
+                success = False
 
             # Prefer narrative over raw goal for description
             narrative = ''

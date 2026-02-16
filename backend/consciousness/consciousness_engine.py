@@ -460,73 +460,95 @@ class ConsciousnessEngine:
             pass
 
         try:
-            # 1. Gather context about Darwin's current state
-            context = self._build_wake_context()
+            from app.lifespan import get_service
 
-            # 2. Ask Darwin what he wants to do (LLM decides)
-            goal = await self._decide_wake_goal(context, router)
-
-            if not goal:
-                print(f"\n⚠️ [WAKE] No goal decided, falling back to legacy")
+            # 1. Get CuriosityEngine
+            curiosity_engine = get_service('curiosity_engine')
+            if not curiosity_engine:
                 await self._wake_cycle_legacy()
                 activity_interval = random.randint(2, 7)
                 await asyncio.sleep(activity_interval * 60)
                 return
 
-            print(f"\n🎯 [WAKE] Goal: {goal[:80]}")
+            # 2. Seed queue if nearly empty
+            stats = curiosity_engine.get_queue_stats()
+            if stats['pending'] < 5:
+                ig = get_service('interest_graph')
+                if ig:
+                    curiosity_engine.seed_from_interests(ig)
+                intention_store = get_service('intention_store')
+                if intention_store:
+                    curiosity_engine.seed_from_intentions(intention_store)
 
-            # 3. Pursue the goal using the autonomous loop
-            from consciousness.autonomous_loop import run_autonomous_loop, get_tool_manager
-            system_prompt = self._build_autonomous_prompt("wake")
-            result = await run_autonomous_loop(
-                goal=goal,
-                system_prompt=system_prompt,
+            # 3. Pick next curiosity item
+            item = curiosity_engine.get_next_item()
+            if not item:
+                # Generate a self-curiosity question
+                question = await self._generate_self_curiosity(router)
+                if question:
+                    item_id = curiosity_engine.add_item(question, source='self')
+                    item = curiosity_engine.get_item(item_id)
+
+            if not item:
+                await self._wake_cycle_legacy()
+                activity_interval = random.randint(2, 7)
+                await asyncio.sleep(activity_interval * 60)
+                return
+
+            print(f"\n🔍 [WAKE] Curiosity: {item['question'][:80]}")
+
+            # 4. Explore: Plan -> Execute -> Analyze -> Store/Spawn
+            from consciousness.autonomous_loop import get_tool_manager
+            result = await curiosity_engine.explore_item(
+                item=item,
                 router=router,
                 tool_manager=get_tool_manager(),
-                max_iterations=5,  # Max 5 tool calls per goal (focused)
-                max_tokens=2000,
-                preferred_model='ollama',
-                timeout=180,  # 3 min per iteration — Ollama on CPU
+                hierarchical_memory=self.hierarchical_memory,
             )
 
-            # 4. Record activity — use narrative outcome as description (not raw goal)
+            # 5. Record Activity
             narrative = result.get('narrative', '')
-            tools_used = len(result.get('tool_results', []))
-            if narrative and len(narrative.strip()) > 20:
-                activity_description = narrative.strip()[:150]
-            else:
-                activity_description = f"Goal: {goal[:140]}"
+            satisfaction = result.get('satisfaction', 0)
             activity = Activity(
-                type='autonomous_goal',
-                description=activity_description,
+                type='curiosity_exploration',
+                description=f"Curiosity: {item['question'][:120]}",
                 started_at=datetime.utcnow(),
                 completed_at=datetime.utcnow(),
-                result={'narrative': narrative[:500], 'tools_used': tools_used, 'goal': goal[:200]},
-                insights=[narrative[:200]] if narrative else []
+                result={
+                    'narrative': narrative[:500],
+                    'satisfaction': satisfaction,
+                    'sub_items_created': result.get('sub_items_created', 0),
+                    'knowledge_stored': result.get('knowledge_stored', False),
+                    'question': item['question'][:200],
+                },
+                insights=[result.get('summary', narrative[:200])[:200]] if narrative else []
             )
             self.wake_activities.append(activity)
             self.total_activities_completed += 1
 
-            # InterestWatchdog: discover topics from activity
+            # InterestWatchdog: discover topics from exploration
             try:
-                from app.lifespan import get_service
                 watchdog = get_service('interest_watchdog')
                 if watchdog:
-                    watchdog.observe_activity(goal, narrative)
+                    watchdog.observe_activity(item['question'], narrative)
             except Exception:
                 pass
 
-            # Publish to consciousness stream (Global Workspace)
+            # Publish to consciousness stream
             try:
                 from consciousness.consciousness_stream import get_consciousness_stream, ConsciousEvent
                 get_consciousness_stream().publish(ConsciousEvent.create(
                     source="wake_cycle",
-                    event_type="activity",
-                    title=goal[:200],
+                    event_type="curiosity",
+                    title=item['question'][:200],
                     content=narrative[:500],
-                    salience=0.6 if tools_used > 0 else 0.4,
-                    valence=0.3,
-                    metadata={"tools_used": tools_used, "type": "autonomous_goal"},
+                    salience=0.7 if result.get('knowledge_stored') else 0.5,
+                    valence=0.5 if satisfaction >= 80 else 0.2,
+                    metadata={
+                        "satisfaction": satisfaction,
+                        "type": "curiosity_exploration",
+                        "sub_items": result.get('sub_items_created', 0),
+                    },
                 ))
             except Exception:
                 pass
@@ -535,24 +557,28 @@ class ConsciousnessEngine:
             try:
                 if self.hierarchical_memory:
                     self.hierarchical_memory.add_to_working_memory(
-                        key=f"goal_{datetime.utcnow().strftime('%H%M%S')}",
-                        content={'goal': goal[:100], 'tools_used': tools_used, 'narrative': narrative[:200]},
-                        importance=0.6 if tools_used > 0 else 0.4,
+                        key=f"curiosity_{datetime.utcnow().strftime('%H%M%S')}",
+                        content={
+                            'question': item['question'][:100],
+                            'satisfaction': satisfaction,
+                            'summary': result.get('summary', '')[:200],
+                        },
+                        importance=0.7 if result.get('knowledge_stored') else 0.5,
                     )
             except Exception:
                 pass
 
-            # 5. Feed findings back into project (if active)
-            if self.current_project and narrative:
-                self.current_project['findings'] = narrative[:300]
-
-            if tools_used > 0:
-                print(f"   ✅ Goal pursued: {tools_used} tool(s) used, {result['iterations']} iteration(s)")
+            # Log result
+            subs = result.get('sub_items_created', 0)
+            if result.get('knowledge_stored'):
+                print(f"   ✅ Satisfied ({satisfaction}%), knowledge stored")
+            elif subs > 0:
+                print(f"   🔀 Not satisfied ({satisfaction}%), spawned {subs} sub-question(s)")
             else:
-                print(f"   💭 Goal reflected on (no tools needed)")
+                print(f"   💭 Explored ({satisfaction}%)")
 
         except Exception as e:
-            print(f"   ❌ Goal-driven wake cycle error: {e}")
+            print(f"   ❌ Curiosity wake cycle error: {e}")
             import traceback
             traceback.print_exc()
             await self._wake_cycle_legacy()
@@ -647,16 +673,19 @@ class ConsciousnessEngine:
         except Exception:
             pass
 
-        # Current project (if any)
-        if hasattr(self, 'current_project') and self.current_project:
-            proj = self.current_project
-            parts.append(
-                f"CURRENT PROJECT (continue this!):\n"
-                f"  Theme: {proj.get('theme', '?')}\n"
-                f"  Phase: {proj.get('phase', '?')}\n"
-                f"  Findings so far: {proj.get('findings', 'none yet')}\n"
-                f"  Next: advance to the next phase"
-            )
+        # Curiosity queue (if any)
+        try:
+            from app.lifespan import get_service
+            ce = get_service('curiosity_engine')
+            if ce:
+                stats = ce.get_queue_stats()
+                if stats['pending'] > 0 or stats['exploring'] > 0:
+                    parts.append(
+                        f"CURIOSITY QUEUE: {stats['pending']} pending, {stats['exploring']} exploring, "
+                        f"{stats['satisfied']} satisfied"
+                    )
+        except Exception:
+            pass
 
         # Memory retrieval — recall relevant past experiences and knowledge
         try:
@@ -717,112 +746,39 @@ class ConsciousnessEngine:
 
         return "\n".join(parts)
 
-    async def _decide_wake_goal(self, context: str, router) -> Optional[str]:
-        """Darwin decides what to do next using a structured thinking cycle."""
+    async def _generate_self_curiosity(self, router) -> Optional[str]:
+        """Generate a curiosity question when the queue is empty."""
+        context = self._build_wake_context()
         try:
-            # If we have an ongoing project, continue it
-            if hasattr(self, 'current_project') and self.current_project:
-                return await self._continue_project(context, router)
-
             result = await router.generate(
-                task_description="decide next autonomous action",
-                prompt=f"""Based on your current state, decide what to do next.
+                task_description="generate curiosity question",
+                prompt=f"""Based on your current state, what are you genuinely curious about?
 
 {context}
 
-IMPORTANT RULES:
-- NEVER repeat a goal you already pursued (see list above)
-- NEVER write another analysis document about a topic you already wrote about (see notes above)
-- Pick something DIFFERENT and ACTIONABLE — not just reading/listing/writing docs
+Think of ONE specific question you want to answer.
+Not a task or goal — a genuine question that interests you.
 
-Think like this: What is ONE concrete thing I can DO that produces a real outcome?
+Examples:
+- "How does my memory consolidation actually work in practice?"
+- "What patterns exist in my code generation success rate?"
+- "How do other AI systems handle self-modification safely?"
+- "What is the current state of the art in prompt evolution?"
 
-GOAL TYPES (pick one you haven't done recently):
-1. INVESTIGATE: Read a specific file to understand something, then DECIDE what to do about it
-2. IMPROVE: Based on something you already read, write better code or fix a bug
-3. RESEARCH: Search the web for patterns, best practices, or solutions to a specific problem
-4. BUILD: Write a Python script that does something useful (not just analyzing what exists)
-5. MAINTAIN: Create a backup, verify integrity, check system health
-6. PROPOSE: Write a concrete improvement proposal with specific code changes to /app/data/notes/proposals/
+Reply with ONLY the question.
 
-Every goal should end with a CONCRETE OUTCOME — a file written, code improved, a decision made.
-Do NOT just "explore" or "list" things. That's not a goal, it's a step.
-
-Reply with ONLY the goal — one clear sentence starting with a verb.
-
-Goal:""",
-                system_prompt="You are Darwin's inner voice. Pick ONE actionable goal that produces a concrete outcome. Avoid repeating past activities.",
-                context={'activity_type': 'goal_decision'},
+Question:""",
+                system_prompt="You are Darwin's inner curiosity. Generate ONE genuine question you want to investigate. Be specific, not generic.",
+                context={'activity_type': 'curiosity_generation'},
                 preferred_model='haiku',
-                max_tokens=150,
+                max_tokens=100,
                 temperature=0.8,
             )
-            goal = result.get("result", "").strip()
-            goal = self._clean_goal_text(goal)
-
-            if not goal or len(goal) <= 10:
-                return None
-
-            # Start a new project with this goal
-            self.current_project = {
-                'theme': goal[:100],
-                'phase': 'execute',
-                'findings': '',
-                'activities_count': 0,
-                'started_at': datetime.utcnow().isoformat(),
-            }
-
-            return goal
+            question = result.get("result", "").strip()
+            question = self._clean_goal_text(question)
+            return question if question and len(question) > 10 else None
         except Exception as e:
-            print(f"   ⚠️ Goal decision failed: {e}")
-            return None
-
-    async def _continue_project(self, context: str, router) -> Optional[str]:
-        """Continue an existing project by advancing to the next phase."""
-        proj = self.current_project
-        proj['activities_count'] = proj.get('activities_count', 0) + 1
-
-        # After max activities on the same project, wrap up and move on
-        max_activities = self._genome_get('creativity.project_continuity.max_activities_per_project', 3)
-        if proj['activities_count'] >= max_activities:
-            # Reflect and close
-            goal = f"REFLECT on project '{proj['theme'][:60]}': summarize what was learned and what concrete next steps remain. Write conclusions to /app/data/notes/. Then move on."
-            self.current_project = None  # Clear project after this
-            return goal
-
-        try:
-            result = await router.generate(
-                task_description="continue project - decide next step",
-                prompt=f"""You are working on a project:
-Theme: {proj['theme']}
-Phase: {proj['phase']}
-Findings so far: {proj.get('findings', 'none yet')}
-Activities done: {proj['activities_count']}
-
-{context}
-
-Based on what you've found so far, what is the NEXT CONCRETE STEP?
-
-Think like a human solving a problem:
-- If you just observed something → analyze what you found
-- If you just analyzed → decide what to DO about it (improve code? research online? propose a change?)
-- If you decided → execute the action
-- If you executed → reflect on whether it worked
-
-What is your next step? Reply with ONE concrete action sentence.
-
-Next step:""",
-                system_prompt="You are Darwin's inner voice. Advance the project to its next logical step. Prefer ACTION over more analysis.",
-                context={'activity_type': 'goal_decision'},
-                preferred_model='haiku',
-                max_tokens=150,
-                temperature=0.7,
-            )
-            goal = result.get("result", "").strip()
-            goal = self._clean_goal_text(goal)
-            return goal if len(goal) > 10 else None
-        except Exception as e:
-            self.current_project = None
+            print(f"   ⚠️ Self-curiosity generation failed: {e}")
             return None
 
     @staticmethod
@@ -2591,8 +2547,15 @@ Just output the tool name, nothing else."""
                 except Exception:
                     pass
 
-                # If planning mode, store as intention for next wake cycle
+                # If planning mode, store as curiosity item + intention
                 if sleep_mode == "plan":
+                    try:
+                        from app.lifespan import get_service
+                        ce = get_service('curiosity_engine')
+                        if ce:
+                            ce.add_from_sleep_plan(thought)
+                    except Exception:
+                        pass
                     await self._store_sleep_intentions(thought, router)
 
                 # If connect mode, log the connection
