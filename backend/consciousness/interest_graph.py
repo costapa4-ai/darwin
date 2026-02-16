@@ -172,10 +172,91 @@ class InterestGraph:
     _META_PREFIXES = [
         "best practices for", "common mistakes in", "future trends in",
         "how to", "introduction to", "improve",
+        "real-world applications of", "history and evolution of",
+        "open problems in", "surprising connections between",
+        "key people and breakthroughs in", "debates and controversies around",
+        "how ", " might change in the next decade",
+        " in different cultures and contexts",
+        " and other fields",
     ]
 
+    # Characters that indicate a garbage topic (code, paths, noise)
+    _GARBAGE_CHARS = set('#!{}[]\\<>/=;`$@%^&*\n\t')
+
+    def _is_garbage_topic(self, topic: str) -> bool:
+        """Detect topics that are code, file paths, or noise — not real interests."""
+        if not topic or len(topic.strip()) < 3:
+            return True
+        # Contains code/path characters
+        if any(c in topic for c in self._GARBAGE_CHARS):
+            return True
+        # Starts with punctuation or technical markers
+        stripped = topic.strip()
+        if stripped[0] in '([{#!/-_0123456789':
+            return True
+        # All uppercase (error codes, constants)
+        if stripped.upper() == stripped and len(stripped) > 5:
+            return True
+        # Contains "Finding:" — operational alert, not a real interest
+        if 'finding:' in topic.lower():
+            return True
+        return False
+
+    def _extract_core_topic(self, topic: str) -> str:
+        """Strip known meta-prefixes to get the core subject.
+
+        e.g. "Open problems in Debates around X" → "X"
+        """
+        lower = topic.lower().strip()
+        changed = True
+        while changed:
+            changed = False
+            for prefix in self._META_PREFIXES:
+                if lower.startswith(prefix):
+                    topic = topic[len(prefix):]
+                    lower = topic.lower().strip()
+                    changed = True
+                elif lower.endswith(prefix):
+                    topic = topic[:-len(prefix)]
+                    lower = topic.lower().strip()
+                    changed = True
+        return topic.strip()
+
+    def _word_set(self, text: str) -> set:
+        """Extract meaningful words (>3 chars) from text."""
+        return {w for w in text.lower().split() if len(w) > 3
+                and w not in {'the', 'and', 'for', 'from', 'with', 'that', 'this',
+                              'about', 'into', 'como', 'para', 'como', 'entre'}}
+
+    def _are_similar(self, topic_a: str, topic_b: str) -> bool:
+        """Check if two topics are semantically similar (would lead to same info)."""
+        core_a = self._extract_core_topic(topic_a).lower().strip()
+        core_b = self._extract_core_topic(topic_b).lower().strip()
+
+        # Same core after prefix stripping
+        if core_a == core_b:
+            return True
+
+        # One core is substring of the other
+        if core_a and core_b:
+            if core_a in core_b or core_b in core_a:
+                return True
+
+        # Word overlap > 60%
+        words_a = self._word_set(topic_a)
+        words_b = self._word_set(topic_b)
+        if words_a and words_b:
+            overlap = len(words_a & words_b)
+            smaller = min(len(words_a), len(words_b))
+            if smaller > 0 and overlap / smaller >= 0.6:
+                return True
+
+        return False
+
     def _is_recursive_topic(self, topic: str) -> bool:
-        """Detect topics that are recursive prefix chains."""
+        """Detect topics that are recursive prefix chains or garbage."""
+        if self._is_garbage_topic(topic):
+            return True
         lower = topic.lower().strip()
         # Check if topic contains the same prefix twice (recursive)
         for prefix in self._META_PREFIXES:
@@ -188,19 +269,27 @@ class InterestGraph:
 
     def discover_interest(self, topic: str, sparked_by: str, enthusiasm: float = 0.7) -> Interest:
         """Register a new interest sparked by an experience."""
-        # Guard: reject recursive prefix chains
+        # Guard: reject recursive prefix chains and garbage
         if self._is_recursive_topic(topic):
-            logger.warning(f"Rejected recursive topic: {topic[:80]}...")
+            logger.warning(f"Rejected bad topic: {topic[:80]}...")
             return Interest({"topic": topic, "enthusiasm": 0})
 
         key = self._key(topic)
 
-        # Already active?
+        # Already active (exact match)?
         if key in self.active_interests:
             existing = self.active_interests[key]
             existing.enthusiasm = min(1.0, existing.enthusiasm + 0.1)
             self._save()
             return existing
+
+        # Already active (similar to existing)?
+        for existing_key, existing in self.active_interests.items():
+            if self._are_similar(topic, existing.topic):
+                existing.enthusiasm = min(1.0, existing.enthusiasm + 0.05)
+                self._save()
+                logger.debug(f"Topic '{topic[:40]}' merged into existing '{existing.topic[:40]}'")
+                return existing
 
         # Was dormant? Reactivate
         if key in self.dormant_interests:
@@ -297,13 +386,99 @@ class InterestGraph:
 
         return None
 
+    def deduplicate(self) -> int:
+        """Find and merge similar/duplicate active interests.
+
+        1. Remove garbage topics (code, paths, operational alerts)
+        2. Group interests that would lead to the same information
+        3. Keep the one with highest depth + sessions, retire the rest
+
+        Returns number of interests removed.
+        """
+        if len(self.active_interests) <= 1:
+            return 0
+
+        total_removed = 0
+
+        # Phase 1: Remove garbage interests that slipped through
+        garbage_keys = [
+            k for k, interest in list(self.active_interests.items())
+            if self._is_garbage_topic(interest.topic)
+        ]
+        for k in garbage_keys:
+            garbage = self.active_interests.pop(k)
+            self._log_event(k, "removed_garbage", garbage.topic[:50])
+            total_removed += 1
+            logger.info(f"Interest removed (garbage): '{garbage.topic[:60]}'")
+
+        # Phase 2: Group similar interests and merge
+        if len(self.active_interests) > 1:
+            keys = list(self.active_interests.keys())
+            topics = {k: self.active_interests[k].topic for k in keys}
+            grouped = set()
+            groups = []
+
+            for i, k1 in enumerate(keys):
+                if k1 in grouped:
+                    continue
+                group = [k1]
+                for k2 in keys[i + 1:]:
+                    if k2 in grouped:
+                        continue
+                    if self._are_similar(topics[k1], topics[k2]):
+                        group.append(k2)
+                        grouped.add(k2)
+                if len(group) > 1:
+                    groups.append(group)
+
+            for group in groups:
+                # Pick the best interest to keep (highest depth + sessions)
+                def score(k):
+                    i = self.active_interests[k]
+                    return (i.depth, len(i.sessions), i.enthusiasm)
+
+                group.sort(key=score, reverse=True)
+                keeper_key = group[0]
+                keeper = self.active_interests[keeper_key]
+
+                for dup_key in group[1:]:
+                    dup = self.active_interests[dup_key]
+
+                    # Merge data into keeper
+                    for disc in dup.discoveries:
+                        if disc not in keeper.discoveries:
+                            keeper.discoveries.append(disc)
+                    for sess in dup.sessions:
+                        keeper.sessions.append(sess)
+                    keeper.total_time_minutes += dup.total_time_minutes
+                    keeper.enthusiasm = max(keeper.enthusiasm, dup.enthusiasm)
+
+                    # Remove duplicate
+                    del self.active_interests[dup_key]
+                    self._log_event(dup_key, "merged_into", keeper_key)
+                    total_removed += 1
+
+                logger.info(
+                    f"Interest dedup: kept '{keeper.topic}', merged {len(group) - 1} duplicates"
+                )
+
+        if total_removed > 0:
+            self._save()
+            logger.info(f"Interest dedup complete: {total_removed} removed, {len(self.active_interests)} remaining")
+
+        return total_removed
+
     def evolve_interests(self):
         """Natural interest evolution — called during sleep transition.
 
         - Enthusiasm decays for unexplored interests
         - Deep + low enthusiasm → dormant
         - Related topics may spawn new interests
+        - Deduplicates similar interests
         """
+        # Deduplicate first — before decay calculations
+        self.deduplicate()
+
         to_retire = []
 
         interest_decay_days = self._genome_get(
