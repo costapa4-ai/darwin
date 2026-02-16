@@ -3,6 +3,7 @@ import ApprovalsPanel from './ApprovalsPanel';
 import FindingsInbox from './FindingsInbox';
 import LanguageEvolutionPanel from './LanguageEvolutionPanel';
 import MonitorPanel from './MonitorPanel';
+import BugReportModal from './BugReportModal';
 import { API_BASE } from '../utils/config';
 
 export default function NewDashboard({ onNavigate }) {
@@ -23,6 +24,7 @@ export default function NewDashboard({ onNavigate }) {
   const [showMonitor, setShowMonitor] = useState(false);
   const [showRouting, setShowRouting] = useState(false);
   const [routingData, setRoutingData] = useState(null);
+  const [showBugReport, setShowBugReport] = useState(false);
 
   useEffect(() => {
     fetchData();
@@ -357,6 +359,13 @@ export default function NewDashboard({ onNavigate }) {
             title="Language Evolution"
           >
             🗣️ Lang
+          </button>
+          <button
+            onClick={() => setShowBugReport(true)}
+            className="px-2 py-1 rounded text-xs font-medium text-slate-300 hover:text-white hover:bg-white/10 transition-colors flex items-center gap-1"
+            title="Bug Reports"
+          >
+            🐛 Bugs
           </button>
           <button
             onClick={() => handleExportData('all')}
@@ -719,6 +728,12 @@ export default function NewDashboard({ onNavigate }) {
       <MonitorPanel
         isOpen={showMonitor}
         onClose={() => setShowMonitor(false)}
+      />
+
+      {/* Bug Report Modal */}
+      <BugReportModal
+        isOpen={showBugReport}
+        onClose={() => setShowBugReport(false)}
       />
 
       {/* Discoveries Modal */}

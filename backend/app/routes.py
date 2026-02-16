@@ -36,6 +36,7 @@ from api import language_evolution_routes
 from api import observatory_routes
 from api import genome_routes
 from api import export_routes
+from api import bugreport_routes
 from api.websocket import manager
 from utils.logger import setup_logger
 
@@ -130,6 +131,9 @@ def register_all_routes(app: FastAPI):
 
     # Data Export routes
     app.include_router(export_routes.router)
+
+    # Bug Report routes
+    app.include_router(bugreport_routes.router)
 
     # WebSocket endpoint
     @app.websocket("/ws")
