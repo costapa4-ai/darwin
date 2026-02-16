@@ -30,6 +30,7 @@ from api import ui_automation_routes
 from api import voice_routes
 from api import distributed_routes
 from api import moltbook_routes
+from api import moltx_routes
 from api import monitor_routes
 from api import language_evolution_routes
 from api import observatory_routes
@@ -111,6 +112,9 @@ def register_all_routes(app: FastAPI):
 
     # Moltbook Integration routes
     app.include_router(moltbook_routes.router)
+
+    # MoltX Integration routes
+    app.include_router(moltx_routes.router)
 
     # Activity Monitor routes
     app.include_router(monitor_routes.router)

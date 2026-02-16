@@ -489,15 +489,19 @@ class ConsciousnessEngine:
                 timeout=180,  # 3 min per iteration — Ollama on CPU
             )
 
-            # 4. Record activity
+            # 4. Record activity — use narrative outcome as description (not raw goal)
             narrative = result.get('narrative', '')
             tools_used = len(result.get('tool_results', []))
+            if narrative and len(narrative.strip()) > 20:
+                activity_description = narrative.strip()[:150]
+            else:
+                activity_description = f"Goal: {goal[:140]}"
             activity = Activity(
                 type='autonomous_goal',
-                description=goal[:100],
+                description=activity_description,
                 started_at=datetime.utcnow(),
                 completed_at=datetime.utcnow(),
-                result={'narrative': narrative[:500], 'tools_used': tools_used},
+                result={'narrative': narrative[:500], 'tools_used': tools_used, 'goal': goal[:200]},
                 insights=[narrative[:200]] if narrative else []
             )
             self.wake_activities.append(activity)

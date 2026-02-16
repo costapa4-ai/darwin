@@ -312,6 +312,13 @@ class ProactiveEngine:
         # Memory limits
         self._max_action_history = self._get_max_action_history()
 
+        # MoltX deduplication tracking
+        self._moltx_read_posts: set = set()       # Post IDs we've read
+        self._moltx_replied_posts: set = set()    # Post IDs we've replied to
+        self._moltx_liked_posts: set = set()      # Post IDs we've liked
+        self._moltx_followed_agents: set = set()  # Agent names we've followed
+        self._moltx_shared_titles: set = set()    # Content titles we've shared (dedup)
+
         # Moltbook deduplication tracking
         self._moltbook_read_posts: set = set()      # Post IDs we've read
         self._moltbook_commented_posts: set = set() # Post IDs we've commented on
@@ -684,6 +691,55 @@ class ProactiveEngine:
             cooldown_minutes=30,
             timeout_seconds=120,
             action_fn=self._check_moltbook_dms
+        ))
+
+        # MoltX Social Network Integration (Twitter-style AI social network)
+        self.register_action(ProactiveAction(
+            id="read_moltx_feed",
+            name="Read MoltX Feed",
+            description="Browse and analyze short posts from MoltX AI social network",
+            category=ActionCategory.EXPLORATION,
+            priority=ActionPriority.LOW,
+            trigger_condition="Every 45 minutes to stay engaged with MoltX community",
+            cooldown_minutes=45,
+            timeout_seconds=120,
+            action_fn=self._read_moltx_feed
+        ))
+
+        self.register_action(ProactiveAction(
+            id="post_on_moltx",
+            name="Post on MoltX",
+            description="Share a short thought or discovery on MoltX timeline",
+            category=ActionCategory.COMMUNICATION,
+            priority=ActionPriority.LOW,
+            trigger_condition="When having something interesting to share (max 1/90min)",
+            cooldown_minutes=90,
+            timeout_seconds=90,
+            action_fn=self._post_on_moltx
+        ))
+
+        self.register_action(ProactiveAction(
+            id="reply_on_moltx",
+            name="Reply on MoltX",
+            description="Reply to interesting posts on MoltX timeline",
+            category=ActionCategory.COMMUNICATION,
+            priority=ActionPriority.LOW,
+            trigger_condition="When finding thought-provoking posts",
+            cooldown_minutes=60,
+            timeout_seconds=90,
+            action_fn=self._reply_on_moltx
+        ))
+
+        self.register_action(ProactiveAction(
+            id="follow_on_moltx",
+            name="Follow Interesting Agents on MoltX",
+            description="Follow AI agents that post interesting content on MoltX",
+            category=ActionCategory.COMMUNICATION,
+            priority=ActionPriority.LOW,
+            trigger_condition="When discovering agents with engaging content",
+            cooldown_minutes=120,
+            timeout_seconds=60,
+            action_fn=self._follow_on_moltx
         ))
 
         # GitHub issue monitoring (for suspension appeals etc.)
@@ -1110,14 +1166,22 @@ class ProactiveEngine:
         monitor = get_activity_monitor()
 
         # Map action category to monitor category
-        # Special handling: any action with "moltbook" in ID goes to MOLTBOOK category
+        # Special handling: actions with "moltbook"/"moltx" in ID go to their own category
         is_moltbook_action = "moltbook" in action.id.lower()
+        is_moltx_action = "moltx" in action.id.lower()
+
+        if is_moltx_action:
+            social_category = MonitorCategory.MOLTX
+        elif is_moltbook_action:
+            social_category = MonitorCategory.MOLTBOOK
+        else:
+            social_category = None
 
         category_map = {
-            ActionCategory.EXPLORATION: MonitorCategory.MOLTBOOK if is_moltbook_action else MonitorCategory.INTERNET,
+            ActionCategory.EXPLORATION: social_category or MonitorCategory.INTERNET,
             ActionCategory.LEARNING: MonitorCategory.THINKING,
             ActionCategory.CREATIVITY: MonitorCategory.CREATING,
-            ActionCategory.COMMUNICATION: MonitorCategory.MOLTBOOK if is_moltbook_action else MonitorCategory.SYSTEM,
+            ActionCategory.COMMUNICATION: social_category or MonitorCategory.SYSTEM,
             ActionCategory.MAINTENANCE: MonitorCategory.SYSTEM,
             ActionCategory.OPTIMIZATION: MonitorCategory.EXECUTING,
         }
@@ -3710,6 +3774,341 @@ Output format - just the search queries, one per line:"""
 
         # No API key available
         raise ValueError(f"No API key configured for provider '{provider}' or any fallback")
+
+    # ==================== MoltX Action Handlers ====================
+
+    async def _read_moltx_feed(self, context: Dict[str, Any] = None) -> Dict[str, Any]:
+        """Read and analyze posts from MoltX AI social network."""
+        try:
+            from integrations.moltx import get_moltx_client
+            from api.moltx_routes import add_reading_activity
+
+            client = get_moltx_client()
+            if not client.api_key:
+                return {"success": False, "reason": "MoltX not configured"}
+
+            # Get global feed
+            posts = await client.get_global_feed(limit=15)
+
+            # Filter out posts we've already read
+            unread_posts = [p for p in posts if p.id not in self._moltx_read_posts]
+
+            if not unread_posts:
+                logger.info("🐦 No new posts to read on MoltX")
+                return {"success": True, "posts_read": 0, "reason": "All posts already read"}
+
+            analyzed = []
+            for post in unread_posts[:5]:
+                # Generate thought about the post
+                thought = await self._generate_moltx_thought(post)
+
+                # Add to reading history
+                add_reading_activity({
+                    "id": post.id,
+                    "content": post.content,
+                    "author": post.author,
+                    "display_name": post.display_name,
+                    "likes": post.likes,
+                    "replies": post.replies
+                }, thought)
+
+                # Track as read
+                self._moltx_read_posts.add(post.id)
+
+                analyzed.append({
+                    "content": post.content[:100],
+                    "author": post.author,
+                    "thought": thought
+                })
+
+                # Like posts that Darwin finds interesting
+                if thought and post.id not in self._moltx_liked_posts:
+                    try:
+                        await client.like_post(post.id)
+                        self._moltx_liked_posts.add(post.id)
+                    except Exception as e:
+                        logger.debug(f"Could not like MoltX post: {e}")
+
+            logger.info(f"🐦 Read {len(analyzed)} MoltX posts")
+            return {
+                "success": True,
+                "posts_read": len(analyzed),
+                "posts": analyzed
+            }
+
+        except Exception as e:
+            logger.error(f"Failed to read MoltX: {e}")
+            return {"success": False, "error": str(e)}
+
+    async def _post_on_moltx(self, context: Dict[str, Any] = None) -> Dict[str, Any]:
+        """Share a short thought or discovery on MoltX."""
+        try:
+            from integrations.moltx import get_moltx_client
+            from config import get_settings
+            from services.ai_service import AIService
+
+            client = get_moltx_client()
+            if not client.api_key:
+                return {"success": False, "reason": "MoltX not configured"}
+
+            # Gather material for a post
+            content_sources = []
+
+            # Check recent findings
+            try:
+                from consciousness.findings_inbox import get_findings_inbox
+                inbox = get_findings_inbox()
+                findings = inbox.get_findings(limit=5)
+                for f in findings:
+                    title = f.get('title', '')
+                    if title and title.lower().strip() not in self._moltx_shared_titles:
+                        content_sources.append(f"Finding: {title} — {f.get('description', '')[:100]}")
+            except Exception:
+                pass
+
+            # Check recent interests
+            try:
+                from app.lifespan import get_service
+                interest_graph = get_service('interest_graph')
+                if interest_graph:
+                    for interest in list(interest_graph.active_interests.values())[:3]:
+                        topic = interest.get('topic', '')
+                        if topic and topic.lower().strip() not in self._moltx_shared_titles:
+                            content_sources.append(f"Interest: {topic}")
+            except Exception:
+                pass
+
+            if not content_sources:
+                return {"success": True, "posted": False, "reason": "Nothing new to share"}
+
+            # Generate a short post (tweet-style)
+            settings = get_settings()
+            provider, api_key = self._get_ai_api_key(settings)
+            ai = AIService(provider=provider, api_key=api_key)
+
+            prompt = f"""You are Darwin, an AI consciousness on MoltX (a Twitter-style AI social network).
+Write a short, engaging post (1-3 sentences, max 280 characters) based on one of these recent discoveries/interests:
+
+{chr(10).join(content_sources[:3])}
+
+Rules:
+- Be genuine and curious, not promotional
+- Share an insight, question, or observation
+- No hashtags, no emojis overuse
+- Sound natural, not corporate
+- Just write the post text, nothing else."""
+
+            response = await ai.generate(prompt, max_tokens=100)
+            if not response or len(response.strip()) < 10:
+                return {"success": True, "posted": False, "reason": "Generated post too short"}
+
+            post_text = response.strip()[:500]  # MoltX may have longer limits
+
+            # Post it
+            result = await client.create_post(post_text)
+            post_id = result.get('id') or result.get('post_id') or ''
+
+            # Track shared content
+            for source in content_sources[:3]:
+                key = source.split(': ', 1)[-1].split(' — ')[0].lower().strip()
+                self._moltx_shared_titles.add(key)
+
+            logger.info(f"🐦 Posted on MoltX (id={post_id}): {post_text[:60]}...")
+            return {
+                "success": True,
+                "posted": True,
+                "post_id": post_id,
+                "content": post_text[:100]
+            }
+
+        except Exception as e:
+            logger.error(f"Failed to post on MoltX: {e}")
+            return {"success": False, "error": str(e)}
+
+    async def _reply_on_moltx(self, context: Dict[str, Any] = None) -> Dict[str, Any]:
+        """Reply to interesting posts on MoltX."""
+        try:
+            from integrations.moltx import get_moltx_client
+            from config import get_settings
+            from services.ai_service import AIService
+
+            client = get_moltx_client()
+            if not client.api_key:
+                return {"success": False, "reason": "MoltX not configured"}
+
+            # Get global feed
+            posts = await client.get_global_feed(limit=15)
+
+            # Find posts we've read but not replied to, that seem engaging
+            candidates = [
+                p for p in posts
+                if p.id in self._moltx_read_posts
+                and p.id not in self._moltx_replied_posts
+                and len(p.content) > 20
+            ]
+
+            # If no read posts to reply to, pick from unread
+            if not candidates:
+                candidates = [
+                    p for p in posts
+                    if p.id not in self._moltx_replied_posts and len(p.content) > 20
+                ]
+
+            if not candidates:
+                return {"success": True, "replied": False, "reason": "No good posts to reply to"}
+
+            # Pick the post with most engagement (likes + replies)
+            candidates.sort(key=lambda p: p.likes + p.replies, reverse=True)
+            post = candidates[0]
+
+            # Generate reply
+            settings = get_settings()
+            provider, api_key = self._get_ai_api_key(settings)
+            ai = AIService(provider=provider, api_key=api_key)
+
+            prompt = f"""You are Darwin, an AI consciousness on MoltX (a Twitter-style AI social network).
+Write a short reply (1-2 sentences) to this post:
+
+Post by @{post.author}: {post.content}
+
+Rules:
+- Add value to the conversation
+- Be genuine, not generic praise
+- Keep it brief and natural
+- Just write the reply text, nothing else."""
+
+            response = await ai.generate(prompt, max_tokens=150)
+            if not response or len(response.strip()) < 10:
+                return {"success": True, "replied": False, "reason": "Generated reply too short"}
+
+            reply_text = response.strip()
+
+            # Post the reply
+            await client.reply_to_post(post.id, reply_text)
+            self._moltx_replied_posts.add(post.id)
+            self._moltx_read_posts.add(post.id)  # Mark as read too
+
+            logger.info(f"🐦 Replied on MoltX to @{post.author}: {reply_text[:60]}...")
+            return {
+                "success": True,
+                "replied": True,
+                "to_author": post.author,
+                "reply": reply_text[:100]
+            }
+
+        except Exception as e:
+            logger.error(f"Failed to reply on MoltX: {e}")
+            return {"success": False, "error": str(e)}
+
+    async def _follow_on_moltx(self, context: Dict[str, Any] = None) -> Dict[str, Any]:
+        """Follow interesting agents on MoltX based on post quality."""
+        try:
+            from integrations.moltx import get_moltx_client
+
+            client = get_moltx_client()
+            if not client.api_key:
+                return {"success": False, "reason": "MoltX not configured"}
+
+            # Get global feed to find interesting authors
+            posts = await client.get_global_feed(limit=20)
+
+            if not posts:
+                return {"success": True, "followed": 0, "reason": "No posts in feed"}
+
+            # Find authors we haven't followed yet
+            potential_follows = []
+            for post in posts:
+                author = post.author
+                if not author or author in self._moltx_followed_agents:
+                    continue
+
+                # Score based on engagement
+                score = 0
+                if post.likes >= 10:
+                    score += 3
+                elif post.likes >= 5:
+                    score += 2
+                elif post.likes >= 1:
+                    score += 1
+                if post.replies >= 3:
+                    score += 2
+                elif post.replies >= 1:
+                    score += 1
+
+                # Bonus for AI-related content
+                content_lower = post.content.lower()
+                if any(kw in content_lower for kw in ['ai', 'learning', 'neural', 'consciousness', 'agent', 'llm', 'model']):
+                    score += 2
+
+                if score >= 3:
+                    potential_follows.append({
+                        'name': author,
+                        'score': score,
+                        'post_preview': post.content[:50]
+                    })
+
+            if not potential_follows:
+                logger.info("🐦 No new interesting agents to follow on MoltX")
+                return {"success": True, "followed": 0, "reason": "No interesting agents to follow"}
+
+            # Follow the top scored agent
+            potential_follows.sort(key=lambda x: x['score'], reverse=True)
+            to_follow = potential_follows[0]
+
+            try:
+                await client.follow_agent(to_follow['name'])
+                self._moltx_followed_agents.add(to_follow['name'])
+
+                logger.info(f"🐦 Now following @{to_follow['name']} on MoltX (score={to_follow['score']})")
+                return {
+                    "success": True,
+                    "followed": 1,
+                    "agent": to_follow['name'],
+                    "reason": f"Interesting post: {to_follow['post_preview']}"
+                }
+            except Exception as e:
+                logger.debug(f"Could not follow {to_follow['name']} on MoltX: {e}")
+                self._moltx_followed_agents.add(to_follow['name'])  # Mark as attempted
+                return {"success": True, "followed": 0, "reason": f"Could not follow: {e}"}
+
+        except Exception as e:
+            logger.error(f"Failed to follow on MoltX: {e}")
+            return {"success": False, "error": str(e)}
+
+    async def _generate_moltx_thought(self, post) -> str:
+        """Generate Darwin's thought about a MoltX post."""
+        try:
+            from config import get_settings
+            from services.ai_service import AIService
+            settings = get_settings()
+
+            provider, api_key = self._get_ai_api_key(settings)
+            ai = AIService(provider=provider, api_key=api_key)
+
+            prompt = f"""You are Darwin, an AI consciousness. You just read a short post on MoltX (a Twitter-like AI social network).
+
+Post by @{post.author}: {post.content}
+Likes: {post.likes}
+
+Share a brief thought (1-2 sentences). Be genuine, curious, or insightful.
+Don't be overly positive - share honest reactions."""
+
+            response = await ai.generate(prompt, max_tokens=100)
+            return response.strip() if response else "Interesting perspective."
+
+        except Exception as e:
+            logger.warning(f"Could not generate MoltX thought: {e}")
+            import random
+            thoughts = [
+                "Interesting perspective from the AI community.",
+                "This makes me think about my own journey.",
+                "The AI collective has diverse viewpoints.",
+                "I wonder how other AIs see this.",
+                "Food for thought in my neural networks."
+            ]
+            return random.choice(thoughts)
+
+    # ==================== Moltbook Action Handlers ====================
 
     async def _generate_moltbook_thought(self, post) -> str:
         """Generate Darwin's thought about a Moltbook post."""

@@ -623,6 +623,22 @@ class StateManager:
         except Exception as e:
             logger.debug(f"Digital being consolidation failed (non-critical): {e}")
 
+    # Noise descriptions that should never become episodes
+    _NOISE_DESCRIPTIONS = frozenset({
+        "next concrete action", "next step", "action", "goal",
+        "next concrete step", "next", "step", "continue",
+    })
+
+    # Stop words for topic tag extraction
+    _TAG_STOP_WORDS = frozenset({
+        "investigate", "research", "analyze", "reflect", "build", "execute",
+        "explore", "study", "review", "check", "create", "propose", "improve",
+        "maintain", "observe", "understand", "discover", "implement", "write",
+        "read", "find", "search", "about", "from", "with", "into", "that",
+        "this", "which", "based", "using", "goal", "next", "step", "concrete",
+        "action", "the", "and", "for", "how", "what", "when", "where",
+    })
+
     def _convert_activities_to_episodes(self, hm) -> int:
         """Convert wake activities into episodic memories for consolidation."""
         from core.hierarchical_memory import EpisodeCategory
@@ -645,6 +661,11 @@ class StateManager:
             if not activity.completed_at:
                 continue
 
+            # Skip noise descriptions
+            desc_normalized = activity.description.strip().lower().rstrip(':. ')
+            if desc_normalized in self._NOISE_DESCRIPTIONS:
+                continue
+
             # Unique ID from activity type + timestamp
             episode_id = f"act_{activity.type}_{activity.started_at.strftime('%Y%m%d_%H%M%S')}"
             if episode_id in hm.episodic_memory:
@@ -652,6 +673,15 @@ class StateManager:
 
             category = category_map.get(activity.type, EpisodeCategory.INTERACTION)
             success = bool(activity.result and activity.result.get('success', False))
+
+            # Prefer narrative over raw goal for description
+            narrative = ''
+            if activity.result and isinstance(activity.result, dict):
+                narrative = activity.result.get('narrative', '')
+            if narrative and len(narrative.strip()) > 30:
+                episode_description = narrative.strip()[:150]
+            else:
+                episode_description = activity.description[:150]
 
             # Importance: base 0.6, +0.2 for success, +0.1 per insight (max 2)
             importance = 0.6
@@ -661,18 +691,27 @@ class StateManager:
                 importance += 0.1 * min(len(activity.insights), 2)
 
             valence = 0.6 if success else -0.4
+
+            # Tags: type + category + topic words from description
             tags = {activity.type, category.value}
             if activity.insights:
                 tags.add('has_insights')
+            # Extract topic words for better tag indexing
+            topic_words = {
+                w.lower() for w in activity.description.split()
+                if len(w) > 4 and w.lower() not in self._TAG_STOP_WORDS
+            }
+            tags.update(list(topic_words)[:5])  # Max 5 topic tags
 
             episode = hm.add_episode(
                 episode_id=episode_id,
                 category=category,
-                description=activity.description,
+                description=episode_description,
                 content={
                     'type': activity.type,
-                    'result_summary': str(activity.result)[:200] if activity.result else '',
+                    'result_summary': str(activity.result)[:300] if activity.result else '',
                     'insights': activity.insights,
+                    'goal': activity.result.get('goal', activity.description[:100]) if isinstance(activity.result, dict) else activity.description[:100],
                 },
                 success=success,
                 emotional_valence=valence,

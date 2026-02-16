@@ -610,16 +610,30 @@ class HierarchicalMemory:
 
         return stats
 
+    # Structural tags that group everything — skip these for pattern finding
+    _STRUCTURAL_TAGS = frozenset({
+        'autonomous_goal', 'interaction', 'tool_execution',
+        'code_generation', 'has_insights', 'problem_solving',
+        'web_discovery', 'reflection', 'learning',
+    })
+
+    # Stop words for concept naming
+    _CONCEPT_STOP_WORDS = frozenset({
+        'investigate', 'research', 'analyze', 'reflect', 'build', 'execute',
+        'explore', 'study', 'review', 'check', 'create', 'propose', 'improve',
+        'maintain', 'observe', 'understand', 'discover', 'implement', 'write',
+        'about', 'from', 'with', 'into', 'that', 'this', 'which', 'based',
+        'using', 'goal', 'next', 'step', 'concrete', 'action',
+    })
+
     async def _find_patterns_in_episodes(self, episodes: List[Episode]) -> List[Dict[str, Any]]:
         """
-        Find patterns across episodes to create semantic knowledge
+        Find patterns across episodes to create semantic knowledge.
 
-        Args:
-            episodes: List of related episodes
-
-        Returns:
-            List of identified patterns
+        Groups episodes by topic tags and extracts actual insights/narratives
+        to build meaningful knowledge descriptions.
         """
+        from collections import Counter
         patterns = []
 
         # Group by common tags
@@ -635,15 +649,14 @@ class HierarchicalMemory:
             if len(tag_episodes) < 2:
                 continue
 
+            # Skip structural tags — they group everything, creating useless knowledge
+            if tag in self._STRUCTURAL_TAGS:
+                continue
+
             # Calculate average success rate
             success_rate = sum(1 for e in tag_episodes if e.success) / len(tag_episodes)
 
-            # Extract common elements
-            all_content_keys = set()
-            for episode in tag_episodes:
-                all_content_keys.update(episode.content.keys())
-
-            # Build pattern description
+            # Determine sentiment
             if success_rate > 0.7:
                 sentiment = "successful"
                 confidence = success_rate
@@ -654,10 +667,45 @@ class HierarchicalMemory:
                 sentiment = "variable"
                 confidence = 0.5
 
-            concept = f"{tag.replace('_', ' ').title()} Pattern"
+            # Extract actual content — insights and narrative snippets
+            insights = []
+            for episode in tag_episodes:
+                if isinstance(episode.content, dict):
+                    ep_insights = episode.content.get('insights', [])
+                    if isinstance(ep_insights, list):
+                        for ins in ep_insights[:1]:
+                            if isinstance(ins, str) and len(ins.strip()) > 15:
+                                insights.append(ins.strip()[:100])
+                    result = episode.content.get('result_summary', '')
+                    if isinstance(result, str) and len(result) > 30 and not result.startswith('{'):
+                        insights.append(result[:100])
+                # Also use episode description as content source
+                if episode.description and len(episode.description) > 20:
+                    insights.append(episode.description[:100])
 
-            description = f"Based on {len(tag_episodes)} episodes, {sentiment} pattern observed. "
-            description += f"Common elements: {', '.join(list(all_content_keys)[:5])}"
+            # Build meaningful description from actual content
+            if insights:
+                unique_insights = list(dict.fromkeys(insights))[:3]
+                description = f"Based on {len(tag_episodes)} episodes ({sentiment}). "
+                description += "Key learnings: " + "; ".join(unique_insights)
+            else:
+                description = f"Based on {len(tag_episodes)} episodes, {sentiment} pattern."
+
+            # Build concept name from episode descriptions, not just tag
+            desc_words = []
+            for ep in tag_episodes:
+                words = [
+                    w for w in ep.description.split()
+                    if len(w) > 4 and w.lower() not in self._CONCEPT_STOP_WORDS
+                ]
+                desc_words.extend(words[:3])
+
+            common = Counter(desc_words).most_common(2)
+            if common:
+                topic = " ".join(w for w, _ in common)
+                concept = f"{topic} ({sentiment})"
+            else:
+                concept = f"{tag.replace('_', ' ').title()} Pattern"
 
             patterns.append({
                 'concept': concept,

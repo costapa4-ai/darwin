@@ -16,7 +16,13 @@ from .moltbook import (
     SecurityError,
 )
 
+from .moltx import (
+    MoltxClient,
+    get_moltx_client,
+)
+
 __all__ = [
+    # Moltbook
     'MoltbookClient',
     'get_moltbook_client',
     'share_discovery',
@@ -25,4 +31,7 @@ __all__ = [
     'engage_with_community',
     'ContentFilter',
     'SecurityError',
+    # MoltX
+    'MoltxClient',
+    'get_moltx_client',
 ]

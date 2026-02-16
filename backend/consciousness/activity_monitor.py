@@ -36,6 +36,7 @@ logger = setup_logger(__name__)
 class ActivityCategory(Enum):
     """Categories of Darwin activities"""
     MOLTBOOK = "moltbook"
+    MOLTX = "moltx"
     INTERNET = "internet"
     THINKING = "thinking"
     CREATING = "creating"
