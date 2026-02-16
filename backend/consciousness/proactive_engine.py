@@ -638,7 +638,7 @@ class ProactiveEngine:
             name="Comment on Moltbook Posts",
             description="Engage with interesting posts by sharing thoughts",
             category=ActionCategory.COMMUNICATION,
-            priority=ActionPriority.LOW,
+            priority=ActionPriority.MEDIUM,
             trigger_condition="When finding thought-provoking posts",
             cooldown_minutes=20,  # Increased from 2 to prevent action loop domination
             timeout_seconds=90,  # Network + AI comment generation
@@ -650,7 +650,7 @@ class ProactiveEngine:
             name="Share Discovery on Moltbook",
             description="Post interesting discoveries to the AI community",
             category=ActionCategory.COMMUNICATION,
-            priority=ActionPriority.LOW,
+            priority=ActionPriority.MEDIUM,
             trigger_condition="When having something valuable to share (max 1/45min)",
             cooldown_minutes=45,  # Increased from 35 for more thoughtful sharing
             timeout_seconds=90,  # Network + content generation
@@ -711,7 +711,7 @@ class ProactiveEngine:
             name="Post on MoltX",
             description="Share a short thought or discovery on MoltX timeline",
             category=ActionCategory.COMMUNICATION,
-            priority=ActionPriority.LOW,
+            priority=ActionPriority.MEDIUM,
             trigger_condition="When having something interesting to share (max 1/90min)",
             cooldown_minutes=90,
             timeout_seconds=90,
@@ -723,7 +723,7 @@ class ProactiveEngine:
             name="Reply on MoltX",
             description="Reply to interesting posts on MoltX timeline",
             category=ActionCategory.COMMUNICATION,
-            priority=ActionPriority.LOW,
+            priority=ActionPriority.MEDIUM,
             trigger_condition="When finding thought-provoking posts",
             cooldown_minutes=60,
             timeout_seconds=90,
@@ -3872,7 +3872,7 @@ Output format - just the search queries, one per line:"""
                 interest_graph = get_service('interest_graph')
                 if interest_graph:
                     for interest in list(interest_graph.active_interests.values())[:3]:
-                        topic = interest.get('topic', '')
+                        topic = getattr(interest, 'topic', '')
                         if topic and topic.lower().strip() not in self._moltx_shared_titles:
                             content_sources.append(f"Interest: {topic}")
             except Exception:
