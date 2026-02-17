@@ -360,50 +360,50 @@ class CuriosityEngine:
 
         self.update_item(item_id, satisfaction=satisfaction)
 
-        # Phase 4: STORE or SPAWN
+        # Phase 4: STORE and optionally SPAWN
+        # Key insight: ALWAYS store knowledge when there are meaningful findings.
+        # The satisfaction threshold controls spawning, not storage.
         knowledge_stored = False
         sub_items_created = 0
 
-        if satisfaction >= self.SATISFACTION_THRESHOLD:
-            # Satisfied! Store knowledge immediately
+        # Store knowledge at ANY satisfaction level if findings are meaningful
+        has_findings = narrative and len(narrative.strip()) > 50
+        if has_findings and satisfaction >= 20:
             await self._store_knowledge(item, summary, narrative, satisfaction, hierarchical_memory)
+            knowledge_stored = True
+
+        if satisfaction >= self.SATISFACTION_THRESHOLD:
+            # Fully satisfied — mark done
             self.update_item(
                 item_id,
                 status='satisfied',
-                knowledge_stored=1,
+                knowledge_stored=1 if knowledge_stored else 0,
                 satisfied_at=datetime.utcnow().isoformat()
             )
-            knowledge_stored = True
             logger.info(f"Curiosity #{item_id} satisfied ({satisfaction}%), knowledge stored")
         else:
-            # Not satisfied — spawn sub-items (but not for dead ends)
-            # Skip spawning if satisfaction is very low (question is unanswerable)
-            # or if we're already at depth 2+ with low satisfaction
+            # Not fully satisfied — try to spawn sub-items for deeper exploration
             can_spawn = (
                 sub_questions
                 and item['depth'] < self.MAX_DEPTH
-                and satisfaction >= 15  # Below 15% means the question is a dead end
+                and satisfaction >= 15  # Below 15% = dead end
                 and not (item['depth'] >= 2 and satisfaction < 30)
             )
             if can_spawn:
                 sub_items_created = self._spawn_sub_items(item, sub_questions)
 
             if sub_items_created > 0:
-                # Parent stays 'exploring' — will be satisfied when children are done
-                logger.info(f"Curiosity #{item_id} not satisfied ({satisfaction}%), spawned {sub_items_created} sub-questions")
+                self.update_item(item_id, knowledge_stored=1 if knowledge_stored else 0)
+                stored_msg = ", partial knowledge stored" if knowledge_stored else ""
+                logger.info(f"Curiosity #{item_id} ({satisfaction}%), spawned {sub_items_created} sub-questions{stored_msg}")
             else:
-                # Can't go deeper — store what we have
-                if narrative and len(narrative.strip()) > 30:
-                    await self._store_knowledge(item, summary, narrative, satisfaction, hierarchical_memory)
-                    self.update_item(
-                        item_id,
-                        status='satisfied',
-                        knowledge_stored=1,
-                        satisfied_at=datetime.utcnow().isoformat()
-                    )
-                    knowledge_stored = True
-                else:
-                    self.update_item(item_id, status='satisfied')
+                # Can't go deeper — mark satisfied with what we have
+                self.update_item(
+                    item_id,
+                    status='satisfied',
+                    knowledge_stored=1 if knowledge_stored else 0,
+                    satisfied_at=datetime.utcnow().isoformat()
+                )
 
         return {
             'item_id': item_id,
@@ -514,19 +514,31 @@ RULES:
     async def _analyze_result(self, item: Dict, plan: str, execution: Dict, router) -> Dict:
         """Phase 3: LLM evaluates satisfaction and generates sub-questions."""
         narrative = execution.get('narrative', '')
-        tools_used = len(execution.get('tool_results', []))
+        tool_results = execution.get('tool_results', [])
+        tools_used = len(tool_results)
+
+        # Build a richer context: narrative + actual tool outputs
+        tool_summary = ''
+        if tool_results:
+            # Include successful tool results (the actual data)
+            successes = [r for r in tool_results if r.startswith('✅')]
+            if successes:
+                tool_summary = '\nTool outputs:\n' + '\n'.join(s[:300] for s in successes[:3])
+
+        findings = self._clean_narrative(narrative)[:400] + tool_summary[:400]
 
         prompt = f"""You wanted to answer: {item['question']}
-Your plan was: {plan[:300]}
-What you found ({tools_used} tools used): {narrative[:600]}
+Your plan was: {plan[:200]}
+What you found ({tools_used} tools used): {findings}
 
-Evaluate:
-1. How satisfied are you with the answer? (0-100, where 100 means fully answered)
-2. If below 80, what 1-3 specific sub-questions would help fill the gaps?
-3. Brief summary of what you learned (1-2 sentences).
+Rate how well the question was answered:
+- 80-100: The question is substantially answered with concrete facts or insights
+- 50-79: Partial answer — some useful information but significant gaps remain
+- 20-49: Minimal useful information obtained
+- 0-19: No useful information found
 
 Reply with ONLY valid JSON:
-{{"satisfaction": <int>, "sub_questions": ["..."], "summary": "..."}}
+{{"satisfaction": <int>, "sub_questions": ["...if below 80, 1-3 specific follow-up questions"], "summary": "what was actually learned (2-3 sentences of FACTS, not process)"}}
 JSON:"""
 
         try:
