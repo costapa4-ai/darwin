@@ -4,7 +4,8 @@ CuriosityEngine — Human-aligned curiosity-driven exploration cycle.
 Replaces random goal selection with structured thinking:
   Curiosity Item -> Plan -> Execute -> Analyze -> Satisfy or Spawn Sub-Items
 
-Knowledge is stored immediately on satisfaction (>= 80%).
+Knowledge is stored at any meaningful satisfaction level (>= 20%).
+Adaptive thresholds per depth: broad (50%), specific (65%), narrow (80%).
 The queue self-cleans as items are explored.
 """
 
@@ -26,15 +27,149 @@ class CuriosityEngine:
 
     MAX_QUEUE_SIZE = 50
     MAX_DEPTH = 3
-    SATISFACTION_THRESHOLD = 80
     EXPIRY_DAYS = 7
     MAX_SUB_ITEMS = 3
 
+    # Adaptive satisfaction thresholds per depth:
+    # depth 0 (broad) = 50%, depth 1 (specific) = 65%, depth 2 (narrow) = 80%
+    DEFAULT_THRESHOLDS = {0: 50, 1: 65, 2: 80}
+
     def __init__(self, db_path: str = "./data/darwin.db"):
         self.db_path = db_path
+        self.satisfaction_thresholds = dict(self.DEFAULT_THRESHOLDS)
         self._init_db()
+        self._load_thresholds()
         stats = self.get_queue_stats()
         logger.info(f"CuriosityEngine initialized ({stats['pending']} pending, {stats['exploring']} exploring)")
+
+    def get_threshold(self, depth: int) -> int:
+        """Get satisfaction threshold for a given depth."""
+        # Use the threshold for the depth, or the highest defined for deeper levels
+        if depth in self.satisfaction_thresholds:
+            return self.satisfaction_thresholds[depth]
+        max_defined = max(self.satisfaction_thresholds.keys())
+        return self.satisfaction_thresholds[max_defined]
+
+    def set_thresholds(self, thresholds: Dict[int, int]) -> Dict[int, int]:
+        """Update satisfaction thresholds. Returns the new thresholds."""
+        for depth, value in thresholds.items():
+            if 0 <= depth <= self.MAX_DEPTH and 10 <= value <= 100:
+                self.satisfaction_thresholds[int(depth)] = int(value)
+        self._save_thresholds()
+        logger.info(f"Satisfaction thresholds updated: {self.satisfaction_thresholds}")
+        return self.satisfaction_thresholds
+
+    def _load_thresholds(self):
+        """Load thresholds from SQLite settings."""
+        try:
+            conn = self._get_conn()
+            conn.execute("""CREATE TABLE IF NOT EXISTS curiosity_settings (
+                key TEXT PRIMARY KEY, value TEXT
+            )""")
+            conn.commit()
+            row = conn.execute(
+                "SELECT value FROM curiosity_settings WHERE key = 'satisfaction_thresholds'"
+            ).fetchone()
+            if row:
+                self.satisfaction_thresholds = {int(k): int(v) for k, v in json.loads(row['value']).items()}
+        except Exception as e:
+            logger.debug(f"Loading thresholds failed, using defaults: {e}")
+
+    def _save_thresholds(self):
+        """Persist thresholds to SQLite."""
+        try:
+            conn = self._get_conn()
+            conn.execute(
+                "INSERT OR REPLACE INTO curiosity_settings (key, value) VALUES (?, ?)",
+                ('satisfaction_thresholds', json.dumps(self.satisfaction_thresholds))
+            )
+            conn.commit()
+        except Exception as e:
+            logger.debug(f"Saving thresholds failed: {e}")
+
+    def get_exploration_metrics(self) -> Dict[str, Any]:
+        """Get detailed exploration metrics per depth for observatory."""
+        conn = self._get_conn()
+
+        metrics = {'by_depth': {}, 'totals': {}, 'thresholds': self.satisfaction_thresholds}
+
+        for depth in range(self.MAX_DEPTH):
+            threshold = self.get_threshold(depth)
+            row = conn.execute("""
+                SELECT
+                    COUNT(*) as total_explored,
+                    SUM(CASE WHEN satisfaction >= ? THEN 1 ELSE 0 END) as reached_threshold,
+                    SUM(CASE WHEN knowledge_stored = 1 THEN 1 ELSE 0 END) as knowledge_stored,
+                    ROUND(AVG(CASE WHEN satisfaction > 0 THEN satisfaction END), 1) as avg_satisfaction,
+                    MAX(satisfaction) as max_satisfaction,
+                    MIN(CASE WHEN satisfaction > 0 THEN satisfaction END) as min_satisfaction
+                FROM curiosity_items
+                WHERE depth = ? AND explored_at != ''
+            """, (threshold, depth)).fetchone()
+
+            pending = conn.execute(
+                "SELECT COUNT(*) as c FROM curiosity_items WHERE depth = ? AND status = 'pending'",
+                (depth,)
+            ).fetchone()['c']
+
+            exploring = conn.execute(
+                "SELECT COUNT(*) as c FROM curiosity_items WHERE depth = ? AND status = 'exploring'",
+                (depth,)
+            ).fetchone()['c']
+
+            depth_label = {0: 'broad', 1: 'specific', 2: 'narrow'}.get(depth, f'depth_{depth}')
+            metrics['by_depth'][depth] = {
+                'label': depth_label,
+                'threshold': threshold,
+                'total_explored': row['total_explored'] or 0,
+                'reached_threshold': row['reached_threshold'] or 0,
+                'threshold_rate': round((row['reached_threshold'] or 0) / max(row['total_explored'] or 1, 1) * 100, 1),
+                'knowledge_stored': row['knowledge_stored'] or 0,
+                'avg_satisfaction': row['avg_satisfaction'] or 0,
+                'max_satisfaction': row['max_satisfaction'] or 0,
+                'min_satisfaction': row['min_satisfaction'] or 0,
+                'pending': pending,
+                'exploring': exploring,
+            }
+
+        # Totals
+        totals = conn.execute("""
+            SELECT
+                COUNT(*) as total,
+                SUM(CASE WHEN status = 'satisfied' THEN 1 ELSE 0 END) as satisfied,
+                SUM(CASE WHEN status = 'expired' THEN 1 ELSE 0 END) as expired,
+                SUM(CASE WHEN status = 'pending' THEN 1 ELSE 0 END) as pending,
+                SUM(CASE WHEN status = 'exploring' THEN 1 ELSE 0 END) as exploring,
+                SUM(CASE WHEN knowledge_stored = 1 THEN 1 ELSE 0 END) as total_knowledge_stored
+            FROM curiosity_items
+        """).fetchone()
+        metrics['totals'] = {
+            'total_items': totals['total'] or 0,
+            'satisfied': totals['satisfied'] or 0,
+            'expired': totals['expired'] or 0,
+            'pending': totals['pending'] or 0,
+            'exploring': totals['exploring'] or 0,
+            'total_knowledge_stored': totals['total_knowledge_stored'] or 0,
+        }
+
+        # Recent explorations (last 10)
+        recent = conn.execute("""
+            SELECT id, substr(question, 1, 60) as question, depth, satisfaction,
+                   knowledge_stored, status, explored_at
+            FROM curiosity_items WHERE explored_at != ''
+            ORDER BY explored_at DESC LIMIT 10
+        """).fetchall()
+        metrics['recent'] = [
+            {
+                'id': r['id'], 'question': r['question'], 'depth': r['depth'],
+                'satisfaction': r['satisfaction'], 'knowledge_stored': bool(r['knowledge_stored']),
+                'status': r['status'], 'explored_at': r['explored_at'],
+                'met_threshold': r['satisfaction'] >= self.get_threshold(r['depth']),
+            }
+            for r in recent
+        ]
+
+        return metrics
 
     def _get_conn(self) -> sqlite3.Connection:
         if not hasattr(_local, 'curiosity_conn') or _local.curiosity_conn is None:
@@ -279,10 +414,13 @@ class CuriosityEngine:
                 (pid,)
             ).fetchall()
             if children and all(c['status'] == 'satisfied' for c in children):
+                # Parent satisfied via children — get parent's depth for threshold
+                parent_row = conn.execute("SELECT depth FROM curiosity_items WHERE id = ?", (pid,)).fetchone()
+                parent_threshold = self.get_threshold(parent_row['depth']) if parent_row else 65
                 cursor = conn.execute(
-                    """UPDATE curiosity_items SET status = 'satisfied', satisfaction = 80, satisfied_at = ?
+                    """UPDATE curiosity_items SET status = 'satisfied', satisfaction = ?, satisfied_at = ?
                        WHERE id = ? AND status = 'exploring'""",
-                    (now, pid)
+                    (parent_threshold, now, pid)
                 )
                 cleaned += cursor.rowcount
 
@@ -372,15 +510,16 @@ class CuriosityEngine:
             await self._store_knowledge(item, summary, narrative, satisfaction, hierarchical_memory)
             knowledge_stored = True
 
-        if satisfaction >= self.SATISFACTION_THRESHOLD:
-            # Fully satisfied — mark done
+        threshold = self.get_threshold(item['depth'])
+        if satisfaction >= threshold:
+            # Satisfied for this depth level — mark done
             self.update_item(
                 item_id,
                 status='satisfied',
                 knowledge_stored=1 if knowledge_stored else 0,
                 satisfied_at=datetime.utcnow().isoformat()
             )
-            logger.info(f"Curiosity #{item_id} satisfied ({satisfaction}%), knowledge stored")
+            logger.info(f"Curiosity #{item_id} satisfied ({satisfaction}% >= {threshold}% for depth {item['depth']})")
         else:
             # Not fully satisfied — try to spawn sub-items for deeper exploration
             can_spawn = (
@@ -611,8 +750,8 @@ JSON:"""
                     'satisfaction': satisfaction,
                     'source': item.get('source', 'self'),
                 },
-                success=satisfaction >= self.SATISFACTION_THRESHOLD,
-                emotional_valence=0.6 if satisfaction >= self.SATISFACTION_THRESHOLD else 0.2,
+                success=satisfaction >= self.get_threshold(item.get('depth', 0)),
+                emotional_valence=0.6 if satisfaction >= 50 else 0.3,
                 importance=0.8,
                 tags=tags,
             )

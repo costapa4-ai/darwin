@@ -928,3 +928,68 @@ async def remove_ollama_model(model_name: str):
         return {"status": "error", "message": f"Cannot reach Ollama: {e}"}
     except Exception as e:
         return {"status": "error", "message": str(e)}
+
+
+# ==================== CURIOSITY EXPLORATION METRICS ====================
+
+
+@router.get("/curiosity")
+async def get_curiosity_metrics():
+    """
+    Curiosity exploration metrics per depth level.
+
+    Shows explored count, threshold reached rate, knowledge stored,
+    and average satisfaction for each depth (broad/specific/narrow).
+    """
+    from app.lifespan import get_service
+
+    ce = get_service('curiosity_engine')
+    if not ce:
+        return {"error": "CuriosityEngine not available", "by_depth": {}, "totals": {}}
+
+    return _safe_get(lambda: ce.get_exploration_metrics(), {"error": "Failed to get metrics"})
+
+
+class ThresholdUpdate(BaseModel):
+    """Request body for updating satisfaction thresholds."""
+    broad: Optional[int] = None      # depth 0
+    specific: Optional[int] = None   # depth 1
+    narrow: Optional[int] = None     # depth 2
+
+
+@router.post("/curiosity-thresholds")
+async def update_curiosity_thresholds(req: ThresholdUpdate):
+    """
+    Update adaptive satisfaction thresholds per depth.
+
+    Values must be between 10 and 100.
+    - broad (depth 0): default 50
+    - specific (depth 1): default 65
+    - narrow (depth 2): default 80
+    """
+    from app.lifespan import get_service
+
+    ce = get_service('curiosity_engine')
+    if not ce:
+        return {"error": "CuriosityEngine not available"}
+
+    updates = {}
+    if req.broad is not None:
+        updates[0] = req.broad
+    if req.specific is not None:
+        updates[1] = req.specific
+    if req.narrow is not None:
+        updates[2] = req.narrow
+
+    if not updates:
+        return {"error": "No thresholds provided", "current": ce.satisfaction_thresholds}
+
+    new_thresholds = ce.set_thresholds(updates)
+    return {
+        "status": "updated",
+        "thresholds": {
+            "broad": new_thresholds.get(0, 50),
+            "specific": new_thresholds.get(1, 65),
+            "narrow": new_thresholds.get(2, 80),
+        }
+    }
