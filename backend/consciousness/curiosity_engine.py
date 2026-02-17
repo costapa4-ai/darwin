@@ -348,6 +348,8 @@ class CuriosityEngine:
         # Phase 2: EXECUTE
         execution = await self._execute_plan(plan, item, router, tool_manager)
         narrative = execution.get('narrative', '')
+        # Reject XML/tool-call garbage as findings
+        narrative = self._clean_narrative(narrative)
         self.update_item(item_id, findings=narrative[:500])
 
         # Phase 3: ANALYZE
@@ -437,6 +439,23 @@ Plan:"""
             logger.warning(f"Plan generation failed: {e}")
             return f"Investigate: {question}"
 
+    @staticmethod
+    def _clean_narrative(narrative: str) -> str:
+        """Strip XML tool blocks and other non-content from narrative."""
+        if not narrative:
+            return ''
+        import re
+        # Remove XML invoke/tool blocks that Ollama sometimes emits
+        cleaned = re.sub(r'<invoke\b[^>]*>.*?</invoke>', '', narrative, flags=re.DOTALL)
+        cleaned = re.sub(r'<tool_call\b[^>]*>.*?</tool_call>', '', cleaned, flags=re.DOTALL)
+        cleaned = re.sub(r'<search\b[^>]*>.*?</search>', '', cleaned, flags=re.DOTALL)
+        cleaned = re.sub(r'<parameter\b[^>]*>.*?</parameter>', '', cleaned, flags=re.DOTALL)
+        # Remove ```tool_call blocks that weren't executed
+        cleaned = re.sub(r'```tool_call.*?```', '', cleaned, flags=re.DOTALL)
+        # Collapse whitespace
+        cleaned = re.sub(r'\n{3,}', '\n\n', cleaned).strip()
+        return cleaned
+
     async def _execute_plan(self, plan: str, item: Dict, router, tool_manager) -> Dict:
         """Phase 2: Execute the plan via autonomous loop."""
         from consciousness.autonomous_loop import run_autonomous_loop
@@ -457,8 +476,8 @@ Plan:"""
                 tool_manager=tool_manager,
                 max_iterations=5,
                 max_tokens=2000,
-                preferred_model='ollama',
-                timeout=180,
+                preferred_model='haiku',
+                timeout=45,
             )
             return result
         except Exception as e:
