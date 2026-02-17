@@ -229,7 +229,7 @@ class CuriosityEngine:
                 logger.debug(f"Skipping sub-item at depth {depth} (max {self.MAX_DEPTH})")
                 return 0
 
-        # Check for duplicate questions
+        # Check for duplicate questions (exact + fuzzy)
         conn = self._get_conn()
         existing = conn.execute(
             "SELECT id FROM curiosity_items WHERE question = ? AND status IN ('pending', 'exploring')",
@@ -237,6 +237,18 @@ class CuriosityEngine:
         ).fetchone()
         if existing:
             return existing['id']
+
+        # Fuzzy dedup: skip if a similar question already exists (same key words)
+        q_words = set(w.lower() for w in question.split() if len(w) > 4)
+        if q_words and not parent_id:
+            recent = conn.execute(
+                "SELECT id, question FROM curiosity_items WHERE status IN ('pending', 'exploring', 'satisfied') ORDER BY id DESC LIMIT 50"
+            ).fetchall()
+            for row in recent:
+                existing_words = set(w.lower() for w in row['question'].split() if len(w) > 4)
+                if existing_words and len(q_words & existing_words) / max(len(q_words), 1) > 0.6:
+                    logger.debug(f"Fuzzy dedup: '{question[:40]}' too similar to #{row['id']}")
+                    return 0
 
         # Calculate priority
         if priority is None:
@@ -341,13 +353,15 @@ class CuriosityEngine:
         try:
             active = interest_graph.active_interests
             for topic, interest in active.items():
+                # Convert internal slug to readable name
+                readable = topic.replace('_', ' ').replace('(', '(').strip()
                 depth = getattr(interest, 'depth', 0)
                 if depth < 3:
-                    question = f"What are the key concepts and recent developments in {topic}?"
+                    question = f"What are the key concepts and recent developments in {readable}?"
                 elif depth < 6:
-                    question = f"What advanced techniques or open problems exist in {topic}?"
+                    question = f"What advanced techniques or open problems exist in {readable}?"
                 else:
-                    question = f"What are the frontier research questions in {topic}?"
+                    question = f"What are the frontier research questions in {readable}?"
 
                 item_id = self.add_item(question, topic=topic, source='self', priority=0.5)
                 if item_id:

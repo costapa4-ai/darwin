@@ -445,7 +445,7 @@ class HierarchicalMemory:
                 metadata={
                     "type": "semantic_knowledge",
                     "confidence": knowledge.confidence,
-                    "tags": list(knowledge.tags)
+                    "tags": ",".join(knowledge.tags)
                 }
             )
         except Exception as e:

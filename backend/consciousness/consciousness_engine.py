@@ -570,8 +570,11 @@ class ConsciousnessEngine:
 
             # Log result
             subs = result.get('sub_items_created', 0)
-            if result.get('knowledge_stored'):
-                print(f"   ✅ Satisfied ({satisfaction}%), knowledge stored")
+            threshold = curiosity_engine.get_threshold(item.get('depth', 0))
+            if satisfaction >= threshold:
+                print(f"   ✅ Satisfied ({satisfaction}% >= {threshold}%), knowledge stored")
+            elif result.get('knowledge_stored') and subs > 0:
+                print(f"   🔀 Partial ({satisfaction}%), knowledge stored + spawned {subs} sub-question(s)")
             elif subs > 0:
                 print(f"   🔀 Not satisfied ({satisfaction}%), spawned {subs} sub-question(s)")
             else:
