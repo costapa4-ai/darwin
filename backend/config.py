@@ -23,9 +23,9 @@ class Settings(BaseSettings):
     # Ollama (Local LLM - FREE!)
     ollama_enabled: bool = True
     ollama_url: str = "http://ollama:11434"
-    ollama_model: str = "qwen3:8b"  # Default/reasoning model (outperforms qwen2.5-14b)
-    ollama_code_model: str = "qwen3:14b"  # Code + reasoning (rivals qwen2.5-32b)
-    ollama_reasoning_model: str = "qwen3:8b"  # General reasoning/chat
+    ollama_model: str = "qwen3:14b"  # Unified model for all local tasks
+    ollama_code_model: str = "qwen3:14b"  # Legacy (same as ollama_model)
+    ollama_reasoning_model: str = "qwen3:14b"  # Legacy (same as ollama_model)
 
     # Phase 2: Semantic Memory & RAG
     enable_semantic_memory: bool = True

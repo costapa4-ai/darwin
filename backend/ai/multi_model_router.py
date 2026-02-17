@@ -113,31 +113,22 @@ class MultiModelRouter:
             except Exception as e:
                 logger.error(f"Failed to initialize OpenAI: {e}")
 
-        # Ollama (local LLM - FREE!) - Dual model setup for code vs reasoning
+        # Ollama (local LLM - FREE!) - Single model for all local tasks
         if self.config.get("ollama_enabled", True):  # Enabled by default
             ollama_url = self.config.get("ollama_url", "http://ollama:11434")
+            ollama_model = self.config.get("ollama_model", "qwen3:14b")
 
-            # Ollama for REASONING tasks (general queries, thoughts, Moltbook)
             try:
-                reasoning_model = self.config.get("ollama_reasoning_model", "qwen3:8b")
-                self.models["ollama"] = OllamaClient(
-                    model_name=reasoning_model,
+                ollama_client = OllamaClient(
+                    model_name=ollama_model,
                     base_url=ollama_url
                 )
-                logger.info(f"🦙 Ollama (reasoning): {reasoning_model} @ {ollama_url}")
+                # Single model for both reasoning and code (avoids model swapping OOM)
+                self.models["ollama"] = ollama_client
+                self.models["ollama_code"] = ollama_client
+                logger.info(f"🦙 Ollama (unified): {ollama_model} @ {ollama_url}")
             except Exception as e:
-                logger.warning(f"Ollama reasoning model not available: {e}")
-
-            # Ollama for CODE tasks (generation, review, tool creation)
-            try:
-                code_model = self.config.get("ollama_code_model", "qwen3:14b")
-                self.models["ollama_code"] = OllamaClient(
-                    model_name=code_model,
-                    base_url=ollama_url
-                )
-                logger.info(f"🦙 Ollama (code): {code_model} @ {ollama_url}")
-            except Exception as e:
-                logger.warning(f"Ollama code model not available: {e}")
+                logger.warning(f"Ollama not available: {e}")
 
     def _is_code_task(
         self,
@@ -300,32 +291,24 @@ class MultiModelRouter:
 
         elif self.routing_strategy == RoutingStrategy.TIERED:
             # 🎯 TIERED: Ollama-first routing (FREE local models)
-            # CODE tasks → ollama_code (qwen3:14b) - code gen, review, tools
-            # REASONING tasks → ollama (qwen3:8b) - chat, thoughts, Moltbook
-            # MODERATE → ollama (qwen3:8b) - research, analysis (FREE!)
-            # COMPLEX CODE → Claude Sonnet ($0.015/1K) - architecture, critical code
-            # COMPLEX OTHER → Claude Haiku ($0.001/1K) - complex non-code tasks
+            # SIMPLE/MODERATE → Ollama qwen3:14b (FREE) - all non-complex tasks
+            # COMPLEX CODE → Claude Sonnet ($3/$15 per M) - architecture, critical code
+            # COMPLEX OTHER → Claude Haiku ($0.80/$4 per M) - complex non-code tasks
 
             # Detect if task is code-related
             is_code_task = self._is_code_task(task_description, context)
 
             if complexity == TaskComplexity.SIMPLE:
-                if is_code_task and "ollama_code" in capable_models:
-                    logger.info(f"🦙 SIMPLE CODE task → Ollama qwen3:14b (FREE)")
-                    return "ollama_code"
-                elif "ollama" in capable_models:
-                    logger.info(f"🦙 SIMPLE task → Ollama qwen3:8b (FREE)")
+                if "ollama" in capable_models:
+                    logger.info(f"🦙 SIMPLE task → Ollama (FREE)")
                     return "ollama"
                 elif "haiku" in capable_models:
                     logger.info(f"💚 SIMPLE task → Haiku (cloud fallback)")
                     return "haiku"
 
             elif complexity == TaskComplexity.MODERATE:
-                if is_code_task and "ollama_code" in capable_models:
-                    logger.info(f"🦙 MODERATE CODE task → Ollama qwen3:14b (FREE)")
-                    return "ollama_code"
-                elif "ollama" in capable_models:
-                    logger.info(f"🦙 MODERATE task → Ollama qwen3:8b (FREE)")
+                if "ollama" in capable_models:
+                    logger.info(f"🦙 MODERATE task → Ollama (FREE)")
                     return "ollama"
                 elif "haiku" in capable_models:
                     logger.info(f"💛 MODERATE task → Haiku (cloud fallback)")
