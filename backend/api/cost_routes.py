@@ -20,25 +20,42 @@ def initialize_costs(multi_model_router):
     _multi_model_router = multi_model_router
 
 
-# Model pricing (per 1K tokens)
+# Model pricing (per 1M tokens, separate input/output)
 MODEL_PRICING = {
     "haiku": {
-        "name": "Claude 3.5 Haiku",
-        "cost_per_1k": 0.001,
+        "name": "Claude Haiku 4.5",
+        "input_per_1m": 0.80,
+        "output_per_1m": 4.0,
         "tier": "simple",
         "color": "#22c55e"  # green
     },
     "gemini": {
         "name": "Gemini 2.0 Flash",
-        "cost_per_1k": 0.0005,
+        "input_per_1m": 0.0,
+        "output_per_1m": 0.0,
         "tier": "moderate",
         "color": "#eab308"  # yellow
     },
     "claude": {
         "name": "Claude Sonnet 4.5",
-        "cost_per_1k": 0.015,
+        "input_per_1m": 3.0,
+        "output_per_1m": 15.0,
         "tier": "complex",
         "color": "#ef4444"  # red
+    },
+    "ollama_code": {
+        "name": "Ollama qwen3:8b (code)",
+        "input_per_1m": 0.0,
+        "output_per_1m": 0.0,
+        "tier": "free",
+        "color": "#06b6d4"  # cyan
+    },
+    "ollama": {
+        "name": "Ollama qwen3:8b",
+        "input_per_1m": 0.0,
+        "output_per_1m": 0.0,
+        "tier": "free",
+        "color": "#8b5cf6"  # purple
     }
 }
 
@@ -64,6 +81,8 @@ async def get_cost_summary() -> Dict[str, Any]:
     for model_name, model_stats in perf_stats.items():
         requests = model_stats.get("total_requests", 0)
         cost = model_stats.get("total_cost_estimate", 0.0)
+        input_tokens = model_stats.get("total_input_tokens", 0)
+        output_tokens = model_stats.get("total_output_tokens", 0)
         total_requests += requests
         total_cost += cost
 
@@ -72,7 +91,9 @@ async def get_cost_summary() -> Dict[str, Any]:
             "model": model_name,
             "display_name": pricing.get("name", model_name),
             "requests": requests,
-            "cost": round(cost, 5),
+            "cost": round(cost, 6),
+            "input_tokens": input_tokens,
+            "output_tokens": output_tokens,
             "tier": pricing.get("tier", "unknown"),
             "color": pricing.get("color", "#94a3b8")
         })

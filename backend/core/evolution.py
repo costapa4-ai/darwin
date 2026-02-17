@@ -327,7 +327,7 @@ class EvolutionEngine:
             # Evolve from best previous solution
             if best_previous:
                 # Get analysis of best solution
-                analysis = self.nucleus.analyze_result(
+                analysis = await self.nucleus.analyze_result(
                     best_previous['code'],
                     {
                         'success': best_previous['success'],
@@ -341,7 +341,7 @@ class EvolutionEngine:
                 # Create variations
                 for i in range(size):
                     start_time = time.time()
-                    evolved_code = self.nucleus.evolve_code(
+                    evolved_code = await self.nucleus.evolve_code(
                         best_previous['code'],
                         {**analysis, **best_previous},
                         task

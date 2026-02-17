@@ -29,8 +29,10 @@ class ClaudeClient(BaseModelClient):
             ModelCapability.CREATIVITY
         ]
 
-        # Pricing (approximate)
-        self.cost_per_1k_tokens = 0.015  # $15 per million tokens
+        # Pricing: Sonnet 4.5 — $3/M input, $15/M output
+        self.input_cost_per_1m = 3.0
+        self.output_cost_per_1m = 15.0
+        self.cost_per_1k_tokens = 0.015  # Legacy fallback (blended)
         self.avg_latency_ms = 2000
 
     async def generate(
@@ -65,10 +67,24 @@ class ClaudeClient(BaseModelClient):
             if self.last_truncated:
                 logger.warning(f"⚠️ Claude response TRUNCATED (hit max_tokens={max_tokens}). Output is incomplete!")
 
+            # Extract actual token usage from Anthropic API response
+            usage = getattr(response, 'usage', None)
+            if usage:
+                self.last_input_tokens = getattr(usage, 'input_tokens', 0)
+                self.last_output_tokens = getattr(usage, 'output_tokens', 0)
+                self.last_cost = (
+                    (self.last_input_tokens / 1_000_000) * self.input_cost_per_1m +
+                    (self.last_output_tokens / 1_000_000) * self.output_cost_per_1m
+                )
+            else:
+                self.last_input_tokens = 0
+                self.last_output_tokens = 0
+                self.last_cost = 0.0
+
             # Extract text
             result = response.content[0].text
 
-            logger.info(f"Claude generated {len(result)} chars in {self.avg_latency_ms}ms (truncated={self.last_truncated})")
+            logger.info(f"Claude [{self.model_name}] {self.last_input_tokens}in/{self.last_output_tokens}out tokens, ${self.last_cost:.6f}, {self.avg_latency_ms}ms (truncated={self.last_truncated})")
             return result
 
         except Exception as e:
@@ -124,6 +140,8 @@ Provide analysis in JSON format:
         return self.capabilities
 
     def estimate_cost(self, prompt_tokens: int, completion_tokens: int) -> float:
-        """Estimate cost for Claude usage"""
-        total_tokens = prompt_tokens + completion_tokens
-        return (total_tokens / 1000) * self.cost_per_1k_tokens
+        """Estimate cost for Claude usage with separate input/output rates"""
+        return (
+            (prompt_tokens / 1_000_000) * self.input_cost_per_1m +
+            (completion_tokens / 1_000_000) * self.output_cost_per_1m
+        )

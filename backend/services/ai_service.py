@@ -64,12 +64,20 @@ class AIService:
 
     def __init__(
         self,
-        provider: str,
-        api_key: str,
+        provider: str = "",
+        api_key: str = "",
         max_per_minute: int = 10,
         max_per_hour: int = 50
     ):
-        self.nucleus = Nucleus(provider, api_key)
+        # Auto-fetch router from service registry for tracked cost routing
+        router = None
+        try:
+            from app.lifespan import get_service
+            router = get_service('multi_model_router')
+        except Exception:
+            pass
+
+        self.nucleus = Nucleus(provider, api_key, multi_model_router=router)
         self.rate_limiter = RateLimiter(max_per_minute, max_per_hour)
         self.call_count = 0
         self.error_count = 0
@@ -77,7 +85,8 @@ class AIService:
         logger.info("AIService initialized", extra={
             "provider": provider,
             "max_per_minute": max_per_minute,
-            "max_per_hour": max_per_hour
+            "max_per_hour": max_per_hour,
+            "router_available": router is not None,
         })
 
     def generate_solution(self, task: Dict) -> str:
@@ -92,25 +101,25 @@ class AIService:
             logger.error(f"AI generation error: {e}", extra={"task_id": task.get('id')})
             raise
 
-    def analyze_result(self, code: str, result: Dict, task: Dict) -> Dict:
+    async def analyze_result(self, code: str, result: Dict, task: Dict) -> Dict:
         """Analyze result with rate limiting"""
         self.rate_limiter.check_and_wait()
 
         try:
             self.call_count += 1
-            return self.nucleus.analyze_result(code, result, task)
+            return await self.nucleus.analyze_result(code, result, task)
         except Exception as e:
             self.error_count += 1
             logger.error(f"AI analysis error: {e}")
             raise
 
-    def evolve_code(self, code: str, feedback: Dict, task: Dict) -> str:
+    async def evolve_code(self, code: str, feedback: Dict, task: Dict) -> str:
         """Evolve code with rate limiting"""
         self.rate_limiter.check_and_wait()
 
         try:
             self.call_count += 1
-            return self.nucleus.evolve_code(code, feedback, task)
+            return await self.nucleus.evolve_code(code, feedback, task)
         except Exception as e:
             self.error_count += 1
             logger.error(f"AI evolution error: {e}")

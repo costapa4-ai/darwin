@@ -28,6 +28,15 @@ class BaseModelClient(ABC):
         self.avg_latency_ms = 0
         self.last_truncated = False  # True if last response hit token limit
 
+        # Actual token usage from last API call (set by clients that support it)
+        self.last_input_tokens = 0
+        self.last_output_tokens = 0
+        self.last_cost = 0.0  # Actual cost from last call
+
+        # Separate input/output pricing (per 1M tokens) — override in subclasses
+        self.input_cost_per_1m = 0.0
+        self.output_cost_per_1m = 0.0
+
     @abstractmethod
     async def generate(
         self,

@@ -81,8 +81,10 @@ class MultiModelRouter:
                     model_name="claude-haiku-4-5-20251001",
                     api_key=self.config["claude_api_key"]
                 )
-                # Override Haiku pricing ($0.25/M input, $1.25/M output ≈ $0.001 avg)
-                haiku.cost_per_1k_tokens = 0.001
+                # Haiku 4.5 pricing: $0.80/M input, $4/M output
+                haiku.input_cost_per_1m = 0.80
+                haiku.output_cost_per_1m = 4.0
+                haiku.cost_per_1k_tokens = 0.001  # Legacy fallback
                 haiku.avg_latency_ms = 500  # Haiku is faster
                 self.models["haiku"] = haiku
                 logger.info("Claude Haiku 4.5 initialized (Ollama fallback + non-code tasks)")
@@ -466,15 +468,29 @@ class MultiModelRouter:
                 self.performance_stats[model_name] = {
                     "total_requests": 0,
                     "total_latency_ms": 0,
-                    "total_cost_estimate": 0.0
+                    "total_cost_estimate": 0.0,
+                    "total_input_tokens": 0,
+                    "total_output_tokens": 0,
                 }
 
             self.performance_stats[model_name]["total_requests"] += 1
             self.performance_stats[model_name]["total_latency_ms"] += model.avg_latency_ms
 
-            # Estimate cost (rough approximation)
-            estimated_tokens = len(prompt.split()) + len(result.split())
-            estimated_cost = (estimated_tokens / 1000) * model.cost_per_1k_tokens
+            # Use actual token counts from API when available, else estimate
+            input_tokens = getattr(model, 'last_input_tokens', 0)
+            output_tokens = getattr(model, 'last_output_tokens', 0)
+            actual_cost = getattr(model, 'last_cost', 0.0)
+
+            if input_tokens > 0 or output_tokens > 0:
+                # Real usage data from API
+                estimated_cost = actual_cost
+                self.performance_stats[model_name]["total_input_tokens"] += input_tokens
+                self.performance_stats[model_name]["total_output_tokens"] += output_tokens
+            else:
+                # Fallback: word-based estimate for models without usage data (Ollama, Gemini)
+                estimated_tokens = len(prompt.split()) + len(result.split())
+                estimated_cost = (estimated_tokens / 1000) * model.cost_per_1k_tokens
+
             self.performance_stats[model_name]["total_cost_estimate"] += estimated_cost
 
             return {
@@ -509,11 +525,34 @@ class MultiModelRouter:
                             system_prompt=system_prompt,
                             **kwargs
                         )
+                        # Track fallback cost using actual token data
+                        fb_input = getattr(fallback, 'last_input_tokens', 0)
+                        fb_output = getattr(fallback, 'last_output_tokens', 0)
+                        fb_cost = getattr(fallback, 'last_cost', 0.0)
+                        if fb_cost == 0.0 and (fb_input > 0 or fb_output > 0):
+                            fb_cost = (
+                                (fb_input / 1_000_000) * fallback.input_cost_per_1m +
+                                (fb_output / 1_000_000) * fallback.output_cost_per_1m
+                            )
+
+                        # Record in haiku stats (not lost in "(fallback)" key)
+                        if "haiku" not in self.performance_stats:
+                            self.performance_stats["haiku"] = {
+                                "total_requests": 0, "total_latency_ms": 0,
+                                "total_cost_estimate": 0.0,
+                                "total_input_tokens": 0, "total_output_tokens": 0,
+                            }
+                        self.performance_stats["haiku"]["total_requests"] += 1
+                        self.performance_stats["haiku"]["total_latency_ms"] += fallback.avg_latency_ms
+                        self.performance_stats["haiku"]["total_cost_estimate"] += fb_cost
+                        self.performance_stats["haiku"]["total_input_tokens"] += fb_input
+                        self.performance_stats["haiku"]["total_output_tokens"] += fb_output
+
                         return {
                             "result": result,
                             "model_used": "haiku (fallback)",
                             "latency_ms": fallback.avg_latency_ms,
-                            "estimated_cost": 0.001,
+                            "estimated_cost": fb_cost,
                             "truncated": False
                         }
                     except Exception as fallback_err:

@@ -31,6 +31,7 @@ class Nucleus:
         self.web_researcher = web_researcher
 
         # Use router if available, otherwise use direct provider
+        self.model = model or ""
         if self.router:
             logger.info("Nucleus initialized with multi-model router")
         elif self.provider == "claude":
@@ -38,11 +39,9 @@ class Nucleus:
             self.model = model or "claude-sonnet-4-5-20250929"
         elif self.provider == "gemini":
             genai.configure(api_key=api_key)
-            # Use Gemini 2.0 Flash (latest as of Oct 2025)
-            # Available models: gemini-2.0-flash, gemini-1.5-flash, gemini-1.5-pro
             self.model = model or "gemini-2.0-flash"
             self.client = genai.GenerativeModel(self.model)
-        else:
+        elif self.provider:
             raise ValueError(f"Unknown AI provider: {provider}")
 
         logger.info(f"Nucleus initialized with {provider}", extra={
@@ -139,7 +138,7 @@ class Nucleus:
             })
             raise
 
-    def analyze_result(self, code: str, result: Dict, task: Dict) -> Dict:
+    async def analyze_result(self, code: str, result: Dict, task: Dict) -> Dict:
         """Analyze execution result and suggest improvements"""
         prompt = f"""Analyze this code execution result and provide improvement suggestions.
 
@@ -164,7 +163,14 @@ Provide a brief analysis (2-3 sentences) focusing on:
 Keep response concise and actionable."""
 
         try:
-            if self.provider == "claude":
+            if self.router:
+                res = await self.router.generate(
+                    task_description="code analysis",
+                    prompt=prompt,
+                    max_tokens=512
+                )
+                analysis = res["result"]
+            elif self.provider == "claude":
                 response = self.client.messages.create(
                     model=self.model,
                     max_tokens=512,
@@ -188,7 +194,7 @@ Keep response concise and actionable."""
                 'suggestions': []
             }
 
-    def evolve_code(self, code: str, feedback: Dict, task: Dict) -> str:
+    async def evolve_code(self, code: str, feedback: Dict, task: Dict) -> str:
         """Create improved version of code based on feedback"""
         prompt = f"""Improve this Python code based on the feedback provided.
 
@@ -215,7 +221,14 @@ Create an improved version that:
 Return ONLY the improved Python code, no explanations."""
 
         try:
-            if self.provider == "claude":
+            if self.router:
+                res = await self.router.generate(
+                    task_description=f"code evolution: {task.get('description', '')[:60]}",
+                    prompt=prompt,
+                    max_tokens=8192
+                )
+                improved_code = self._extract_code(res["result"])
+            elif self.provider == "claude":
                 response = self.client.messages.create(
                     model=self.model,
                     max_tokens=8192,

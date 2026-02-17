@@ -122,14 +122,15 @@ async def solve_with_agent(request: SolveRequest):
         raise HTTPException(status_code=503, detail="Agent coordinator not available")
 
     try:
-        # Get nucleus from somewhere (simplified - should be injected)
         from core.nucleus import Nucleus
         from config import get_settings
+        from app.lifespan import get_service
 
         settings = get_settings()
         api_key = settings.claude_api_key or settings.gemini_api_key
         provider = "claude" if settings.claude_api_key else "gemini"
-        nucleus = Nucleus(provider, api_key)
+        router = get_service('multi_model_router')
+        nucleus = Nucleus(provider, api_key, multi_model_router=router)
 
         # Solve with agent
         result = await agent_coordinator.solve_with_agent(
@@ -159,11 +160,13 @@ async def collaborate_on_task(request: CollaborateRequest):
     try:
         from core.nucleus import Nucleus
         from config import get_settings
+        from app.lifespan import get_service
 
         settings = get_settings()
         api_key = settings.claude_api_key or settings.gemini_api_key
         provider = "claude" if settings.claude_api_key else "gemini"
-        nucleus = Nucleus(provider, api_key)
+        router = get_service('multi_model_router')
+        nucleus = Nucleus(provider, api_key, multi_model_router=router)
 
         result = await agent_coordinator.solve_collaborative(
             task=request.task,

@@ -196,32 +196,20 @@ async def get_ai_routing():
     total_requests = 0
     total_cost = 0.0
 
-    # Map internal model keys to display names
-    model_map = {
-        'ollama_code': 'ollama_code',
-        'ollama_reasoning': 'ollama_reasoning',
-        'ollama': 'ollama_code',
-        'gemini': 'gemini',
-        'gemini_flash': 'gemini',
-        'claude': 'claude',
-        'openai': 'openai',
-    }
-
     for key, data in perf.items():
-        display_key = model_map.get(key, key)
         reqs = data.get('total_requests', 0)
         cost = data.get('total_cost_estimate', 0)
         avg_latency = data.get('avg_latency_ms', 0)
+        input_tokens = data.get('total_input_tokens', 0)
+        output_tokens = data.get('total_output_tokens', 0)
 
-        if display_key in models:
-            models[display_key]['requests'] += reqs
-            models[display_key]['cost'] += cost
-        else:
-            models[display_key] = {
-                'requests': reqs,
-                'cost': round(cost, 4),
-                'avg_latency_ms': round(avg_latency, 0)
-            }
+        models[key] = {
+            'requests': reqs,
+            'cost': round(cost, 6),
+            'avg_latency_ms': round(avg_latency, 0),
+            'input_tokens': input_tokens,
+            'output_tokens': output_tokens,
+        }
         total_requests += reqs
         total_cost += cost
 
@@ -231,6 +219,7 @@ async def get_ai_routing():
     )
     gemini_reqs = models.get('gemini', {}).get('requests', 0)
     claude_reqs = models.get('claude', {}).get('requests', 0)
+    haiku_reqs = models.get('haiku', {}).get('requests', 0)
     openai_reqs = models.get('openai', {}).get('requests', 0)
 
     free_ratio = (ollama_reqs / total_requests) if total_requests > 0 else 0
@@ -239,7 +228,8 @@ async def get_ai_routing():
         "models": models,
         "routing_strategy": strategy,
         "tier_distribution": {
-            "simple": ollama_reqs,
+            "free": ollama_reqs,
+            "simple": haiku_reqs,
             "moderate": gemini_reqs,
             "complex": claude_reqs + openai_reqs
         },
