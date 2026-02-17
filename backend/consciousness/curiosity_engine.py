@@ -376,8 +376,16 @@ class CuriosityEngine:
             knowledge_stored = True
             logger.info(f"Curiosity #{item_id} satisfied ({satisfaction}%), knowledge stored")
         else:
-            # Not satisfied — spawn sub-items
-            if sub_questions and item['depth'] < self.MAX_DEPTH:
+            # Not satisfied — spawn sub-items (but not for dead ends)
+            # Skip spawning if satisfaction is very low (question is unanswerable)
+            # or if we're already at depth 2+ with low satisfaction
+            can_spawn = (
+                sub_questions
+                and item['depth'] < self.MAX_DEPTH
+                and satisfaction >= 15  # Below 15% means the question is a dead end
+                and not (item['depth'] >= 2 and satisfaction < 30)
+            )
+            if can_spawn:
                 sub_items_created = self._spawn_sub_items(item, sub_questions)
 
             if sub_items_created > 0:
@@ -445,9 +453,10 @@ Plan:"""
         if not narrative:
             return ''
         import re
-        # Remove XML invoke/tool blocks that Ollama sometimes emits
+        # Remove XML invoke/tool blocks that models sometimes emit
         cleaned = re.sub(r'<invoke\b[^>]*>.*?</invoke>', '', narrative, flags=re.DOTALL)
         cleaned = re.sub(r'<tool_call\b[^>]*>.*?</tool_call>', '', cleaned, flags=re.DOTALL)
+        cleaned = re.sub(r'<function_calls?\b[^>]*>.*?</function_calls?>', '', cleaned, flags=re.DOTALL)
         cleaned = re.sub(r'<search\b[^>]*>.*?</search>', '', cleaned, flags=re.DOTALL)
         cleaned = re.sub(r'<parameter\b[^>]*>.*?</parameter>', '', cleaned, flags=re.DOTALL)
         # Remove ```tool_call blocks that weren't executed
@@ -462,11 +471,29 @@ Plan:"""
 
         goal = f"Question: {item['question']}\n\nPlan:\n{plan}"
 
-        system_prompt = (
-            "You are Darwin, an AI exploring a curiosity question. "
-            "Follow the plan to investigate. Use tools to gather information. "
-            "When you have enough information, summarize what you learned."
-        )
+        system_prompt = """You are Darwin, an AI exploring a curiosity question.
+Follow the plan to investigate. Use the available tools to gather real information.
+
+AVAILABLE TOOLS:
+- file_operations_tool.read_file — args: file_path (string)
+- file_operations_tool.list_directory — args: dir_path (string), pattern (string, default "*")
+- file_operations_tool.search_files — args: dir_path (string), text (string)
+- script_executor_tool.execute_python — args: code (string), description (string)
+- web_search_tool.search — args: query (string), max_results (int, default 5)
+- web_search_tool.fetch_url — args: url (string)
+
+FORMAT — you MUST use this exact format to call tools:
+```tool_call
+{"tool": "web_search_tool.search", "args": {"query": "your search query"}}
+```
+
+RULES:
+1. ALWAYS start your response with a ```tool_call block to gather information
+2. Use web_search_tool.search for factual/external questions
+3. Use file_operations_tool for questions about Darwin's own code or data
+4. Use script_executor_tool.execute_python for calculations or data analysis
+5. When you have enough information, write a summary WITHOUT tool_call blocks
+6. NEVER just describe what you would do — actually call the tools"""
 
         try:
             result = await run_autonomous_loop(

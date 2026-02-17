@@ -50,9 +50,16 @@ def get_tool_manager():
     """Get the ToolManager instance for executing tools."""
     try:
         from app.lifespan import get_service
+        # Try tool_registry first (has both static + dynamic tools)
         registry = get_service('tool_registry')
         if registry:
-            return getattr(registry, 'tool_manager', None)
+            tm = getattr(registry, 'tool_manager', None)
+            if tm:
+                return tm
+        # Fallback: direct tool_manager service
+        tm = get_service('tool_manager')
+        if tm:
+            return tm
     except Exception:
         pass
     return None

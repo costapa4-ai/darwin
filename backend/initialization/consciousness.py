@@ -67,6 +67,7 @@ async def init_consciousness_engine(
         return services
 
     try:
+        from app.lifespan import set_service, get_service
         from introspection.self_analyzer import SelfAnalyzer
         from introspection.code_generator import CodeGenerator
         from introspection.approval_system import ApprovalQueue
@@ -94,6 +95,7 @@ async def init_consciousness_engine(
         print("Loading Darwin-generated tools...")
         tool_manager.load_all_tools()
         services['tool_manager'] = tool_manager
+        set_service('tool_manager', tool_manager)
 
         # ToolMaker - Autonomous tool creation with evolvable prompts
         from tools.tool_maker import ToolMaker
@@ -110,6 +112,7 @@ async def init_consciousness_engine(
             print("Connecting ToolManager to ToolRegistry...")
             tool_registry.tool_manager = tool_manager
             tool_registry._discover_dynamic_tools()
+            set_service('tool_registry', tool_registry)
             print(f"Integrated {len(tool_registry.tools)} total tools (static + dynamic)")
 
         # Crash Recovery
@@ -218,7 +221,6 @@ async def init_consciousness_engine(
         logger.info("Proactive Communication System initialized (COMPLETE personality integration)")
 
         # Genome Manager (evolvable parameters)
-        from app.lifespan import set_service, get_service
         from consciousness.genome_manager import get_genome
         genome = get_genome()
         services['genome_manager'] = genome
