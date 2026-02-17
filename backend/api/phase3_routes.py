@@ -372,14 +372,43 @@ async def get_daily_diary():
     if not diary_writer:
         raise HTTPException(status_code=503, detail="Diary writer not available")
 
-    # Mock stats for demo
-    stats = {
-        'tasks_completed': 10,
-        'avg_fitness': 75.5,
-        'success_rate': 0.85,
-        'patterns_learned': 3,
-        'best_agent': 'Neo'
-    }
+    # Real stats from system services
+    stats = {}
+    try:
+        from app.lifespan import get_service
+        from consciousness.activity_monitor import get_activity_monitor
+
+        # Activity stats
+        monitor = get_activity_monitor()
+        if monitor:
+            ms = monitor.get_stats()
+            stats['tasks_completed'] = ms.get('total_activities', 0)
+
+        # Tool success rate
+        tool_reg = get_service('tool_registry')
+        if tool_reg:
+            tools = tool_reg.list_tools() or []
+            used = [t for t in tools if isinstance(t, dict) and t.get('total_uses', 0) > 0]
+            rates = [t.get('success_rate', 0) for t in used]
+            stats['success_rate'] = round(sum(rates) / len(rates), 2) if rates else 0
+            stats['patterns_learned'] = len(used)
+
+        # Router stats
+        router_svc = get_service('multi_model_router')
+        if router_svc:
+            rs = router_svc.get_router_stats()
+            perf = rs.get('performance_stats', {})
+            stats['avg_fitness'] = round(sum(
+                m.get('total_requests', 0) for m in perf.values()
+            ) / max(len(perf), 1), 1)
+            stats['best_agent'] = max(perf.keys(), key=lambda k: perf[k].get('total_requests', 0)) if perf else 'none'
+    except Exception:
+        # Fallback if services unavailable
+        stats.setdefault('tasks_completed', 0)
+        stats.setdefault('avg_fitness', 0)
+        stats.setdefault('success_rate', 0)
+        stats.setdefault('patterns_learned', 0)
+        stats.setdefault('best_agent', 'none')
 
     diary = diary_writer.write_daily_summary(stats)
 

@@ -1014,18 +1014,22 @@ export default function NewDashboard({ onNavigate }) {
               {/* Tier Distribution */}
               <div className="bg-slate-800 rounded-lg p-4">
                 <h3 className="text-sm font-bold text-slate-400 uppercase mb-3">Tier Distribution</h3>
-                <div className="grid grid-cols-3 gap-3 text-center">
+                <div className="grid grid-cols-4 gap-3 text-center">
+                  <div>
+                    <div className="text-lg font-bold text-cyan-400">{routingData.tier_distribution?.free || 0}</div>
+                    <div className="text-xs text-slate-400">Free (Ollama)</div>
+                  </div>
                   <div>
                     <div className="text-lg font-bold text-green-400">{routingData.tier_distribution?.simple || 0}</div>
-                    <div className="text-xs text-slate-400">Simple (Free)</div>
+                    <div className="text-xs text-slate-400">Simple (Haiku)</div>
                   </div>
                   <div>
                     <div className="text-lg font-bold text-yellow-400">{routingData.tier_distribution?.moderate || 0}</div>
-                    <div className="text-xs text-slate-400">Moderate</div>
+                    <div className="text-xs text-slate-400">Moderate (Gemini)</div>
                   </div>
                   <div>
                     <div className="text-lg font-bold text-red-400">{routingData.tier_distribution?.complex || 0}</div>
-                    <div className="text-xs text-slate-400">Complex</div>
+                    <div className="text-xs text-slate-400">Complex (Sonnet)</div>
                   </div>
                 </div>
               </div>

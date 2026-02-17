@@ -98,9 +98,12 @@ async def get_cost_summary() -> Dict[str, Any]:
             "color": pricing.get("color", "#94a3b8")
         })
 
-    # Estimate daily cost based on session activity
-    # Assuming average session is 2 hours, extrapolate to 24 hours
-    hours_factor = 12  # 24 hours / 2 hour average session
+    # Estimate daily cost based on actual session duration
+    session_hours = 2.0  # default fallback
+    if hasattr(_multi_model_router, 'start_time') and _multi_model_router.start_time:
+        elapsed = (datetime.utcnow() - _multi_model_router.start_time).total_seconds() / 3600
+        session_hours = max(0.5, elapsed)  # At least 30 minutes to avoid extreme extrapolation
+    hours_factor = 24.0 / session_hours
 
     estimated_daily = total_cost * hours_factor
     estimated_monthly = estimated_daily * 30

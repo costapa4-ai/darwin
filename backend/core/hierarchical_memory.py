@@ -400,7 +400,8 @@ class HierarchicalMemory:
             self.semantic_index_by_tag[tag].append(knowledge_id)
 
         # Store in vector DB for semantic search
-        asyncio.create_task(self._store_in_vector_db(knowledge))
+        from utils.task_refs import create_safe_task
+        create_safe_task(self._store_in_vector_db(knowledge))
 
         logger.info(f"🧠 Added semantic knowledge: {concept}")
 

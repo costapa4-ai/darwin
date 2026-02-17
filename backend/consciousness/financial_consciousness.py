@@ -83,6 +83,7 @@ class FinancialConsciousness:
         # Spending personality
         self.frugality_mode = False  # Activated when over budget
         self.last_cost_reflection: Optional[datetime] = None
+        self._session_cost_at_day_start = 0.0  # Track session cost at start of day
 
         # Load state
         self._load_state()
@@ -248,10 +249,11 @@ class FinancialConsciousness:
                 self.monthly_cost = 0.0
 
             self.monthly_cost += self.daily_cost
-            self.daily_cost = session_cost
+            self._session_cost_at_day_start = session_cost
+            self.daily_cost = 0.0
             self.last_reset_date = today
         else:
-            self.daily_cost = session_cost
+            self.daily_cost = session_cost - self._session_cost_at_day_start
 
         # Check if we should enter frugality mode
         daily_percent = self.daily_cost / self.daily_budget if self.daily_budget > 0 else 0
@@ -393,6 +395,7 @@ class FinancialConsciousness:
                 if last_reset:
                     self.last_reset_date = datetime.fromisoformat(last_reset).date()
                 self.frugality_mode = state.get('frugality_mode', False)
+                self._session_cost_at_day_start = state.get('_session_cost_at_day_start', 0.0)
                 logger.info("Financial state restored")
         except Exception as e:
             logger.error(f"Error loading financial state: {e}")
@@ -408,6 +411,7 @@ class FinancialConsciousness:
                 'monthly_budget': self.monthly_budget,
                 'last_reset_date': self.last_reset_date.isoformat(),
                 'frugality_mode': self.frugality_mode,
+                '_session_cost_at_day_start': self._session_cost_at_day_start,
                 'saved_at': datetime.utcnow().isoformat()
             }
             with open(state_file, 'w') as f:

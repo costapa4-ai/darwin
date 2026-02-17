@@ -230,10 +230,11 @@ class FindingsInbox:
         try:
             import asyncio
             from api.websocket import notify_new_finding
+            from utils.task_refs import create_safe_task
             # Schedule notification without blocking
             loop = asyncio.get_event_loop()
             if loop.is_running():
-                asyncio.create_task(notify_new_finding(asdict(finding)))
+                create_safe_task(notify_new_finding(asdict(finding)))
         except Exception as e:
             logger.debug(f"Could not send WebSocket notification: {e}")
 
@@ -257,7 +258,8 @@ class FindingsInbox:
 
                 loop = asyncio.get_event_loop()
                 if loop.is_running():
-                    asyncio.create_task(
+                    from utils.task_refs import create_safe_task
+                    create_safe_task(
                         self.channel_gateway.broadcast_discovery(
                             discovery=discovery_text,
                             discovery_type=type.value,
@@ -275,7 +277,8 @@ class FindingsInbox:
                 from consciousness.hooks import trigger_hook, HookEvent
                 loop = asyncio.get_event_loop()
                 if loop.is_running():
-                    asyncio.create_task(
+                    from utils.task_refs import create_safe_task
+                    create_safe_task(
                         trigger_hook(
                             HookEvent.ON_FINDING,
                             data={

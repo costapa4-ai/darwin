@@ -375,7 +375,7 @@ async def init_consciousness_engine(
         try:
             from consciousness.interest_watchdog import InterestWatchdog
             interest_graph = get_service('interest_graph')
-            h_memory = services.get('hierarchical_memory')
+            h_memory = services.get('hierarchical_memory') or get_service('hierarchical_memory')
             if interest_graph:
                 watchdog = InterestWatchdog(interest_graph, h_memory)
                 set_service('interest_watchdog', watchdog)
@@ -406,7 +406,8 @@ async def init_consciousness_engine(
         memory_routes.initialize_memory(services['communicator'])
 
         # Start consciousness in background
-        asyncio.create_task(services['consciousness_engine'].start())
+        from utils.task_refs import create_safe_task
+        create_safe_task(services['consciousness_engine'].start(), name="consciousness_engine")
         logger.info("Consciousness Engine started (Wake: 2h, Sleep: 30min)")
 
         # Start Proactive Engine for autonomous actions (Moltbook, exploration, etc.)
@@ -463,10 +464,10 @@ async def init_consciousness_engine(
             ))
             logger.info("InnerVoice actions registered (morning greeting, evening reflection, voice check)")
 
-        asyncio.create_task(proactive_engine.run_proactive_loop(
+        create_safe_task(proactive_engine.run_proactive_loop(
             interval_seconds=120,  # Check every 2 minutes
             max_actions_per_hour=30  # Increased for more activity
-        ))
+        ), name="proactive_loop")
         logger.info("Proactive Engine started (interval: 2min, mood-action integration active)")
 
     except Exception as e:

@@ -99,11 +99,17 @@ async def get_overview():
     registry = _safe_get(get_prompt_registry)
     prompt_stats = _safe_get(lambda: registry.get_stats()) if registry else {}
 
-    # Multi-model router for cost
-    router_svc = get_service('multi_model_router')
-    router_stats = _safe_get(lambda: router_svc.get_router_stats()) if router_svc else {}
-    perf = router_stats.get('performance_stats', {})
-    cost_today = sum(m.get('total_cost_estimate', 0) for m in perf.values())
+    # Cost today from financial consciousness (tracks actual daily cost, not cumulative session)
+    fin = get_service('financial_consciousness')
+    if fin:
+        fin_costs = _safe_get(lambda: fin.get_current_costs())
+        cost_today = fin_costs.get('daily_cost', 0) if fin_costs else 0
+    else:
+        # Fallback to router stats (cumulative session total)
+        router_svc = get_service('multi_model_router')
+        router_stats = _safe_get(lambda: router_svc.get_router_stats()) if router_svc else {}
+        perf = router_stats.get('performance_stats', {})
+        cost_today = sum(m.get('total_cost_estimate', 0) for m in perf.values())
 
     # ConsciousnessStream stats
     from consciousness.consciousness_stream import get_consciousness_stream
@@ -268,7 +274,9 @@ async def get_evolution():
     tools_list = _safe_get(lambda: tool_reg.list_tools()) if tool_reg else []
     tools_created = len(tools_list) if isinstance(tools_list, list) else 0
     if tools_list and isinstance(tools_list, list):
-        success_rates = [t.get('success_rate', 0) for t in tools_list if isinstance(t, dict)]
+        # Only count tools that have actually been used (exclude unused with default 0.5 rate)
+        used_tools = [t for t in tools_list if isinstance(t, dict) and t.get('total_uses', 0) > 0]
+        success_rates = [t.get('success_rate', 0) for t in used_tools]
         tool_success = round(sum(success_rates) / len(success_rates), 3) if success_rates else 0
     else:
         tool_success = 0

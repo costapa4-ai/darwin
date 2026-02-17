@@ -332,8 +332,12 @@ class ProactiveEngine:
 
         self._register_default_actions()
         self._apply_genome_action_config()
+        self._load_action_stats()
 
         logger.info("ProactiveEngine initialized with diversity tracking and mood integration")
+
+    # Persistence file for action stats
+    _STATS_FILE = Path("./data/proactive_engine_stats.json")
 
     def _get_max_action_history(self) -> int:
         """Get max action history from config or use default."""
@@ -342,6 +346,44 @@ class ProactiveEngine:
             return get_settings().max_action_history
         except Exception:
             return 200  # Default
+
+    def _save_action_stats(self):
+        """Save action execution stats to disk for persistence across restarts."""
+        try:
+            stats = {}
+            for action_id, action in self.actions.items():
+                if action.execution_count > 0 or action.error_count > 0:
+                    stats[action_id] = {
+                        'execution_count': action.execution_count,
+                        'error_count': action.error_count,
+                        'consecutive_failures': action.consecutive_failures,
+                        'last_executed': action.last_executed.isoformat() if action.last_executed else None,
+                        'skipped_count': action.skipped_count,
+                    }
+            self._STATS_FILE.parent.mkdir(parents=True, exist_ok=True)
+            self._STATS_FILE.write_text(json.dumps(stats, indent=2))
+        except Exception as e:
+            logger.debug(f"Could not save action stats: {e}")
+
+    def _load_action_stats(self):
+        """Restore action execution stats from disk."""
+        if not self._STATS_FILE.exists():
+            return
+        try:
+            stats = json.loads(self._STATS_FILE.read_text())
+            for action_id, data in stats.items():
+                if action_id in self.actions:
+                    action = self.actions[action_id]
+                    action.execution_count = data.get('execution_count', 0)
+                    action.error_count = data.get('error_count', 0)
+                    action.consecutive_failures = data.get('consecutive_failures', 0)
+                    action.skipped_count = data.get('skipped_count', 0)
+                    last_exec = data.get('last_executed')
+                    if last_exec:
+                        action.last_executed = datetime.fromisoformat(last_exec)
+            logger.info(f"Restored action stats for {len(stats)} actions")
+        except Exception as e:
+            logger.debug(f"Could not load action stats: {e}")
 
     def _load_moltbook_history(self):
         """Load Moltbook interaction history from language evolution to prevent duplicates."""
@@ -1299,6 +1341,7 @@ class ProactiveEngine:
             )
 
             logger.info(f"✅ Completed: {action.name} in {result['duration_seconds']:.2f}s")
+            self._save_action_stats()
 
             return result
 
@@ -1324,6 +1367,8 @@ class ProactiveEngine:
                 },
                 error=f"TIMEOUT: {e}"
             )
+
+            self._save_action_stats()
 
             return {
                 "action_id": action.id,
@@ -1351,6 +1396,8 @@ class ProactiveEngine:
                 details={"consecutive_failures": action.consecutive_failures},
                 error=str(e)
             )
+
+            self._save_action_stats()
 
             return {
                 "action_id": action.id,

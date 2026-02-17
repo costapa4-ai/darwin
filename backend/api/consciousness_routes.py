@@ -5,6 +5,7 @@ from fastapi import APIRouter, HTTPException
 from typing import Optional
 from pydantic import BaseModel
 from datetime import datetime
+from collections import deque
 import anthropic
 import json
 import re
@@ -22,7 +23,8 @@ conversation_store = None
 prompt_composer = None
 
 # In-memory cache for backward compatibility with /chat/history
-chat_messages = []
+# Bounded to prevent unbounded memory growth in long-running sessions
+chat_messages = deque(maxlen=200)
 last_discussed_topic = None  # Track conversation topic
 
 

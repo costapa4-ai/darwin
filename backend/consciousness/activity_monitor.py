@@ -310,7 +310,8 @@ class ActivityMonitor:
         try:
             import asyncio
             from consciousness.hooks import trigger_hook, HookEvent
-            asyncio.create_task(
+            from utils.task_refs import create_safe_task
+            create_safe_task(
                 trigger_hook(
                     HookEvent.ON_ERROR,
                     data={
@@ -398,7 +399,8 @@ class ActivityMonitor:
         """Broadcast log to WebSocket clients"""
         if self.websocket_manager:
             try:
-                asyncio.create_task(
+                from utils.task_refs import create_safe_task
+                create_safe_task(
                     self.websocket_manager.broadcast({
                         "type": "activity_log",
                         "data": log.to_dict()

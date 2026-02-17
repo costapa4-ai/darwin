@@ -496,7 +496,8 @@ class MoodSystem:
         try:
             import asyncio
             from consciousness.hooks import trigger_hook, HookEvent
-            asyncio.create_task(
+            from utils.task_refs import create_safe_task
+            create_safe_task(
                 trigger_hook(
                     HookEvent.ON_MOOD_CHANGE,
                     data={

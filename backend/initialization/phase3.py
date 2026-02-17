@@ -116,7 +116,7 @@ def init_phase3_services(phase2: Dict[str, Any], settings) -> Dict[str, Any]:
     # Curiosity Engine
     if settings.enable_curiosity:
         try:
-            from curiosity.curiosity_engine import CuriosityEngine
+            from consciousness.curiosity_engine import CuriosityEngine
             services['curiosity_engine'] = CuriosityEngine()
             logger.info("Curiosity Engine initialized")
         except Exception as e:
