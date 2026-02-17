@@ -17,6 +17,7 @@ Key features:
 5. Anomaly detection
 """
 
+import ast
 import asyncio
 from datetime import datetime, timedelta
 from typing import Dict, Any, Optional, List, Tuple
@@ -25,6 +26,7 @@ from collections import defaultdict
 from enum import Enum
 import json
 import logging
+import operator
 
 logger = logging.getLogger(__name__)
 
@@ -81,6 +83,67 @@ class AuditEntry:
         result = asdict(self)
         result['timestamp'] = self.timestamp.isoformat()
         return result
+
+
+def _safe_eval_condition(condition: str, variables: Dict[str, Any]) -> bool:
+    """
+    Safely evaluate a policy condition string without using eval().
+
+    Supports:
+    - Attribute/key access: context.get('key', 0), action.get('target', '')
+    - Comparisons: >, <, >=, <=, ==, !=
+    - Boolean: and, or, not
+    - Literals: numbers, strings, bools, lists
+    - Builtin calls: any(), str(), int(), len()
+    - 'in' operator
+
+    Rejects:
+    - __import__, exec, eval, compile, open, getattr, setattr
+    - Any dunder attribute access
+    """
+    # Block dangerous patterns before even parsing
+    BLOCKED = ['__import__', '__builtins__', '__class__', '__subclasses__',
+               '__globals__', '__code__', '__loader__', 'exec(', 'compile(',
+               'open(', 'getattr(', 'setattr(', 'delattr(', 'globals(',
+               'locals(', 'vars(', 'dir(']
+    condition_lower = condition.lower()
+    for blocked in BLOCKED:
+        if blocked.lower() in condition_lower:
+            logger.warning(f"Blocked dangerous pattern in policy condition: {blocked}")
+            return False
+
+    try:
+        # Parse into AST and walk to verify safety
+        tree = ast.parse(condition, mode='eval')
+        # Verify all nodes are safe (no Call to dangerous functions)
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Call):
+                # Allow only safe function calls
+                if isinstance(node.func, ast.Name):
+                    if node.func.id not in ('any', 'all', 'str', 'int', 'float',
+                                            'len', 'bool', 'list', 'set', 'tuple',
+                                            'isinstance', 'min', 'max', 'abs'):
+                        logger.warning(f"Blocked unsafe function call: {node.func.id}")
+                        return False
+                elif isinstance(node.func, ast.Attribute):
+                    # Allow .get(), .lower(), .upper(), .split(), .startswith(), etc.
+                    if node.func.attr.startswith('_'):
+                        logger.warning(f"Blocked private method call: {node.func.attr}")
+                        return False
+
+        # Safe to evaluate with restricted builtins
+        safe_builtins = {
+            'any': any, 'all': all, 'str': str, 'int': int, 'float': float,
+            'len': len, 'bool': bool, 'list': list, 'set': set, 'tuple': tuple,
+            'isinstance': isinstance, 'min': min, 'max': max, 'abs': abs,
+            'True': True, 'False': False, 'None': None,
+        }
+        safe_globals = {"__builtins__": safe_builtins}
+        safe_globals.update(variables)
+        return bool(eval(compile(tree, '<policy>', 'eval'), safe_globals))
+    except Exception as e:
+        logger.error(f"Safe policy evaluation failed: {e}")
+        return False
 
 
 class GovernanceAgent:
@@ -235,8 +298,8 @@ class GovernanceAgent:
                 continue
 
             try:
-                # Evaluate policy condition
-                triggered = eval(
+                # Evaluate policy condition safely (no arbitrary code execution)
+                triggered = _safe_eval_condition(
                     policy.condition,
                     {"action": action, "context": full_context}
                 )

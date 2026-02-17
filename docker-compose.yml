@@ -42,6 +42,8 @@ services:
       - TELEGRAM_CHAT_IDS=${TELEGRAM_OWNER_CHAT_ID:-}
       # GitHub (for issue monitoring and appeals)
       - GITHUB_TOKEN=${GITHUB_TOKEN:-}
+      # API Authentication (leave empty for development/no auth)
+      - DARWIN_API_KEY=${DARWIN_API_KEY:-}
     volumes:
       - ./data:/app/data
       - ./logs:/app/logs
@@ -109,8 +111,7 @@ services:
 
   redis:
     image: redis:7-alpine
-    ports:
-      - "6379:6379"
+    # No port exposure — only accessible within darwin-net (security fix)
     volumes:
       - redis-data:/data
     networks:

@@ -199,7 +199,8 @@ async def get_ai_routing():
     for key, data in perf.items():
         reqs = data.get('total_requests', 0)
         cost = data.get('total_cost_estimate', 0)
-        avg_latency = data.get('avg_latency_ms', 0)
+        total_latency = data.get('total_latency_ms', 0)
+        avg_latency = total_latency / max(reqs, 1)
         input_tokens = data.get('total_input_tokens', 0)
         output_tokens = data.get('total_output_tokens', 0)
 
@@ -277,15 +278,36 @@ async def get_evolution():
     lang_svc = _safe_get(get_language_evolution_service)
     topic_weights = _safe_get(lambda: lang_svc.get_topic_weights()) if lang_svc else {}
 
+    # Code generation stats from approval queue + safety logger
+    engine = get_service('consciousness_engine')
+    approval_stats = {}
+    if engine and hasattr(engine, 'approval_queue') and engine.approval_queue:
+        approval_stats = _safe_get(lambda: engine.approval_queue.get_statistics()) or {}
+
+    from consciousness.safety_logger import get_safety_logger
+    sl = _safe_get(get_safety_logger)
+    corrected_count = 0
+    fail_count = 0
+    if sl:
+        corrected_events = _safe_get(lambda: sl.get_events('code_validation_corrected', since_hours=720, limit=1000)) or []
+        fail_events = _safe_get(lambda: sl.get_events('code_validation_fail', since_hours=720, limit=1000)) or []
+        corrected_count = len(corrected_events)
+        fail_count = len(fail_events)
+
+    total_attempts = approval_stats.get('total_changes', 0)
+    auto_approved = approval_stats.get('auto_approved', 0)
+    rejected = approval_stats.get('rejected', 0)
+    failed = approval_stats.get('failed', 0)
+
     return {
         "prompt_slots": prompt_slots,
         "total_slots": prompt_stats.get("total_slots", 0),
         "active_mutations": prompt_stats.get("active_mutations", 0),
         "code_generation": {
-            "total_attempts": 0,
-            "first_try_pass": 0,
-            "after_correction": 0,
-            "failed": 0
+            "total_attempts": total_attempts,
+            "first_try_pass": auto_approved,
+            "after_correction": corrected_count,
+            "failed": rejected + failed + fail_count
         },
         "tools_created": tools_created,
         "tool_success_rate": tool_success,

@@ -112,6 +112,7 @@ async def init_consciousness_engine(
             print("Connecting ToolManager to ToolRegistry...")
             tool_registry.tool_manager = tool_manager
             tool_registry._discover_dynamic_tools()
+            tool_registry._load_tool_stats()  # Restore stats from previous sessions
             set_service('tool_registry', tool_registry)
             print(f"Integrated {len(tool_registry.tools)} total tools (static + dynamic)")
 

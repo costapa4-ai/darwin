@@ -6,6 +6,7 @@ enabling efficient data caching and query optimization through automated view cr
 refresh, and management.
 """
 
+import re
 import sqlite3
 import hashlib
 import logging
@@ -15,6 +16,20 @@ from pathlib import Path
 
 
 logger = logging.getLogger(__name__)
+
+
+def _validate_sql_identifier(name: str) -> str:
+    """
+    Validate that a string is a safe SQL identifier (table/view name).
+    Prevents SQL injection via f-string interpolation of table names.
+
+    Raises ValueError if the name contains unsafe characters.
+    """
+    if not re.match(r'^[a-zA-Z_][a-zA-Z0-9_]*$', name):
+        raise ValueError(f"Invalid SQL identifier: '{name}' — must match [a-zA-Z_][a-zA-Z0-9_]*")
+    if len(name) > 128:
+        raise ValueError(f"SQL identifier too long: {len(name)} chars (max 128)")
+    return name
 
 
 class MaterializedViewManager:
@@ -105,16 +120,17 @@ class MaterializedViewManager:
             Dictionary with creation status and view information
         """
         try:
+            safe_name = _validate_sql_identifier(view_name)
             query_hash = hashlib.sha256(source_query.encode()).hexdigest()
             created_at = datetime.utcnow().isoformat()
-            
+
             target_conn = sqlite3.connect(target_db_path)
             target_cursor = target_conn.cursor()
-            
-            target_cursor.execute(f"DROP TABLE IF EXISTS {view_name}")
-            target_cursor.execute(f"CREATE TABLE {view_name} AS {source_query}")
-            
-            row_count = target_cursor.execute(f"SELECT COUNT(*) FROM {view_name}").fetchone()[0]
+
+            target_cursor.execute(f"DROP TABLE IF EXISTS [{safe_name}]")
+            target_cursor.execute(f"CREATE TABLE [{safe_name}] AS {source_query}")
+
+            row_count = target_cursor.execute(f"SELECT COUNT(*) FROM [{safe_name}]").fetchone()[0]
             
             target_conn.commit()
             target_conn.close()
@@ -192,14 +208,15 @@ class MaterializedViewManager:
                 }
             
             source_query = view_info[0]
-            
+            safe_name = _validate_sql_identifier(view_name)
+
             target_conn = sqlite3.connect(target_db_path)
             target_cursor = target_conn.cursor()
-            
-            target_cursor.execute(f"DROP TABLE IF EXISTS {view_name}")
-            target_cursor.execute(f"CREATE TABLE {view_name} AS {source_query}")
-            
-            row_count = target_cursor.execute(f"SELECT COUNT(*) FROM {view_name}").fetchone()[0]
+
+            target_cursor.execute(f"DROP TABLE IF EXISTS [{safe_name}]")
+            target_cursor.execute(f"CREATE TABLE [{safe_name}] AS {source_query}")
+
+            row_count = target_cursor.execute(f"SELECT COUNT(*) FROM [{safe_name}]").fetchone()[0]
             
             target_conn.commit()
             target_conn.close()
@@ -278,9 +295,10 @@ class MaterializedViewManager:
             Dictionary with drop status
         """
         try:
+            safe_name = _validate_sql_identifier(view_name)
             target_conn = sqlite3.connect(target_db_path)
             target_cursor = target_conn.cursor()
-            target_cursor.execute(f"DROP TABLE IF EXISTS {view_name}")
+            target_cursor.execute(f"DROP TABLE IF EXISTS [{safe_name}]")
             target_conn.commit()
             target_conn.close()
 

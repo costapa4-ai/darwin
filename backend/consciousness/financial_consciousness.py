@@ -243,13 +243,13 @@ class FinancialConsciousness:
 
         # Reset daily counter if new day
         if today > self.last_reset_date:
+            # Reset monthly FIRST if new month (before updating last_reset_date)
+            if today.month != self.last_reset_date.month:
+                self.monthly_cost = 0.0
+
             self.monthly_cost += self.daily_cost
             self.daily_cost = session_cost
             self.last_reset_date = today
-
-            # Reset monthly if new month
-            if today.month != self.last_reset_date.month:
-                self.monthly_cost = 0.0
         else:
             self.daily_cost = session_cost
 

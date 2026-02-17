@@ -160,6 +160,29 @@ async def execute_python(
         }
 
 
+# Blocked attribute names to prevent sandbox escape via dunder access
+_BLOCKED_ATTRS = frozenset({
+    '__class__', '__bases__', '__subclasses__', '__globals__', '__code__',
+    '__builtins__', '__import__', '__loader__', '__spec__', '__dict__',
+    '__module__', '__qualname__', '__func__', '__self__', '__wrapped__',
+    '__closure__', '__annotations__', '__kwdefaults__', '__defaults__',
+})
+
+
+def _safe_getattr(obj, name, *default):
+    """Safe getattr that blocks access to dunder attributes used for sandbox escape."""
+    if isinstance(name, str) and name in _BLOCKED_ATTRS:
+        raise AttributeError(f"Access to '{name}' is restricted in sandbox")
+    return getattr(obj, name, *default)
+
+
+def _safe_setattr(obj, name, value):
+    """Safe setattr that blocks writing to dunder attributes."""
+    if isinstance(name, str) and name.startswith('__'):
+        raise AttributeError(f"Setting '{name}' is restricted in sandbox")
+    return setattr(obj, name, value)
+
+
 def _run_code(code: str, stdout_buf: io.StringIO, stderr_buf: io.StringIO) -> Optional[str]:
     """
     Execute code with captured output. Returns None on success, error string on failure.
@@ -191,8 +214,8 @@ def _run_code(code: str, stdout_buf: io.StringIO, stderr_buf: io.StringIO) -> Op
                     'isinstance': isinstance,
                     'issubclass': issubclass,
                     'hasattr': hasattr,
-                    'getattr': getattr,
-                    'setattr': setattr,
+                    'getattr': _safe_getattr,
+                    'setattr': _safe_setattr,
                     'min': min,
                     'max': max,
                     'sum': sum,
@@ -211,8 +234,6 @@ def _run_code(code: str, stdout_buf: io.StringIO, stderr_buf: io.StringIO) -> Op
                     'id': id,
                     'hash': hash,
                     'callable': callable,
-                    'dir': dir,
-                    'vars': vars,
                     'iter': iter,
                     'next': next,
                     'slice': slice,

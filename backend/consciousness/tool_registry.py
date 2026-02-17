@@ -9,7 +9,9 @@ from typing import Dict, Any, List, Optional, Callable, Awaitable
 from dataclasses import dataclass
 from enum import Enum
 from datetime import datetime
+from pathlib import Path
 import asyncio
+import json
 import random
 
 from utils.logger import get_logger
@@ -284,6 +286,8 @@ class ToolRegistry:
     Registry of all available tools with dynamic discovery and selection
     """
 
+    STATS_FILE = Path("./data/tool_registry_stats.json")
+
     def __init__(self, multi_model_router=None, tool_manager=None):
         """
         Initialize tool registry
@@ -302,6 +306,40 @@ class ToolRegistry:
         # Discover and register dynamic tools from ToolManager
         if self.tool_manager:
             self._discover_dynamic_tools()
+
+    def _save_tool_stats(self):
+        """Persist tool usage stats to disk."""
+        try:
+            stats = {}
+            for name, tool in self.tools.items():
+                if tool.total_uses > 0:
+                    stats[name] = {
+                        'success_rate': tool.success_rate,
+                        'total_uses': tool.total_uses,
+                        'successful_uses': tool.successful_uses,
+                    }
+            self.STATS_FILE.parent.mkdir(parents=True, exist_ok=True)
+            self.STATS_FILE.write_text(json.dumps(stats, indent=2))
+        except Exception as e:
+            logger.error(f"Failed to save tool stats: {e}")
+
+    def _load_tool_stats(self):
+        """Restore tool usage stats from disk."""
+        if not self.STATS_FILE.exists():
+            return
+        try:
+            stats = json.loads(self.STATS_FILE.read_text())
+            restored = 0
+            for name, data in stats.items():
+                if name in self.tools:
+                    self.tools[name].success_rate = data.get('success_rate', 0.5)
+                    self.tools[name].total_uses = data.get('total_uses', 0)
+                    self.tools[name].successful_uses = data.get('successful_uses', 0)
+                    restored += 1
+            if restored:
+                logger.info(f"Restored tool stats for {restored} tools from disk")
+        except Exception as e:
+            logger.error(f"Failed to load tool stats: {e}")
 
     def register_tool(
         self,
@@ -549,6 +587,7 @@ Respond with ONLY the number."""
                 f"{'success' if success else 'failed'} in {execution_time:.2f}s"
             )
 
+            self._save_tool_stats()
             return result
 
         except Exception as e:
@@ -567,6 +606,7 @@ Respond with ONLY the number."""
 
             logger.error(f"❌ Tool {tool.name} failed: {e}")
 
+            self._save_tool_stats()
             return {
                 'success': False,
                 'error': str(e),

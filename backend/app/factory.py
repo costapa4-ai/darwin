@@ -7,6 +7,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from app.lifespan import lifespan
 from app.routes import register_all_routes
+from middleware.auth import APIKeyMiddleware
 
 
 def create_app() -> FastAPI:
@@ -22,6 +23,9 @@ def create_app() -> FastAPI:
         version="3.0.0",
         lifespan=lifespan
     )
+
+    # API key authentication (set DARWIN_API_KEY env var to enable)
+    app.add_middleware(APIKeyMiddleware)
 
     # CORS middleware - allow all frontend access methods
     app.add_middleware(

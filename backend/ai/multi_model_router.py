@@ -4,7 +4,10 @@ Intelligently routes tasks to the best AI model based on task characteristics
 """
 from typing import Dict, Any, Optional, List
 from enum import Enum
+from datetime import datetime
+from pathlib import Path
 import re
+import sqlite3
 
 from ai.models.base_client import BaseModelClient, ModelCapability
 from ai.models.claude_client import ClaudeClient
@@ -57,10 +60,89 @@ class MultiModelRouter:
         # Initialize available models
         self._initialize_models()
 
-        # Track model performance
+        # Track model performance (persisted to SQLite)
         self.performance_stats: Dict[str, Dict[str, Any]] = {}
+        self.start_time = datetime.utcnow()
+        self._init_stats_db()
+        self._load_stats()
 
         logger.info(f"MultiModelRouter initialized with {len(self.models)} models")
+
+    def _init_stats_db(self):
+        """Create the router_stats table if it doesn't exist."""
+        try:
+            db_path = Path("./data/darwin.db")
+            db_path.parent.mkdir(parents=True, exist_ok=True)
+            conn = sqlite3.connect(str(db_path))
+            conn.execute("""
+                CREATE TABLE IF NOT EXISTS router_stats (
+                    model_name TEXT PRIMARY KEY,
+                    total_requests INTEGER DEFAULT 0,
+                    total_latency_ms REAL DEFAULT 0,
+                    total_cost_estimate REAL DEFAULT 0,
+                    total_input_tokens INTEGER DEFAULT 0,
+                    total_output_tokens INTEGER DEFAULT 0,
+                    updated_at TEXT
+                )
+            """)
+            conn.commit()
+            conn.close()
+        except Exception as e:
+            logger.error(f"Failed to init stats DB: {e}")
+
+    def _load_stats(self):
+        """Load accumulated stats from DB on startup."""
+        try:
+            db_path = Path("./data/darwin.db")
+            if not db_path.exists():
+                return
+            conn = sqlite3.connect(str(db_path))
+            conn.row_factory = sqlite3.Row
+            rows = conn.execute("SELECT * FROM router_stats").fetchall()
+            for r in rows:
+                self.performance_stats[r['model_name']] = {
+                    "total_requests": r['total_requests'],
+                    "total_latency_ms": r['total_latency_ms'],
+                    "total_cost_estimate": r['total_cost_estimate'],
+                    "total_input_tokens": r['total_input_tokens'],
+                    "total_output_tokens": r['total_output_tokens'],
+                }
+            conn.close()
+            if self.performance_stats:
+                logger.info(f"Loaded router stats from DB: {list(self.performance_stats.keys())}")
+        except Exception as e:
+            logger.error(f"Failed to load stats from DB: {e}")
+
+    def _save_stats(self, model_name: str):
+        """Persist stats for one model after each request (upsert)."""
+        try:
+            data = self.performance_stats.get(model_name, {})
+            db_path = Path("./data/darwin.db")
+            conn = sqlite3.connect(str(db_path))
+            conn.execute("""
+                INSERT INTO router_stats (model_name, total_requests, total_latency_ms,
+                    total_cost_estimate, total_input_tokens, total_output_tokens, updated_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(model_name) DO UPDATE SET
+                    total_requests = excluded.total_requests,
+                    total_latency_ms = excluded.total_latency_ms,
+                    total_cost_estimate = excluded.total_cost_estimate,
+                    total_input_tokens = excluded.total_input_tokens,
+                    total_output_tokens = excluded.total_output_tokens,
+                    updated_at = excluded.updated_at
+            """, (
+                model_name,
+                data.get('total_requests', 0),
+                data.get('total_latency_ms', 0),
+                data.get('total_cost_estimate', 0),
+                data.get('total_input_tokens', 0),
+                data.get('total_output_tokens', 0),
+                datetime.utcnow().isoformat()
+            ))
+            conn.commit()
+            conn.close()
+        except Exception as e:
+            logger.error(f"Failed to save stats for {model_name}: {e}")
 
     def _initialize_models(self):
         """Initialize available AI model clients"""
@@ -326,7 +408,7 @@ class MultiModelRouter:
                     return "claude"
                 elif "haiku" in capable_models:
                     logger.info(f"🔴 COMPLEX task → Haiku (fallback)")
-                    return "gemini"
+                    return "haiku"
 
             # Final fallback
             return list(capable_models.keys())[0]
@@ -476,6 +558,9 @@ class MultiModelRouter:
 
             self.performance_stats[model_name]["total_cost_estimate"] += estimated_cost
 
+            # Persist to SQLite
+            self._save_stats(model_name)
+
             return {
                 "result": result,
                 "model_used": model_name,
@@ -530,6 +615,9 @@ class MultiModelRouter:
                         self.performance_stats["haiku"]["total_cost_estimate"] += fb_cost
                         self.performance_stats["haiku"]["total_input_tokens"] += fb_input
                         self.performance_stats["haiku"]["total_output_tokens"] += fb_output
+
+                        # Persist fallback stats
+                        self._save_stats("haiku")
 
                         return {
                             "result": result,
