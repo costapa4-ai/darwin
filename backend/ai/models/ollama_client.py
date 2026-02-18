@@ -68,7 +68,7 @@ class OllamaClient(BaseModelClient):
         **kwargs
     ) -> str:
         """Generate completion using local Ollama"""
-        timeout_s = kwargs.get('timeout', 45)
+        timeout_s = kwargs.get('timeout', 120)
         try:
             start_time = time.time()
 
