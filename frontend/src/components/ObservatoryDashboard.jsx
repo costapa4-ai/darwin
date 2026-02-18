@@ -207,13 +207,14 @@ export default function ObservatoryDashboard({ onBack }) {
   const [moodEnv, setMoodEnv] = useState(null);
   const [growthIdentity, setGrowthIdentity] = useState(null);
   const [watchdogData, setWatchdogData] = useState(null);
+  const [curiosity, setCuriosity] = useState(null);
   const [lastRefresh, setLastRefresh] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
 
   const fetchAll = useCallback(async () => {
     try {
-      const [ovRes, aiRes, evoRes, subRes, safetyRes, moodRes, growthRes, wdRes] = await Promise.allSettled([
+      const [ovRes, aiRes, evoRes, subRes, safetyRes, moodRes, growthRes, wdRes, cuRes] = await Promise.allSettled([
         fetch(`${API_BASE}/api/v1/observatory/overview`).then(r => r.json()),
         fetch(`${API_BASE}/api/v1/observatory/ai-routing`).then(r => r.json()),
         fetch(`${API_BASE}/api/v1/observatory/evolution`).then(r => r.json()),
@@ -222,6 +223,7 @@ export default function ObservatoryDashboard({ onBack }) {
         fetch(`${API_BASE}/api/v1/observatory/mood-environment`).then(r => r.json()),
         fetch(`${API_BASE}/api/v1/observatory/growth-identity`).then(r => r.json()),
         fetch(`${API_BASE}/api/v1/observatory/interest-watchdog`).then(r => r.json()),
+        fetch(`${API_BASE}/api/v1/observatory/curiosity`).then(r => r.json()),
       ]);
 
       if (ovRes.status === 'fulfilled') setOverview(ovRes.value);
@@ -232,6 +234,7 @@ export default function ObservatoryDashboard({ onBack }) {
       if (moodRes.status === 'fulfilled') setMoodEnv(moodRes.value);
       if (growthRes.status === 'fulfilled') setGrowthIdentity(growthRes.value);
       if (wdRes.status === 'fulfilled') setWatchdogData(wdRes.value);
+      if (cuRes.status === 'fulfilled') setCuriosity(cuRes.value);
 
       setLastRefresh(new Date());
       setError(null);
@@ -775,6 +778,91 @@ export default function ObservatoryDashboard({ onBack }) {
                 <div className="space-y-2 max-h-80 overflow-y-auto">
                   {watchdogData.history.map((obs, i) => (
                     <WatchdogObservation key={i} obs={obs} />
+                  ))}
+                </div>
+              </div>
+            )}
+          </>
+        )}
+
+        {/* SECTION 7C: Curiosity Exploration */}
+        {curiosity && curiosity.by_depth && (
+          <>
+            <SectionHeader title="Curiosity Exploration" icon="🔬" />
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+              <StatCard label="Satisfied" value={curiosity.totals?.satisfied ?? 0}
+                icon="✅" color="green" sub={`of ${(curiosity.totals?.satisfied ?? 0) + (curiosity.totals?.exploring ?? 0) + (curiosity.totals?.pending ?? 0) + (curiosity.totals?.expired ?? 0)} total`} />
+              <StatCard label="Knowledge Stored" value={curiosity.totals?.total_knowledge_stored ?? 0}
+                icon="💾" color="purple" />
+              <StatCard label="Pending" value={curiosity.totals?.pending ?? 0}
+                icon="⏳" color="yellow" sub={`${curiosity.totals?.exploring ?? 0} exploring`} />
+              <StatCard label="Expired" value={curiosity.totals?.expired ?? 0}
+                icon="💀" color="red" />
+            </div>
+
+            {/* Depth threshold table */}
+            <div className="mt-4 bg-slate-900 rounded-xl p-4 border border-slate-700/50">
+              <h3 className="text-sm font-medium text-slate-300 mb-3">Satisfaction by Depth Level</h3>
+              <div className="overflow-x-auto">
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="text-slate-400 border-b border-slate-700">
+                      <th className="text-left py-2 px-3">Depth</th>
+                      <th className="text-center py-2 px-3">Threshold</th>
+                      <th className="text-center py-2 px-3">Reached</th>
+                      <th className="text-center py-2 px-3">Rate</th>
+                      <th className="text-center py-2 px-3">Avg %</th>
+                      <th className="text-center py-2 px-3">Max %</th>
+                      <th className="text-center py-2 px-3">Knowledge</th>
+                      <th className="text-center py-2 px-3">Pending</th>
+                      <th className="text-center py-2 px-3">Exploring</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {Object.entries(curiosity.by_depth).map(([depth, d]) => {
+                      const rateColor = d.threshold_rate >= 20 ? 'text-green-400' : d.threshold_rate >= 5 ? 'text-yellow-400' : 'text-red-400';
+                      return (
+                        <tr key={depth} className="border-b border-slate-800 hover:bg-slate-800/50">
+                          <td className="py-2 px-3 text-slate-200 font-medium">
+                            {d.label} <span className="text-slate-500">(d{depth})</span>
+                          </td>
+                          <td className="text-center py-2 px-3 text-cyan-400">{d.threshold}%</td>
+                          <td className="text-center py-2 px-3 text-slate-200">{d.reached_threshold}/{d.total_explored}</td>
+                          <td className={`text-center py-2 px-3 font-medium ${rateColor}`}>{d.threshold_rate?.toFixed(0)}%</td>
+                          <td className="text-center py-2 px-3 text-slate-300">{d.avg_satisfaction?.toFixed(0)}%</td>
+                          <td className="text-center py-2 px-3 text-green-400">{d.max_satisfaction}%</td>
+                          <td className="text-center py-2 px-3 text-purple-400">{d.knowledge_stored}</td>
+                          <td className="text-center py-2 px-3 text-yellow-400">{d.pending}</td>
+                          <td className="text-center py-2 px-3 text-cyan-400">{d.exploring}</td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+
+            {/* Recent explorations */}
+            {curiosity.recent?.length > 0 && (
+              <div className="mt-4 bg-slate-900 rounded-xl p-4 border border-slate-700/50">
+                <h3 className="text-sm font-medium text-slate-300 mb-3">Recent Explorations</h3>
+                <div className="space-y-1 max-h-64 overflow-y-auto">
+                  {curiosity.recent.map((item, i) => (
+                    <div key={i} className="flex items-center gap-2 py-1 px-2 rounded hover:bg-slate-800/50 text-xs">
+                      <span>{item.met_threshold ? '✅' : '❌'}</span>
+                      <span>{item.knowledge_stored ? '💾' : '  '}</span>
+                      <span className="text-slate-500 w-8">d{item.depth}</span>
+                      <span className={`w-10 text-right font-mono ${item.satisfaction >= (curiosity.thresholds?.[String(item.depth)] ?? 50) ? 'text-green-400' : item.satisfaction >= 20 ? 'text-yellow-400' : 'text-red-400'}`}>
+                        {item.satisfaction}%
+                      </span>
+                      <span className={`w-16 text-center rounded px-1 ${
+                        item.status === 'satisfied' ? 'bg-green-900/30 text-green-400' :
+                        item.status === 'exploring' ? 'bg-cyan-900/30 text-cyan-400' :
+                        item.status === 'expired' ? 'bg-red-900/30 text-red-400' :
+                        'bg-slate-800 text-slate-400'
+                      }`}>{item.status}</span>
+                      <span className="text-slate-300 truncate flex-1">{item.question}</span>
+                    </div>
                   ))}
                 </div>
               </div>

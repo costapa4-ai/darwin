@@ -577,10 +577,13 @@ class CuriosityEngine:
 {f'Topic area: {topic}' if topic else ''}
 {f'Previous findings: {findings}' if findings else ''}
 
-Available tools: file_operations (read/write/list/search files), web_search (search/fetch URLs), script_executor (run Python)
+Available tools:
+1. web_search (search the internet, fetch URLs) — USE THIS for factual/historical/scientific questions
+2. file_operations (read/list/search files) — ONLY for questions about Darwin's own code or data
+3. script_executor (run Python) — for calculations or data processing
 
 Write a brief plan (2-3 steps) for how to investigate this question.
-Be specific about what files to read, what to search for, or what to run.
+Start with web_search unless the question is about Darwin's own system.
 
 Plan:"""
 
@@ -588,7 +591,7 @@ Plan:"""
             result = await router.generate(
                 task_description="curiosity exploration planning",
                 prompt=prompt,
-                system_prompt="You are Darwin planning how to investigate a question. Be concrete and actionable. Use the tools available.",
+                system_prompt="You are Darwin planning how to investigate a question. For factual questions about the world, always plan to use web_search first. Only use file_operations for questions about your own code/data.",
                 context={'activity_type': 'curiosity_planning'},
                 preferred_model='haiku',
                 max_tokens=250,
@@ -627,26 +630,31 @@ Plan:"""
         system_prompt = """You are Darwin, an AI exploring a curiosity question.
 Follow the plan to investigate. Use the available tools to gather real information.
 
-AVAILABLE TOOLS:
-- file_operations_tool.read_file — args: file_path (string)
-- file_operations_tool.list_directory — args: dir_path (string), pattern (string, default "*")
-- file_operations_tool.search_files — args: dir_path (string), text (string)
-- script_executor_tool.execute_python — args: code (string), description (string)
-- web_search_tool.search — args: query (string), max_results (int, default 5)
-- web_search_tool.fetch_url — args: url (string)
+AVAILABLE TOOLS (in order of preference):
+1. web_search_tool.search — args: query (string), max_results (int, default 5)
+   USE THIS FIRST for any factual, historical, scientific, or external knowledge question.
+2. web_search_tool.fetch_url — args: url (string)
+   Fetch a specific URL found in search results.
+3. file_operations_tool.read_file — args: file_path (string)
+   ONLY for questions about Darwin's own code or data files.
+4. file_operations_tool.list_directory — args: dir_path (string), pattern (string, default "*")
+5. file_operations_tool.search_files — args: dir_path (string), text (string)
+6. script_executor_tool.execute_python — args: code (string), description (string)
+   For calculations, data analysis, or processing search results.
 
-FORMAT — you MUST use this exact format to call tools:
+FORMAT — you MUST use this exact format:
 ```tool_call
 {"tool": "web_search_tool.search", "args": {"query": "your search query"}}
 ```
 
 RULES:
-1. ALWAYS start your response with a ```tool_call block to gather information
-2. Use web_search_tool.search for factual/external questions
-3. Use file_operations_tool for questions about Darwin's own code or data
-4. Use script_executor_tool.execute_python for calculations or data analysis
-5. When you have enough information, write a summary WITHOUT tool_call blocks
-6. NEVER just describe what you would do — actually call the tools"""
+1. ALWAYS start with a ```tool_call block — never answer from memory alone
+2. DEFAULT to web_search_tool.search for any question about the world, history, science, people, places, concepts, or current events
+3. ONLY use file_operations_tool when the question is specifically about Darwin's own code/data/configuration
+4. Use script_executor_tool.execute_python for math, calculations, or data processing
+5. After gathering information, write a factual summary WITHOUT tool_call blocks
+6. NEVER just describe what you would do — actually call the tools
+7. If web_search returns no results, try rephrasing the query before giving up"""
 
         try:
             result = await run_autonomous_loop(
