@@ -502,7 +502,7 @@ class CuriosityEngine:
         narrative = execution.get('narrative', '')
         # Reject XML/tool-call garbage as findings
         narrative = self._clean_narrative(narrative)
-        self.update_item(item_id, findings=narrative[:500])
+        self.update_item(item_id, findings=narrative[:3000])
 
         # Phase 3: ANALYZE
         analysis = await self._analyze_result(item, plan, execution, router)
@@ -684,9 +684,9 @@ RULES:
             # Include successful tool results (the actual data)
             successes = [r for r in tool_results if r.startswith('✅')]
             if successes:
-                tool_summary = '\nTool outputs:\n' + '\n'.join(s[:300] for s in successes[:3])
+                tool_summary = '\nTool outputs:\n' + '\n'.join(s[:500] for s in successes[:5])
 
-        findings = self._clean_narrative(narrative)[:400] + tool_summary[:400]
+        findings = self._clean_narrative(narrative)[:2000] + tool_summary[:1500]
 
         prompt = f"""You wanted to answer: {item['question']}
 Your plan was: {plan[:200]}
