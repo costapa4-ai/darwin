@@ -594,7 +594,7 @@ Plan:"""
                 system_prompt="You are Darwin planning how to investigate a question. For factual questions about the world, always plan to use web_search first. Only use file_operations for questions about your own code/data.",
                 context={'activity_type': 'curiosity_planning'},
                 preferred_model='haiku',
-                max_tokens=250,
+                max_tokens=500,
                 temperature=0.6,
             )
             plan = result.get('result', '').strip()
@@ -663,7 +663,7 @@ RULES:
                 router=router,
                 tool_manager=tool_manager,
                 max_iterations=5,
-                max_tokens=2000,
+                max_tokens=3000,
                 preferred_model='haiku',
                 timeout=45,
             )

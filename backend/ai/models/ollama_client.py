@@ -80,6 +80,10 @@ class OllamaClient(BaseModelClient):
             user_content = f"/no_think\n{prompt}" if 'qwen3' in self.model_name else prompt
             messages.append({"role": "user", "content": user_content})
 
+            # Enforce minimum num_predict for qwen3: thinking can eat 200-400 tokens
+            # even with /no_think, so low values produce 0 chars output
+            effective_tokens = max(max_tokens, 500) if 'qwen3' in self.model_name else max_tokens
+
             # Call Ollama API
             async with aiohttp.ClientSession(
                 read_bufsize=2**20  # 1MB read buffer for large responses
@@ -92,7 +96,7 @@ class OllamaClient(BaseModelClient):
                         "stream": False,
                         "options": {
                             "temperature": temperature,
-                            "num_predict": max_tokens,
+                            "num_predict": effective_tokens,
                             "num_ctx": 4096
                         }
                     },
@@ -115,11 +119,11 @@ class OllamaClient(BaseModelClient):
                     # Check if response was truncated by token limit
                     done_reason = data.get("done_reason", "")
                     eval_count = data.get("eval_count", 0)
-                    self.last_truncated = done_reason == "length" or (eval_count >= max_tokens and eval_count > 0)
+                    self.last_truncated = done_reason == "length" or (eval_count >= effective_tokens and eval_count > 0)
                     if self.last_truncated:
                         logger.warning(
                             f"⚠️ Ollama response TRUNCATED (done_reason={done_reason}, "
-                            f"eval_count={eval_count}, num_predict={max_tokens}). Output is incomplete!"
+                            f"eval_count={eval_count}, num_predict={effective_tokens}). Output is incomplete!"
                         )
 
             # Update latency
