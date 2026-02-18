@@ -198,7 +198,7 @@ class MultiModelRouter:
         # Ollama (local LLM - FREE!) - Single model for all local tasks
         if self.config.get("ollama_enabled", True):  # Enabled by default
             ollama_url = self.config.get("ollama_url", "http://ollama:11434")
-            ollama_model = self.config.get("ollama_model", "qwen3:14b")
+            ollama_model = self.config.get("ollama_model", "qwen3:8b")
 
             try:
                 ollama_client = OllamaClient(
@@ -373,7 +373,7 @@ class MultiModelRouter:
 
         elif self.routing_strategy == RoutingStrategy.TIERED:
             # 🎯 TIERED: Ollama-first routing (FREE local models)
-            # SIMPLE/MODERATE → Ollama qwen3:14b (FREE) - all non-complex tasks
+            # SIMPLE/MODERATE → Ollama qwen3:8b (FREE) - all non-complex tasks
             # COMPLEX CODE → Claude Sonnet ($3/$15 per M) - architecture, critical code
             # COMPLEX OTHER → Claude Haiku ($0.80/$4 per M) - complex non-code tasks
 

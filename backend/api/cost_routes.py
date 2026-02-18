@@ -44,14 +44,14 @@ MODEL_PRICING = {
         "color": "#ef4444"  # red
     },
     "ollama_code": {
-        "name": "Ollama qwen3:14b",
+        "name": "Ollama qwen3:8b",
         "input_per_1m": 0.0,
         "output_per_1m": 0.0,
         "tier": "free",
         "color": "#06b6d4"  # cyan
     },
     "ollama": {
-        "name": "Ollama qwen3:14b",
+        "name": "Ollama qwen3:8b",
         "input_per_1m": 0.0,
         "output_per_1m": 0.0,
         "tier": "free",
