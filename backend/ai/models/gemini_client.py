@@ -16,7 +16,7 @@ logger = get_logger(__name__)
 class GeminiClient(BaseModelClient):
     """Gemini AI client implementation"""
 
-    def __init__(self, model_name: str = "gemini-2.0-flash", api_key: str = ""):
+    def __init__(self, model_name: str = "gemini-2.5-flash", api_key: str = ""):
         super().__init__(model_name, api_key)
 
         # Configure Gemini
@@ -30,10 +30,10 @@ class GeminiClient(BaseModelClient):
             ModelCapability.COST_EFFECTIVE
         ]
 
-        # Gemini Flash 2.0 pricing
-        self.input_cost_per_1m = 0.10
-        self.output_cost_per_1m = 0.40
-        self.cost_per_1k_tokens = 0.00025  # Legacy blended fallback
+        # Gemini 2.5 Flash pricing
+        self.input_cost_per_1m = 0.15
+        self.output_cost_per_1m = 0.60
+        self.cost_per_1k_tokens = 0.000375  # Legacy blended fallback
         self.avg_latency_ms = 800
 
     async def generate(

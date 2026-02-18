@@ -667,7 +667,7 @@ RULES:
                 tool_manager=tool_manager,
                 max_iterations=5,
                 max_tokens=3000,
-                preferred_model='haiku',
+                preferred_model='gemini',
                 timeout=45,
             )
             return result

@@ -30,9 +30,9 @@ MODEL_PRICING = {
         "color": "#22c55e"  # green
     },
     "gemini": {
-        "name": "Gemini 2.0 Flash",
-        "input_per_1m": 0.10,
-        "output_per_1m": 0.40,
+        "name": "Gemini 2.5 Flash",
+        "input_per_1m": 0.15,
+        "output_per_1m": 0.60,
         "tier": "moderate",
         "color": "#eab308"  # yellow
     },

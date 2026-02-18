@@ -177,7 +177,7 @@ class MultiModelRouter:
         if self.config.get("gemini_api_key"):
             try:
                 self.models["gemini"] = GeminiClient(
-                    model_name=self.config.get("gemini_model", "gemini-2.0-flash"),
+                    model_name=self.config.get("gemini_model", "gemini-2.5-flash"),
                     api_key=self.config["gemini_api_key"]
                 )
                 logger.info("Gemini client initialized")
