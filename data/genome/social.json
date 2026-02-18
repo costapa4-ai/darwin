@@ -1,13 +1,14 @@
 {
   "inner_voice": {
     "min_outreach_interval_hours": 2,
-    "daily_cap": 5,
+    "daily_cap": 6,
     "max_impulse_queue": 20,
     "urgency_thresholds": {
       "discovery": 0.7,
       "curiosity_min_insights": 3,
       "curiosity_urgency": 0.6,
       "mood_shift_urgency": 0.5,
+      "curiosity_question_urgency": 0.75,
       "base_urgency": 0.3,
       "queue_threshold": 0.5
     }

@@ -557,6 +557,9 @@ class CuriosityEngine:
                     knowledge_stored=1 if knowledge_stored else 0,
                     satisfied_at=datetime.utcnow().isoformat()
                 )
+                # Ask Paulo if the question is interesting enough
+                if item['depth'] <= 1 and satisfaction >= 10 and has_findings:
+                    self._queue_question_for_paulo(item, summary, satisfaction)
 
         return {
             'item_id': item_id,
@@ -814,3 +817,34 @@ JSON:"""
             if item_id:
                 created += 1
         return created
+
+    def _queue_question_for_paulo(self, item: Dict, summary: str, satisfaction: int):
+        """Queue an unresolved question for Paulo via inner voice."""
+        try:
+            from app.lifespan import get_service
+            inner_voice = get_service('inner_voice')
+            if not inner_voice:
+                return
+
+            # Dedup: check if same question is already in the queue
+            question = item['question']
+            for thought in inner_voice.impulse_queue:
+                if thought.get('trigger') == 'curiosity_question':
+                    if question[:50].lower() in thought.get('content', '').lower():
+                        logger.debug(f"Question already queued, skipping: {question[:60]}")
+                        return
+
+            # Build content with context about what Darwin found and where it got stuck
+            content = f"{question}"
+            if summary and len(summary.strip()) > 20:
+                content += f"\n\nO que encontrei: {summary[:300]}"
+            content += f"\n\n(Satisfação: {satisfaction}% — preciso da tua perspetiva)"
+
+            inner_voice.queue_thought(
+                trigger="curiosity_question",
+                content=content,
+                urgency=0.75,
+            )
+            logger.info(f"Question queued for Paulo: {question[:60]}...")
+        except Exception as e:
+            logger.debug(f"Failed to queue question for Paulo: {e}")

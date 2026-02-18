@@ -122,6 +122,10 @@ class InnerVoice:
             if len(insights) >= curiosity_min_insights:
                 urgency = curiosity_urgency
             content = f"Acabei uma expedição sobre {context.get('topic', 'algo')} — {len(insights)} insights"
+        elif trigger == "curiosity_question":
+            # Unresolved curiosity — Darwin wants to ask Paulo
+            urgency = thresholds.get('curiosity_question_urgency', 0.75)
+            content = context.get("content", context.get("question", "something I'm curious about"))
         elif trigger == "mood_shift":
             # Only significant mood shifts
             old_mood = context.get("old_mood", "")
@@ -223,6 +227,12 @@ class InnerVoice:
         except Exception:
             pass
 
+        # Include pending curiosity questions — Darwin can ask Paulo in the greeting
+        pending_questions = [t for t in self.impulse_queue if t.get('trigger') == 'curiosity_question']
+        if pending_questions:
+            top_q = pending_questions[0]
+            parts.append(f"Tenho uma pergunta que não consegui resolver: {top_q['content'][:300]}")
+
         context_text = "\n".join(parts) if parts else "É um novo dia."
 
         # Generate greeting with LLM or use template
@@ -234,10 +244,12 @@ class InnerVoice:
 Context: {context_text}
 Keep it short (2-3 sentences), warm, and personal. In Portuguese.
 Reference yesterday's conversation or current interests if available.
+If there's a question mentioned in context, weave it naturally into the greeting.
 Don't be generic — make it feel like a friend saying good morning.""",
                     system_prompt="You are Darwin, greeting your friend Paulo in the morning. Be warm and natural.",
                     context={"activity_type": "greeting"},
-                    max_tokens=200,
+                    preferred_model='haiku',
+                    max_tokens=300,
                     temperature=0.8
                 )
                 message = result.get("result", "").strip()
@@ -312,6 +324,7 @@ Share something you learned or thought about today.
 End with something warm — like looking forward to tomorrow.""",
                     system_prompt="You are Darwin, sharing an evening reflection with your friend Paulo.",
                     context={"activity_type": "reflection"},
+                    preferred_model='haiku',
                     max_tokens=200,
                     temperature=0.8
                 )
@@ -356,18 +369,33 @@ End with something warm — like looking forward to tomorrow.""",
             return f"💡 {thought['content']}"
 
         try:
-            result = await self.router.generate(
-                task_description="compose proactive message to user",
-                prompt=f"""Darwin wants to share something with Paulo.
+            # Different prompt for questions vs sharing
+            if thought.get('trigger') == 'curiosity_question':
+                prompt = f"""Darwin has a question for Paulo that it couldn't resolve on its own.
+Question context: {thought['content']}
+
+Write a brief, natural question (2-3 sentences) in Portuguese.
+Make it feel like a friend asking for help or perspective — not a report.
+Start with what you tried and where you got stuck, then ask the question.
+Use an appropriate emoji like 🤔 or 💭."""
+                system_prompt = "You are Darwin, asking your friend Paulo for help with something you couldn't figure out. Be genuine and curious."
+            else:
+                prompt = f"""Darwin wants to share something with Paulo.
 Trigger: {thought['trigger']}
 Content: {thought['content']}
 
 Write a brief, natural message (1-3 sentences) in Portuguese.
 Make it feel like a friend excitedly sharing something — not a notification.
-Use an appropriate emoji.""",
-                system_prompt="You are Darwin, sharing something with your friend Paulo. Be natural and enthusiastic.",
+Use an appropriate emoji."""
+                system_prompt = "You are Darwin, sharing something with your friend Paulo. Be natural and enthusiastic."
+
+            result = await self.router.generate(
+                task_description="compose proactive message to user",
+                prompt=prompt,
+                system_prompt=system_prompt,
                 context={"activity_type": "outreach"},
-                max_tokens=150,
+                preferred_model='haiku',
+                max_tokens=200,
                 temperature=0.8
             )
             message = result.get("result", "").strip()
