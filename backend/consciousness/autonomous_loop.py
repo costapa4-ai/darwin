@@ -105,16 +105,10 @@ async def execute_tool(tool_name: str, args: dict, tm) -> str:
 
         if isinstance(result, dict):
             if result.get('success', True):
-                # Give file reads more content so Darwin can actually analyze code
-                max_content = 4000 if 'read_file' in tool_name else 1000
-                display = {k: v for k, v in result.items()
-                           if k != 'content' or len(str(v)) < max_content}
-                if 'content' in result and len(str(result['content'])) >= max_content:
-                    display['content'] = str(result['content'])[:max_content] + '... [truncated]'
-                return f"✅ {tool_name}: {json.dumps(display, indent=2, default=str)}"
+                return f"✅ {tool_name}: {json.dumps(result, indent=2, default=str)}"
             else:
                 return f"❌ {tool_name}: {result.get('error', 'Unknown error')}"
-        return f"✅ {tool_name}: {str(result)[:1000]}"
+        return f"✅ {tool_name}: {str(result)}"
 
     except Exception as e:
         return f"❌ {tool_name} error: {e}"
@@ -252,10 +246,9 @@ async def run_autonomous_loop(
         if iteration == 0:
             prompt = goal
         else:
-            # Keep context compact for Ollama: only last 3 results, truncated
-            recent = collected_results[-3:]
-            trimmed = [r[:800] + '...' if len(r) > 800 else r for r in recent]
-            results_text = "\n".join(trimmed)
+            # Feed back recent results for context (full content, last 5)
+            recent = collected_results[-5:]
+            results_text = "\n".join(recent)
             prompt = (
                 f"Your goal: {goal}\n\n"
                 f"Tools executed so far (latest {len(recent)}):\n{results_text}\n\n"

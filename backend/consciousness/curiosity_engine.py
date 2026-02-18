@@ -502,13 +502,13 @@ class CuriosityEngine:
         narrative = execution.get('narrative', '')
         # Reject XML/tool-call garbage as findings
         narrative = self._clean_narrative(narrative)
-        self.update_item(item_id, findings=narrative[:3000])
+        self.update_item(item_id, findings=narrative)
 
         # Phase 3: ANALYZE
         analysis = await self._analyze_result(item, plan, execution, router)
         satisfaction = analysis.get('satisfaction', 50)
         sub_questions = analysis.get('sub_questions', [])
-        summary = analysis.get('summary', narrative[:200])
+        summary = analysis.get('summary', narrative[:500])
 
         self.update_item(item_id, satisfaction=satisfaction)
 
@@ -678,18 +678,18 @@ RULES:
         tool_results = execution.get('tool_results', [])
         tools_used = len(tool_results)
 
-        # Build a richer context: narrative + actual tool outputs
+        # Build full context: narrative + all tool outputs
         tool_summary = ''
         if tool_results:
-            # Include successful tool results (the actual data)
             successes = [r for r in tool_results if r.startswith('✅')]
             if successes:
-                tool_summary = '\nTool outputs:\n' + '\n'.join(s[:500] for s in successes[:5])
+                tool_summary = '\nTool outputs:\n' + '\n'.join(successes)
 
-        findings = self._clean_narrative(narrative)[:2000] + tool_summary[:1500]
+        # Full findings for analysis — Haiku has 200K context, no need to truncate aggressively
+        findings = self._clean_narrative(narrative) + tool_summary
 
         prompt = f"""You wanted to answer: {item['question']}
-Your plan was: {plan[:200]}
+Your plan was: {plan}
 What you found ({tools_used} tools used): {findings}
 
 Rate how well the question was answered:
@@ -723,7 +723,7 @@ JSON:"""
                 return {
                     'satisfaction': max(0, min(100, int(data.get('satisfaction', 50)))),
                     'sub_questions': data.get('sub_questions', [])[:self.MAX_SUB_ITEMS],
-                    'summary': str(data.get('summary', narrative[:200]))[:300],
+                    'summary': str(data.get('summary', narrative[:500])),
                 }
         except (json.JSONDecodeError, ValueError, TypeError) as e:
             logger.debug(f"Analysis JSON parse failed: {e}")
@@ -734,7 +734,7 @@ JSON:"""
         return {
             'satisfaction': 50 if narrative else 20,
             'sub_questions': [],
-            'summary': narrative[:200] if narrative else 'No findings.',
+            'summary': narrative[:500] if narrative else 'No findings.',
         }
 
     async def _store_knowledge(
@@ -764,11 +764,11 @@ JSON:"""
             hierarchical_memory.add_episode(
                 episode_id=episode_id,
                 category=EpisodeCategory.LEARNING,
-                description=f"Explored: {item['question'][:120]}",
+                description=f"Explored: {item['question']}",
                 content={
                     'question': item['question'],
                     'summary': summary,
-                    'narrative': narrative[:500],
+                    'narrative': narrative,
                     'satisfaction': satisfaction,
                     'source': item.get('source', 'self'),
                 },
@@ -782,7 +782,7 @@ JSON:"""
 
         # Store as semantic knowledge (immediate!)
         knowledge_id = f"curiosity_knowledge_{item_id}_{timestamp}"
-        concept = item['question'][:80]
+        concept = item['question']
         description = f"{summary}\n\nExplored via: {item.get('source', 'self')} (satisfaction: {satisfaction}%)"
 
         try:
