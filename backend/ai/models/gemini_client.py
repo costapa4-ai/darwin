@@ -30,8 +30,10 @@ class GeminiClient(BaseModelClient):
             ModelCapability.COST_EFFECTIVE
         ]
 
-        # Pricing (approximate)
-        self.cost_per_1k_tokens = 0.0005  # Very cost-effective
+        # Gemini Flash 2.0 pricing
+        self.input_cost_per_1m = 0.10
+        self.output_cost_per_1m = 0.40
+        self.cost_per_1k_tokens = 0.00025  # Legacy blended fallback
         self.avg_latency_ms = 800
 
     async def generate(

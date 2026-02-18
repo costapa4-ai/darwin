@@ -372,8 +372,9 @@ class MultiModelRouter:
             return min(capable_models.keys(), key=lambda k: capable_models[k].avg_latency_ms)
 
         elif self.routing_strategy == RoutingStrategy.TIERED:
-            # 🎯 TIERED: Ollama-first routing (FREE local models)
-            # SIMPLE/MODERATE → Ollama qwen3:8b (FREE) - all non-complex tasks
+            # 🎯 TIERED: Cost-optimized multi-model routing
+            # SIMPLE → Ollama qwen3:8b (FREE) - lightweight local tasks
+            # MODERATE → Gemini Flash 2.0 (~$0.10/$0.40 per M) - fast, cheap cloud
             # COMPLEX CODE → Claude Sonnet ($3/$15 per M) - architecture, critical code
             # COMPLEX OTHER → Claude Haiku ($0.80/$4 per M) - complex non-code tasks
 
@@ -384,13 +385,19 @@ class MultiModelRouter:
                 if "ollama" in capable_models:
                     logger.info(f"🦙 SIMPLE task → Ollama (FREE)")
                     return "ollama"
+                elif "gemini" in capable_models:
+                    logger.info(f"⚡ SIMPLE task → Gemini Flash (cloud fallback)")
+                    return "gemini"
                 elif "haiku" in capable_models:
                     logger.info(f"💚 SIMPLE task → Haiku (cloud fallback)")
                     return "haiku"
 
             elif complexity == TaskComplexity.MODERATE:
-                if "ollama" in capable_models:
-                    logger.info(f"🦙 MODERATE task → Ollama (FREE)")
+                if "gemini" in capable_models:
+                    logger.info(f"⚡ MODERATE task → Gemini Flash (fast+cheap)")
+                    return "gemini"
+                elif "ollama" in capable_models:
+                    logger.info(f"🦙 MODERATE task → Ollama (FREE fallback)")
                     return "ollama"
                 elif "haiku" in capable_models:
                     logger.info(f"💛 MODERATE task → Haiku (cloud fallback)")
