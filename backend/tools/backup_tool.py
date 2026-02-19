@@ -31,22 +31,45 @@ PROJECT_PATH = Path("/project")       # Full project root (mounted read-only fro
 DATA_PATH = Path("/app/data")         # Runtime data (identity, memory, conversations)
 BACKUP_ROOT = Path("/backup")         # USB drive mount point
 
-# Directories/files to exclude from code backup
-EXCLUDE_PATTERNS = {
-    '__pycache__', '.pyc', '.git', 'node_modules', '.venv',
-    '.env', 'credentials', 'secret', 'ollama-data',
-    '.playwright-mcp', '.claude', 'backups', 'data',
-    '.png', '.jpg', '.jpeg', '.mp4', '.wav',
+# Exact directory/file names to exclude from code backup
+EXCLUDE_NAMES = {
+    '__pycache__', '.git', 'node_modules', '.venv',
+    '.env', 'ollama-data', '.playwright-mcp', '.claude',
+    'backups', 'data',
+}
+
+# File extensions to exclude
+EXCLUDE_EXTENSIONS = {
+    '.pyc', '.png', '.jpg', '.jpeg', '.mp4', '.wav',
+}
+
+# Substrings that indicate sensitive files (matched against filename only)
+EXCLUDE_SENSITIVE = {
+    'credentials', 'secret',
 }
 
 
 def _is_excluded(path: str) -> bool:
     """Check if a path should be excluded from backup."""
     parts = path.split(os.sep)
+    filename = parts[-1] if parts else ''
+
+    # Exact directory/file name match on any path component
     for part in parts:
-        for pattern in EXCLUDE_PATTERNS:
-            if pattern in part:
-                return True
+        if part in EXCLUDE_NAMES:
+            return True
+
+    # Extension match on filename
+    for ext in EXCLUDE_EXTENSIONS:
+        if filename.endswith(ext):
+            return True
+
+    # Sensitive substring match on filename only
+    lower_filename = filename.lower()
+    for pattern in EXCLUDE_SENSITIVE:
+        if pattern in lower_filename:
+            return True
+
     return False
 
 
@@ -161,7 +184,7 @@ async def create_full_backup(
                                     '__pycache__', '*.pyc', 'node_modules',
                                     '.git', '.venv', 'ollama-data',
                                     '.playwright-mcp', '.claude', 'backups',
-                                    '*.png', '*.jpg', '*.jpeg', '*.mp4',
+                                    'data', '*.png', '*.jpg', '*.jpeg', '*.mp4',
                                 )
                             )
                         else:
