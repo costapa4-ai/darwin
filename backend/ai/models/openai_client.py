@@ -39,7 +39,8 @@ class OpenAIClient(BaseModelClient):
         prompt: str,
         system_prompt: Optional[str] = None,
         temperature: float = 0.7,
-        max_tokens: int = 8192
+        max_tokens: int = 8192,
+        **kwargs  # Accept extra params (timeout, etc.) without failing
     ) -> str:
         """Generate completion using OpenAI"""
         try:

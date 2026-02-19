@@ -43,7 +43,8 @@ class BaseModelClient(ABC):
         prompt: str,
         system_prompt: Optional[str] = None,
         temperature: float = 0.7,
-        max_tokens: int = 8192
+        max_tokens: int = 8192,
+        **kwargs
     ) -> str:
         """
         Generate completion from model
