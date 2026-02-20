@@ -824,6 +824,7 @@ JSON:"""
             from app.lifespan import get_service
             inner_voice = get_service('inner_voice')
             if not inner_voice:
+                logger.warning(f"Cannot queue question for Paulo: inner_voice service not found")
                 return
 
             # Dedup: check if same question is already in the queue
@@ -847,4 +848,4 @@ JSON:"""
             )
             logger.info(f"Question queued for Paulo: {question[:60]}...")
         except Exception as e:
-            logger.debug(f"Failed to queue question for Paulo: {e}")
+            logger.warning(f"Failed to queue question for Paulo: {e}")
